@@ -1,0 +1,4 @@
+- source: project
+  netlify:
+    - id: fe076bc3-6896-44fc-b827-74421e546556
+      url: https://design-patterns-cookbook-lightbridge.netlify.app
