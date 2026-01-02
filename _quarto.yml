@@ -57,6 +57,16 @@ book:
           href: "contents/behavioral/04-mediator.qmd"
         - text: Memento Pattern
           href: "contents/behavioral/05-memento.qmd"
+        - text: Observer Pattern
+          href: "contents/behavioral/06-observer.qmd"
+        - text: State Pattern
+          href: "contents/behavioral/07-state.qmd"
+        - text: Strategy Pattern
+          href: "contents/behavioral/08-strategy.qmd"
+        - text: Template Method Pattern
+          href: "contents/behavioral/09-template-method.qmd"
+        - text: Visitor Pattern
+          href: "contents/behavioral/10-visitor.qmd"
 
 format:
   html:

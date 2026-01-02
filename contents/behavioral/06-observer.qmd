@@ -1,0 +1,925 @@
+---
+title: "Observer"
+---
+
+The **Observer** pattern defines a one-to-many dependency between objects so that when one object changes state, all its dependents are notified and updated automatically. It's like a weather station broadcasting updates to multiple displays — each display subscribes to the data and updates itself when conditions change.
+
+## Problem
+
+Imagine you're building a weather monitoring system. The weather station collects temperature, humidity, and pressure data, and multiple displays need to show this data in different ways. The naive approach is to have the weather data class directly update each display.
+
+This leads to:
+
+- WeatherData is tightly coupled to every display type
+- Adding a new display requires modifying WeatherData
+- Removing a display requires code changes
+- No way to dynamically add/remove displays at runtime
+
+### Example
+
+```{mermaid}
+flowchart LR
+    WD["WeatherData"] --> CD["CurrentConditionsDisplay"]
+    WD --> SD["StatisticsDisplay"]
+    WD --> FD["ForecastDisplay"]
+
+    WD -.- NOTE["Must know about<br/>every display type"]
+
+    style WD fill:#fcc,stroke:#c33
+    style NOTE fill:#fff,stroke:#999
+```
+
+**Problems with this approach:**
+
+- WeatherData directly instantiates and calls each display
+- Each display may need different data, so WeatherData must know their interfaces
+- Adding a new display type requires modifying WeatherData class
+- Can't add/remove displays at runtime
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class CurrentConditionsDisplay:
+    def update(self, temperature: float, humidity: float) -> None:
+        print(f"Current: {temperature}°C and {humidity}% humidity")
+
+class StatisticsDisplay:
+    def __init__(self):
+        self.temperatures: list[float] = []
+
+    def update(self, temperature: float) -> None:
+        self.temperatures.append(temperature)
+        avg = sum(self.temperatures) / len(self.temperatures)
+        print(f"Avg/Max/Min: {avg:.1f}/{max(self.temperatures)}/{min(self.temperatures)}")
+
+class ForecastDisplay:
+    def __init__(self):
+        self.last_pressure = 0.0
+
+    def update(self, pressure: float) -> None:
+        if pressure > self.last_pressure:
+            print("Forecast: Improving weather!")
+        else:
+            print("Forecast: Cooler, rainy weather")
+        self.last_pressure = pressure
+
+class WeatherData:
+    def __init__(self):
+        # Tightly coupled to specific display types!
+        self.current_display = CurrentConditionsDisplay()
+        self.stats_display = StatisticsDisplay()
+        self.forecast_display = ForecastDisplay()
+
+    def set_measurements(self, temp: float, humidity: float, pressure: float) -> None:
+        # Must update each display manually with different parameters
+        self.current_display.update(temp, humidity)
+        self.stats_display.update(temp)
+        self.forecast_display.update(pressure)
+```
+
+#### `C#`
+
+```csharp
+public class CurrentConditionsDisplay
+{
+    public void Update(float temperature, float humidity)
+    {
+        Console.WriteLine($"Current: {temperature}°C and {humidity}% humidity");
+    }
+}
+
+public class StatisticsDisplay
+{
+    private readonly List<float> _temperatures = [];
+
+    public void Update(float temperature)
+    {
+        _temperatures.Add(temperature);
+        var avg = _temperatures.Average();
+        Console.WriteLine($"Avg/Max/Min: {avg:F1}/{_temperatures.Max()}/{_temperatures.Min()}");
+    }
+}
+
+public class ForecastDisplay
+{
+    private float _lastPressure;
+
+    public void Update(float pressure)
+    {
+        if (pressure > _lastPressure)
+            Console.WriteLine("Forecast: Improving weather!");
+        else
+            Console.WriteLine("Forecast: Cooler, rainy weather");
+        _lastPressure = pressure;
+    }
+}
+
+public class WeatherData
+{
+    // Tightly coupled to specific display types!
+    private readonly CurrentConditionsDisplay _currentDisplay = new();
+    private readonly StatisticsDisplay _statsDisplay = new();
+    private readonly ForecastDisplay _forecastDisplay = new();
+
+    public void SetMeasurements(float temp, float humidity, float pressure)
+    {
+        // Must update each display manually with different parameters
+        _currentDisplay.Update(temp, humidity);
+        _statsDisplay.Update(temp);
+        _forecastDisplay.Update(pressure);
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class CurrentConditionsDisplay {
+  update(temperature: number, humidity: number): void {
+    console.log(`Current: ${temperature}°C and ${humidity}% humidity`);
+  }
+}
+
+class StatisticsDisplay {
+  private temperatures: number[] = [];
+
+  update(temperature: number): void {
+    this.temperatures.push(temperature);
+    const avg = this.temperatures.reduce((a, b) => a + b) / this.temperatures.length;
+    const max = Math.max(...this.temperatures);
+    const min = Math.min(...this.temperatures);
+    console.log(`Avg/Max/Min: ${avg.toFixed(1)}/${max}/${min}`);
+  }
+}
+
+class ForecastDisplay {
+  private lastPressure: number = 0;
+
+  update(pressure: number): void {
+    if (pressure > this.lastPressure) {
+      console.log("Forecast: Improving weather!");
+    } else {
+      console.log("Forecast: Cooler, rainy weather");
+    }
+    this.lastPressure = pressure;
+  }
+}
+
+class WeatherData {
+  // Tightly coupled to specific display types!
+  private currentDisplay = new CurrentConditionsDisplay();
+  private statsDisplay = new StatisticsDisplay();
+  private forecastDisplay = new ForecastDisplay();
+
+  setMeasurements(temp: number, humidity: number, pressure: number): void {
+    // Must update each display manually with different parameters
+    this.currentDisplay.update(temp, humidity);
+    this.statsDisplay.update(temp);
+    this.forecastDisplay.update(pressure);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class CurrentConditionsDisplay {
+  void update(double temperature, double humidity) {
+    print('Current: $temperature°C and $humidity% humidity');
+  }
+}
+
+class StatisticsDisplay {
+  final List<double> _temperatures = [];
+
+  void update(double temperature) {
+    _temperatures.add(temperature);
+    final avg = _temperatures.reduce((a, b) => a + b) / _temperatures.length;
+    final max = _temperatures.reduce((a, b) => a > b ? a : b);
+    final min = _temperatures.reduce((a, b) => a < b ? a : b);
+    print('Avg/Max/Min: ${avg.toStringAsFixed(1)}/$max/$min');
+  }
+}
+
+class ForecastDisplay {
+  double _lastPressure = 0;
+
+  void update(double pressure) {
+    if (pressure > _lastPressure) {
+      print('Forecast: Improving weather!');
+    } else {
+      print('Forecast: Cooler, rainy weather');
+    }
+    _lastPressure = pressure;
+  }
+}
+
+class WeatherData {
+  // Tightly coupled to specific display types!
+  final _currentDisplay = CurrentConditionsDisplay();
+  final _statsDisplay = StatisticsDisplay();
+  final _forecastDisplay = ForecastDisplay();
+
+  void setMeasurements(double temp, double humidity, double pressure) {
+    // Must update each display manually with different parameters
+    _currentDisplay.update(temp, humidity);
+    _statsDisplay.update(temp);
+    _forecastDisplay.update(pressure);
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+weather = WeatherData()
+weather.set_measurements(25.0, 65.0, 1013.0)
+# Current: 25.0°C and 65.0% humidity
+# Avg/Max/Min: 25.0/25.0/25.0
+# Forecast: Improving weather!
+
+weather.set_measurements(28.0, 70.0, 1010.0)
+# Current: 28.0°C and 70.0% humidity
+# Avg/Max/Min: 26.5/28.0/25.0
+# Forecast: Cooler, rainy weather
+
+# Can't add new displays or remove existing ones at runtime!
+```
+
+#### `C#`
+
+```csharp
+var weather = new WeatherData();
+weather.SetMeasurements(25.0f, 65.0f, 1013.0f);
+// Current: 25°C and 65% humidity
+// Avg/Max/Min: 25.0/25/25
+// Forecast: Improving weather!
+
+weather.SetMeasurements(28.0f, 70.0f, 1010.0f);
+// Current: 28°C and 70% humidity
+// Avg/Max/Min: 26.5/28/25
+// Forecast: Cooler, rainy weather
+
+// Can't add new displays or remove existing ones at runtime!
+```
+
+#### `TypeScript`
+
+```typescript
+const weather = new WeatherData();
+weather.setMeasurements(25.0, 65.0, 1013.0);
+// Current: 25°C and 65% humidity
+// Avg/Max/Min: 25.0/25/25
+// Forecast: Improving weather!
+
+weather.setMeasurements(28.0, 70.0, 1010.0);
+// Current: 28°C and 70% humidity
+// Avg/Max/Min: 26.5/28/25
+// Forecast: Cooler, rainy weather
+
+// Can't add new displays or remove existing ones at runtime!
+```
+
+#### `Dart`
+
+```dart
+final weather = WeatherData();
+weather.setMeasurements(25.0, 65.0, 1013.0);
+// Current: 25.0°C and 65.0% humidity
+// Avg/Max/Min: 25.0/25.0/25.0
+// Forecast: Improving weather!
+
+weather.setMeasurements(28.0, 70.0, 1010.0);
+// Current: 28.0°C and 70.0% humidity
+// Avg/Max/Min: 26.5/28.0/25.0
+// Forecast: Cooler, rainy weather
+
+// Can't add new displays or remove existing ones at runtime!
+```
+
+:::
+
+
+## Solution
+
+The **Observer** pattern solves this by defining a subscription mechanism:
+
+- **Subject** (WeatherData) maintains a list of observers and provides methods to attach/detach them
+- **Observer** interface defines a common `update()` method
+- **Concrete Observers** (displays) implement the interface and register with the subject
+- When state changes, subject notifies all observers without knowing their types
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Observer {
+        <<interface>>
+        +update(temp: float, humidity: float, pressure: float)
+    }
+
+    class WeatherData {
+        -observers: List~Observer~
+        -temperature: float
+        -humidity: float
+        -pressure: float
+        +attach(observer: Observer)
+        +detach(observer: Observer)
+        +notify()
+        +setMeasurements(temp, humidity, pressure)
+    }
+
+    class CurrentConditionsDisplay {
+        -temperature: float
+        -humidity: float
+        +update(temp, humidity, pressure)
+        +display()
+    }
+
+    class StatisticsDisplay {
+        -temperatures: List~float~
+        +update(temp, humidity, pressure)
+        +display()
+    }
+
+    class ForecastDisplay {
+        -lastPressure: float
+        -currentPressure: float
+        +update(temp, humidity, pressure)
+        +display()
+    }
+
+    WeatherData --> Observer : notifies
+    CurrentConditionsDisplay ..|> Observer
+    StatisticsDisplay ..|> Observer
+    ForecastDisplay ..|> Observer
+```
+
+### Refactor Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+
+class Observer(ABC):
+    """Observer interface for receiving weather updates."""
+
+    @abstractmethod
+    def update(self, temperature: float, humidity: float, pressure: float) -> None:
+        pass
+
+
+class WeatherData:
+    """Subject that notifies observers when weather data changes."""
+
+    def __init__(self):
+        self._observers: list[Observer] = []
+        self._temperature = 0.0
+        self._humidity = 0.0
+        self._pressure = 0.0
+
+    def attach(self, observer: Observer) -> None:
+        self._observers.append(observer)
+
+    def detach(self, observer: Observer) -> None:
+        self._observers.remove(observer)
+
+    def notify(self) -> None:
+        for observer in self._observers:
+            observer.update(self._temperature, self._humidity, self._pressure)
+
+    def set_measurements(self, temperature: float, humidity: float, pressure: float) -> None:
+        self._temperature = temperature
+        self._humidity = humidity
+        self._pressure = pressure
+        self.notify()
+
+
+class CurrentConditionsDisplay(Observer):
+    """Displays current temperature and humidity."""
+
+    def __init__(self):
+        self._temperature = 0.0
+        self._humidity = 0.0
+
+    def update(self, temperature: float, humidity: float, pressure: float) -> None:
+        self._temperature = temperature
+        self._humidity = humidity
+        self.display()
+
+    def display(self) -> None:
+        print(f"Current: {self._temperature}°C and {self._humidity}% humidity")
+
+
+class StatisticsDisplay(Observer):
+    """Displays average, min, and max temperature."""
+
+    def __init__(self):
+        self._temperatures: list[float] = []
+
+    def update(self, temperature: float, humidity: float, pressure: float) -> None:
+        self._temperatures.append(temperature)
+        self.display()
+
+    def display(self) -> None:
+        avg = sum(self._temperatures) / len(self._temperatures)
+        print(f"Avg/Max/Min: {avg:.1f}/{max(self._temperatures)}/{min(self._temperatures)}")
+
+
+class ForecastDisplay(Observer):
+    """Displays weather forecast based on pressure changes."""
+
+    def __init__(self):
+        self._last_pressure = 0.0
+        self._current_pressure = 0.0
+
+    def update(self, temperature: float, humidity: float, pressure: float) -> None:
+        self._last_pressure = self._current_pressure
+        self._current_pressure = pressure
+        self.display()
+
+    def display(self) -> None:
+        if self._current_pressure > self._last_pressure:
+            print("Forecast: Improving weather!")
+        elif self._current_pressure < self._last_pressure:
+            print("Forecast: Cooler, rainy weather")
+        else:
+            print("Forecast: Same weather")
+```
+
+#### `C#`
+
+```csharp
+public interface IObserver
+{
+    void Update(float temperature, float humidity, float pressure);
+}
+
+public class WeatherData
+{
+    private readonly List<IObserver> _observers = [];
+    private float _temperature;
+    private float _humidity;
+    private float _pressure;
+
+    public void Attach(IObserver observer) => _observers.Add(observer);
+
+    public void Detach(IObserver observer) => _observers.Remove(observer);
+
+    public void Notify()
+    {
+        foreach (var observer in _observers)
+        {
+            observer.Update(_temperature, _humidity, _pressure);
+        }
+    }
+
+    public void SetMeasurements(float temperature, float humidity, float pressure)
+    {
+        _temperature = temperature;
+        _humidity = humidity;
+        _pressure = pressure;
+        Notify();
+    }
+}
+
+public class CurrentConditionsDisplay : IObserver
+{
+    private float _temperature;
+    private float _humidity;
+
+    public void Update(float temperature, float humidity, float pressure)
+    {
+        _temperature = temperature;
+        _humidity = humidity;
+        Display();
+    }
+
+    public void Display()
+    {
+        Console.WriteLine($"Current: {_temperature}°C and {_humidity}% humidity");
+    }
+}
+
+public class StatisticsDisplay : IObserver
+{
+    private readonly List<float> _temperatures = [];
+
+    public void Update(float temperature, float humidity, float pressure)
+    {
+        _temperatures.Add(temperature);
+        Display();
+    }
+
+    public void Display()
+    {
+        var avg = _temperatures.Average();
+        Console.WriteLine($"Avg/Max/Min: {avg:F1}/{_temperatures.Max()}/{_temperatures.Min()}");
+    }
+}
+
+public class ForecastDisplay : IObserver
+{
+    private float _lastPressure;
+    private float _currentPressure;
+
+    public void Update(float temperature, float humidity, float pressure)
+    {
+        _lastPressure = _currentPressure;
+        _currentPressure = pressure;
+        Display();
+    }
+
+    public void Display()
+    {
+        if (_currentPressure > _lastPressure)
+            Console.WriteLine("Forecast: Improving weather!");
+        else if (_currentPressure < _lastPressure)
+            Console.WriteLine("Forecast: Cooler, rainy weather");
+        else
+            Console.WriteLine("Forecast: Same weather");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+interface Observer {
+  update(temperature: number, humidity: number, pressure: number): void;
+}
+
+class WeatherData {
+  private observers: Observer[] = [];
+  private temperature: number = 0;
+  private humidity: number = 0;
+  private pressure: number = 0;
+
+  attach(observer: Observer): void {
+    this.observers.push(observer);
+  }
+
+  detach(observer: Observer): void {
+    const index = this.observers.indexOf(observer);
+    if (index > -1) {
+      this.observers.splice(index, 1);
+    }
+  }
+
+  notify(): void {
+    for (const observer of this.observers) {
+      observer.update(this.temperature, this.humidity, this.pressure);
+    }
+  }
+
+  setMeasurements(temperature: number, humidity: number, pressure: number): void {
+    this.temperature = temperature;
+    this.humidity = humidity;
+    this.pressure = pressure;
+    this.notify();
+  }
+}
+
+class CurrentConditionsDisplay implements Observer {
+  private temperature: number = 0;
+  private humidity: number = 0;
+
+  update(temperature: number, humidity: number, pressure: number): void {
+    this.temperature = temperature;
+    this.humidity = humidity;
+    this.display();
+  }
+
+  display(): void {
+    console.log(`Current: ${this.temperature}°C and ${this.humidity}% humidity`);
+  }
+}
+
+class StatisticsDisplay implements Observer {
+  private temperatures: number[] = [];
+
+  update(temperature: number, humidity: number, pressure: number): void {
+    this.temperatures.push(temperature);
+    this.display();
+  }
+
+  display(): void {
+    const avg = this.temperatures.reduce((a, b) => a + b) / this.temperatures.length;
+    const max = Math.max(...this.temperatures);
+    const min = Math.min(...this.temperatures);
+    console.log(`Avg/Max/Min: ${avg.toFixed(1)}/${max}/${min}`);
+  }
+}
+
+class ForecastDisplay implements Observer {
+  private lastPressure: number = 0;
+  private currentPressure: number = 0;
+
+  update(temperature: number, humidity: number, pressure: number): void {
+    this.lastPressure = this.currentPressure;
+    this.currentPressure = pressure;
+    this.display();
+  }
+
+  display(): void {
+    if (this.currentPressure > this.lastPressure) {
+      console.log("Forecast: Improving weather!");
+    } else if (this.currentPressure < this.lastPressure) {
+      console.log("Forecast: Cooler, rainy weather");
+    } else {
+      console.log("Forecast: Same weather");
+    }
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+abstract class Observer {
+  void update(double temperature, double humidity, double pressure);
+}
+
+class WeatherData {
+  final List<Observer> _observers = [];
+  double _temperature = 0;
+  double _humidity = 0;
+  double _pressure = 0;
+
+  void attach(Observer observer) {
+    _observers.add(observer);
+  }
+
+  void detach(Observer observer) {
+    _observers.remove(observer);
+  }
+
+  void notify() {
+    for (final observer in _observers) {
+      observer.update(_temperature, _humidity, _pressure);
+    }
+  }
+
+  void setMeasurements(double temperature, double humidity, double pressure) {
+    _temperature = temperature;
+    _humidity = humidity;
+    _pressure = pressure;
+    notify();
+  }
+}
+
+class CurrentConditionsDisplay implements Observer {
+  double _temperature = 0;
+  double _humidity = 0;
+
+  @override
+  void update(double temperature, double humidity, double pressure) {
+    _temperature = temperature;
+    _humidity = humidity;
+    display();
+  }
+
+  void display() {
+    print('Current: $_temperature°C and $_humidity% humidity');
+  }
+}
+
+class StatisticsDisplay implements Observer {
+  final List<double> _temperatures = [];
+
+  @override
+  void update(double temperature, double humidity, double pressure) {
+    _temperatures.add(temperature);
+    display();
+  }
+
+  void display() {
+    final avg = _temperatures.reduce((a, b) => a + b) / _temperatures.length;
+    final max = _temperatures.reduce((a, b) => a > b ? a : b);
+    final min = _temperatures.reduce((a, b) => a < b ? a : b);
+    print('Avg/Max/Min: ${avg.toStringAsFixed(1)}/$max/$min');
+  }
+}
+
+class ForecastDisplay implements Observer {
+  double _lastPressure = 0;
+  double _currentPressure = 0;
+
+  @override
+  void update(double temperature, double humidity, double pressure) {
+    _lastPressure = _currentPressure;
+    _currentPressure = pressure;
+    display();
+  }
+
+  void display() {
+    if (_currentPressure > _lastPressure) {
+      print('Forecast: Improving weather!');
+    } else if (_currentPressure < _lastPressure) {
+      print('Forecast: Cooler, rainy weather');
+    } else {
+      print('Forecast: Same weather');
+    }
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Create subject
+weather_data = WeatherData()
+
+# Create and attach observers
+current_display = CurrentConditionsDisplay()
+stats_display = StatisticsDisplay()
+forecast_display = ForecastDisplay()
+
+weather_data.attach(current_display)
+weather_data.attach(stats_display)
+weather_data.attach(forecast_display)
+
+# Update weather - all displays notified automatically
+print("=== Weather Update 1 ===")
+weather_data.set_measurements(25.0, 65.0, 1013.0)
+# Current: 25.0°C and 65.0% humidity
+# Avg/Max/Min: 25.0/25.0/25.0
+# Forecast: Improving weather!
+
+print("\n=== Weather Update 2 ===")
+weather_data.set_measurements(28.0, 70.0, 1010.0)
+# Current: 28.0°C and 70.0% humidity
+# Avg/Max/Min: 26.5/28.0/25.0
+# Forecast: Cooler, rainy weather
+
+# Dynamically remove an observer
+weather_data.detach(forecast_display)
+
+print("\n=== Weather Update 3 (forecast removed) ===")
+weather_data.set_measurements(22.0, 90.0, 1005.0)
+# Current: 22.0°C and 90.0% humidity
+# Avg/Max/Min: 25.0/28.0/22.0
+# (No forecast - it was detached!)
+```
+
+#### `C#`
+
+```csharp
+// Create subject
+var weatherData = new WeatherData();
+
+// Create and attach observers
+var currentDisplay = new CurrentConditionsDisplay();
+var statsDisplay = new StatisticsDisplay();
+var forecastDisplay = new ForecastDisplay();
+
+weatherData.Attach(currentDisplay);
+weatherData.Attach(statsDisplay);
+weatherData.Attach(forecastDisplay);
+
+// Update weather - all displays notified automatically
+Console.WriteLine("=== Weather Update 1 ===");
+weatherData.SetMeasurements(25.0f, 65.0f, 1013.0f);
+// Current: 25°C and 65% humidity
+// Avg/Max/Min: 25.0/25/25
+// Forecast: Improving weather!
+
+Console.WriteLine("\n=== Weather Update 2 ===");
+weatherData.SetMeasurements(28.0f, 70.0f, 1010.0f);
+// Current: 28°C and 70% humidity
+// Avg/Max/Min: 26.5/28/25
+// Forecast: Cooler, rainy weather
+
+// Dynamically remove an observer
+weatherData.Detach(forecastDisplay);
+
+Console.WriteLine("\n=== Weather Update 3 (forecast removed) ===");
+weatherData.SetMeasurements(22.0f, 90.0f, 1005.0f);
+// Current: 22°C and 90% humidity
+// Avg/Max/Min: 25.0/28/22
+// (No forecast - it was detached!)
+```
+
+#### `TypeScript`
+
+```typescript
+// Create subject
+const weatherData = new WeatherData();
+
+// Create and attach observers
+const currentDisplay = new CurrentConditionsDisplay();
+const statsDisplay = new StatisticsDisplay();
+const forecastDisplay = new ForecastDisplay();
+
+weatherData.attach(currentDisplay);
+weatherData.attach(statsDisplay);
+weatherData.attach(forecastDisplay);
+
+// Update weather - all displays notified automatically
+console.log("=== Weather Update 1 ===");
+weatherData.setMeasurements(25.0, 65.0, 1013.0);
+// Current: 25°C and 65% humidity
+// Avg/Max/Min: 25.0/25/25
+// Forecast: Improving weather!
+
+console.log("\n=== Weather Update 2 ===");
+weatherData.setMeasurements(28.0, 70.0, 1010.0);
+// Current: 28°C and 70% humidity
+// Avg/Max/Min: 26.5/28/25
+// Forecast: Cooler, rainy weather
+
+// Dynamically remove an observer
+weatherData.detach(forecastDisplay);
+
+console.log("\n=== Weather Update 3 (forecast removed) ===");
+weatherData.setMeasurements(22.0, 90.0, 1005.0);
+// Current: 22°C and 90% humidity
+// Avg/Max/Min: 25.0/28/22
+// (No forecast - it was detached!)
+```
+
+#### `Dart`
+
+```dart
+// Create subject
+final weatherData = WeatherData();
+
+// Create and attach observers
+final currentDisplay = CurrentConditionsDisplay();
+final statsDisplay = StatisticsDisplay();
+final forecastDisplay = ForecastDisplay();
+
+weatherData.attach(currentDisplay);
+weatherData.attach(statsDisplay);
+weatherData.attach(forecastDisplay);
+
+// Update weather - all displays notified automatically
+print('=== Weather Update 1 ===');
+weatherData.setMeasurements(25.0, 65.0, 1013.0);
+// Current: 25.0°C and 65.0% humidity
+// Avg/Max/Min: 25.0/25.0/25.0
+// Forecast: Improving weather!
+
+print('\n=== Weather Update 2 ===');
+weatherData.setMeasurements(28.0, 70.0, 1010.0);
+// Current: 28.0°C and 70.0% humidity
+// Avg/Max/Min: 26.5/28.0/25.0
+// Forecast: Cooler, rainy weather
+
+// Dynamically remove an observer
+weatherData.detach(forecastDisplay);
+
+print('\n=== Weather Update 3 (forecast removed) ===');
+weatherData.setMeasurements(22.0, 90.0, 1005.0);
+// Current: 22.0°C and 90.0% humidity
+// Avg/Max/Min: 25.0/28.0/22.0
+// (No forecast - it was detached!)
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+The Observer pattern establishes a subscription mechanism where multiple objects are automatically notified when a subject's state changes, enabling loose coupling and dynamic relationships.
+:::
+
+### Key Benefits
+
+1. **Loose Coupling**: Subject only knows observers implement an interface, not their concrete types
+2. **Dynamic Subscription**: Add/remove observers at runtime without modifying the subject
+3. **Broadcast Communication**: One-to-many notification with a single method call
+4. **Open/Closed Principle**: Add new observer types without changing existing code
+
+### Real-World Examples
+
+| Domain | Subject | Observers |
+|--------|---------|-----------|
+| GUI Events | Button | Click handlers, event listeners |
+| Reactive Programming | Observable/Stream | Subscribers (RxJS, Dart Streams) |
+| Pub/Sub Systems | Message broker | Topic subscribers |
+| MVC Architecture | Model | Views |
+| Stock Market | Stock ticker | Investor dashboards, alert systems |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Changes to one object require updating others | Only one or two fixed observers exist |
+| You don't know how many objects need updating | Observer relationships are static and won't change |
+| Objects should be notified without tight coupling | Update order matters significantly |
+| You need runtime subscription/unsubscription | Observers need to query subject for different data |

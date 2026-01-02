@@ -1,0 +1,979 @@
+---
+title: "Visitor"
+---
+
+The **Visitor** pattern lets you add new operations to existing object structures without modifying them. It separates algorithms from the objects on which they operate — like adding area and perimeter calculations to shapes without changing the Circle, Rectangle, or Triangle classes.
+
+## Problem
+
+Imagine you have a shape hierarchy: Circle, Rectangle, and Triangle. Each shape needs operations like calculating area, perimeter, drawing, exporting to JSON, etc. The naive approach is to add each operation as a method in every shape class.
+
+This leads to:
+
+- Adding a new operation requires modifying ALL shape classes
+- Shape classes become bloated with unrelated operations
+- Violates Single Responsibility Principle
+- Hard to add operations if you don't have access to source code
+
+### Example
+
+```{mermaid}
+flowchart TB
+    subgraph Circle
+        CA["area()"]
+        CP["perimeter()"]
+        CD["draw()"]
+        CJ["toJson()"]
+        CN["??? newOperation()"]
+    end
+
+    subgraph Rectangle
+        RA["area()"]
+        RP["perimeter()"]
+        RD["draw()"]
+        RJ["toJson()"]
+        RN["??? newOperation()"]
+    end
+
+    subgraph Triangle
+        TA["area()"]
+        TP["perimeter()"]
+        TD["draw()"]
+        TJ["toJson()"]
+        TN["??? newOperation()"]
+    end
+
+    NEW["New Operation"] --> CN
+    NEW --> RN
+    NEW --> TN
+
+    style NEW fill:#fcc,stroke:#c33
+    style CN fill:#fcc,stroke:#c33
+    style RN fill:#fcc,stroke:#c33
+    style TN fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Every new operation requires modifying Circle, Rectangle, AND Triangle
+- Shapes know about drawing, JSON export, and other unrelated concerns
+- If shapes are in a library, you can't add new operations
+- Operation logic is scattered across multiple classes
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+import math
+
+
+class Circle:
+    def __init__(self, radius: float):
+        self.radius = radius
+
+    def area(self) -> float:
+        return math.pi * self.radius ** 2
+
+    def perimeter(self) -> float:
+        return 2 * math.pi * self.radius
+
+    def draw(self) -> None:
+        print(f"Drawing circle with radius {self.radius}")
+
+    def to_json(self) -> str:
+        return f'{{"type": "circle", "radius": {self.radius}}}'
+
+    # New operation? Must add to ALL shapes!
+
+
+class Rectangle:
+    def __init__(self, width: float, height: float):
+        self.width = width
+        self.height = height
+
+    def area(self) -> float:
+        return self.width * self.height
+
+    def perimeter(self) -> float:
+        return 2 * (self.width + self.height)
+
+    def draw(self) -> None:
+        print(f"Drawing rectangle {self.width}x{self.height}")
+
+    def to_json(self) -> str:
+        return f'{{"type": "rectangle", "width": {self.width}, "height": {self.height}}}'
+
+
+class Triangle:
+    def __init__(self, a: float, b: float, c: float):
+        self.a, self.b, self.c = a, b, c
+
+    def area(self) -> float:
+        s = (self.a + self.b + self.c) / 2
+        return math.sqrt(s * (s - self.a) * (s - self.b) * (s - self.c))
+
+    def perimeter(self) -> float:
+        return self.a + self.b + self.c
+
+    def draw(self) -> None:
+        print(f"Drawing triangle with sides {self.a}, {self.b}, {self.c}")
+
+    def to_json(self) -> str:
+        return f'{{"type": "triangle", "a": {self.a}, "b": {self.b}, "c": {self.c}}}'
+```
+
+#### `C#`
+
+```csharp
+public class Circle
+{
+    public double Radius { get; }
+
+    public Circle(double radius) => Radius = radius;
+
+    public double Area() => Math.PI * Radius * Radius;
+
+    public double Perimeter() => 2 * Math.PI * Radius;
+
+    public void Draw() => Console.WriteLine($"Drawing circle with radius {Radius}");
+
+    public string ToJson() => $"{{\"type\": \"circle\", \"radius\": {Radius}}}";
+
+    // New operation? Must add to ALL shapes!
+}
+
+public class Rectangle
+{
+    public double Width { get; }
+    public double Height { get; }
+
+    public Rectangle(double width, double height)
+    {
+        Width = width;
+        Height = height;
+    }
+
+    public double Area() => Width * Height;
+
+    public double Perimeter() => 2 * (Width + Height);
+
+    public void Draw() => Console.WriteLine($"Drawing rectangle {Width}x{Height}");
+
+    public string ToJson() =>
+        $"{{\"type\": \"rectangle\", \"width\": {Width}, \"height\": {Height}}}";
+}
+
+public class Triangle
+{
+    public double A { get; }
+    public double B { get; }
+    public double C { get; }
+
+    public Triangle(double a, double b, double c)
+    {
+        A = a; B = b; C = c;
+    }
+
+    public double Area()
+    {
+        var s = (A + B + C) / 2;
+        return Math.Sqrt(s * (s - A) * (s - B) * (s - C));
+    }
+
+    public double Perimeter() => A + B + C;
+
+    public void Draw() => Console.WriteLine($"Drawing triangle with sides {A}, {B}, {C}");
+
+    public string ToJson() =>
+        $"{{\"type\": \"triangle\", \"a\": {A}, \"b\": {B}, \"c\": {C}}}";
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Circle {
+  constructor(public readonly radius: number) {}
+
+  area(): number {
+    return Math.PI * this.radius ** 2;
+  }
+
+  perimeter(): number {
+    return 2 * Math.PI * this.radius;
+  }
+
+  draw(): void {
+    console.log(`Drawing circle with radius ${this.radius}`);
+  }
+
+  toJson(): string {
+    return `{"type": "circle", "radius": ${this.radius}}`;
+  }
+
+  // New operation? Must add to ALL shapes!
+}
+
+class Rectangle {
+  constructor(
+    public readonly width: number,
+    public readonly height: number
+  ) {}
+
+  area(): number {
+    return this.width * this.height;
+  }
+
+  perimeter(): number {
+    return 2 * (this.width + this.height);
+  }
+
+  draw(): void {
+    console.log(`Drawing rectangle ${this.width}x${this.height}`);
+  }
+
+  toJson(): string {
+    return `{"type": "rectangle", "width": ${this.width}, "height": ${this.height}}`;
+  }
+}
+
+class Triangle {
+  constructor(
+    public readonly a: number,
+    public readonly b: number,
+    public readonly c: number
+  ) {}
+
+  area(): number {
+    const s = (this.a + this.b + this.c) / 2;
+    return Math.sqrt(s * (s - this.a) * (s - this.b) * (s - this.c));
+  }
+
+  perimeter(): number {
+    return this.a + this.b + this.c;
+  }
+
+  draw(): void {
+    console.log(`Drawing triangle with sides ${this.a}, ${this.b}, ${this.c}`);
+  }
+
+  toJson(): string {
+    return `{"type": "triangle", "a": ${this.a}, "b": ${this.b}, "c": ${this.c}}`;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+import 'dart:math';
+
+class Circle {
+  final double radius;
+
+  Circle(this.radius);
+
+  double area() => pi * radius * radius;
+
+  double perimeter() => 2 * pi * radius;
+
+  void draw() {
+    print('Drawing circle with radius $radius');
+  }
+
+  String toJson() => '{"type": "circle", "radius": $radius}';
+
+  // New operation? Must add to ALL shapes!
+}
+
+class Rectangle {
+  final double width;
+  final double height;
+
+  Rectangle(this.width, this.height);
+
+  double area() => width * height;
+
+  double perimeter() => 2 * (width + height);
+
+  void draw() {
+    print('Drawing rectangle ${width}x$height');
+  }
+
+  String toJson() =>
+      '{"type": "rectangle", "width": $width, "height": $height}';
+}
+
+class Triangle {
+  final double a, b, c;
+
+  Triangle(this.a, this.b, this.c);
+
+  double area() {
+    final s = (a + b + c) / 2;
+    return sqrt(s * (s - a) * (s - b) * (s - c));
+  }
+
+  double perimeter() => a + b + c;
+
+  void draw() {
+    print('Drawing triangle with sides $a, $b, $c');
+  }
+
+  String toJson() => '{"type": "triangle", "a": $a, "b": $b, "c": $c}';
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+shapes = [Circle(5), Rectangle(4, 6), Triangle(3, 4, 5)]
+
+# Calculate areas
+for shape in shapes:
+    print(f"Area: {shape.area():.2f}")
+
+# Adding a new operation like "scale" requires modifying ALL shape classes!
+```
+
+#### `C#`
+
+```csharp
+var shapes = new object[] { new Circle(5), new Rectangle(4, 6), new Triangle(3, 4, 5) };
+
+// No common interface - must cast or use dynamic
+// Adding a new operation like "Scale" requires modifying ALL shape classes!
+```
+
+#### `TypeScript`
+
+```typescript
+const shapes = [new Circle(5), new Rectangle(4, 6), new Triangle(3, 4, 5)];
+
+// Calculate areas
+for (const shape of shapes) {
+  console.log(`Area: ${shape.area().toFixed(2)}`);
+}
+
+// Adding a new operation like "scale" requires modifying ALL shape classes!
+```
+
+#### `Dart`
+
+```dart
+final shapes = [Circle(5), Rectangle(4, 6), Triangle(3, 4, 5)];
+
+// No common interface - each shape has its own area method
+// Adding a new operation like "scale" requires modifying ALL shape classes!
+```
+
+:::
+
+
+## Solution
+
+The **Visitor** pattern solves this by separating operations from the object structure:
+
+- **Element** (Shape) only has an `accept(visitor)` method
+- **Visitor** defines a `visit` method for each element type
+- New operations = new Visitor classes (no shape modification needed)
+- **Double dispatch** ensures the correct visit method is called
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Shape {
+        <<interface>>
+        +accept(visitor: ShapeVisitor): float
+    }
+
+    class Circle {
+        -radius: float
+        +accept(visitor): float
+        +getRadius(): float
+    }
+
+    class Rectangle {
+        -width: float
+        -height: float
+        +accept(visitor): float
+        +getWidth(): float
+        +getHeight(): float
+    }
+
+    class Triangle {
+        -a: float
+        -b: float
+        -c: float
+        +accept(visitor): float
+        +getSides(): tuple
+    }
+
+    class ShapeVisitor {
+        <<interface>>
+        +visitCircle(circle: Circle): float
+        +visitRectangle(rect: Rectangle): float
+        +visitTriangle(tri: Triangle): float
+    }
+
+    class AreaCalculator {
+        +visitCircle(circle): float
+        +visitRectangle(rect): float
+        +visitTriangle(tri): float
+    }
+
+    class PerimeterCalculator {
+        +visitCircle(circle): float
+        +visitRectangle(rect): float
+        +visitTriangle(tri): float
+    }
+
+    Shape <|.. Circle
+    Shape <|.. Rectangle
+    Shape <|.. Triangle
+    ShapeVisitor <|.. AreaCalculator
+    ShapeVisitor <|.. PerimeterCalculator
+    Shape --> ShapeVisitor : accepts
+```
+
+### Refactor Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+import math
+
+
+class ShapeVisitor(ABC):
+    """Visitor interface - one method per shape type."""
+
+    @abstractmethod
+    def visit_circle(self, circle: "Circle") -> float:
+        pass
+
+    @abstractmethod
+    def visit_rectangle(self, rectangle: "Rectangle") -> float:
+        pass
+
+    @abstractmethod
+    def visit_triangle(self, triangle: "Triangle") -> float:
+        pass
+
+
+class Shape(ABC):
+    """Element interface - only has accept method."""
+
+    @abstractmethod
+    def accept(self, visitor: ShapeVisitor) -> float:
+        pass
+
+
+class Circle(Shape):
+    def __init__(self, radius: float):
+        self._radius = radius
+
+    @property
+    def radius(self) -> float:
+        return self._radius
+
+    def accept(self, visitor: ShapeVisitor) -> float:
+        return visitor.visit_circle(self)
+
+
+class Rectangle(Shape):
+    def __init__(self, width: float, height: float):
+        self._width = width
+        self._height = height
+
+    @property
+    def width(self) -> float:
+        return self._width
+
+    @property
+    def height(self) -> float:
+        return self._height
+
+    def accept(self, visitor: ShapeVisitor) -> float:
+        return visitor.visit_rectangle(self)
+
+
+class Triangle(Shape):
+    def __init__(self, a: float, b: float, c: float):
+        self._a, self._b, self._c = a, b, c
+
+    @property
+    def sides(self) -> tuple[float, float, float]:
+        return (self._a, self._b, self._c)
+
+    def accept(self, visitor: ShapeVisitor) -> float:
+        return visitor.visit_triangle(self)
+
+
+class AreaCalculator(ShapeVisitor):
+    """Visitor that calculates area for each shape."""
+
+    def visit_circle(self, circle: Circle) -> float:
+        return math.pi * circle.radius ** 2
+
+    def visit_rectangle(self, rectangle: Rectangle) -> float:
+        return rectangle.width * rectangle.height
+
+    def visit_triangle(self, triangle: Triangle) -> float:
+        a, b, c = triangle.sides
+        s = (a + b + c) / 2
+        return math.sqrt(s * (s - a) * (s - b) * (s - c))
+
+
+class PerimeterCalculator(ShapeVisitor):
+    """Visitor that calculates perimeter for each shape."""
+
+    def visit_circle(self, circle: Circle) -> float:
+        return 2 * math.pi * circle.radius
+
+    def visit_rectangle(self, rectangle: Rectangle) -> float:
+        return 2 * (rectangle.width + rectangle.height)
+
+    def visit_triangle(self, triangle: Triangle) -> float:
+        return sum(triangle.sides)
+```
+
+#### `C#`
+
+```csharp
+public interface IShapeVisitor
+{
+    double VisitCircle(Circle circle);
+    double VisitRectangle(Rectangle rectangle);
+    double VisitTriangle(Triangle triangle);
+}
+
+public interface IShape
+{
+    double Accept(IShapeVisitor visitor);
+}
+
+public class Circle : IShape
+{
+    public double Radius { get; }
+
+    public Circle(double radius) => Radius = radius;
+
+    public double Accept(IShapeVisitor visitor) => visitor.VisitCircle(this);
+}
+
+public class Rectangle : IShape
+{
+    public double Width { get; }
+    public double Height { get; }
+
+    public Rectangle(double width, double height)
+    {
+        Width = width;
+        Height = height;
+    }
+
+    public double Accept(IShapeVisitor visitor) => visitor.VisitRectangle(this);
+}
+
+public class Triangle : IShape
+{
+    public double A { get; }
+    public double B { get; }
+    public double C { get; }
+
+    public Triangle(double a, double b, double c)
+    {
+        A = a; B = b; C = c;
+    }
+
+    public double Accept(IShapeVisitor visitor) => visitor.VisitTriangle(this);
+}
+
+public class AreaCalculator : IShapeVisitor
+{
+    public double VisitCircle(Circle circle) =>
+        Math.PI * circle.Radius * circle.Radius;
+
+    public double VisitRectangle(Rectangle rectangle) =>
+        rectangle.Width * rectangle.Height;
+
+    public double VisitTriangle(Triangle triangle)
+    {
+        var s = (triangle.A + triangle.B + triangle.C) / 2;
+        return Math.Sqrt(s * (s - triangle.A) * (s - triangle.B) * (s - triangle.C));
+    }
+}
+
+public class PerimeterCalculator : IShapeVisitor
+{
+    public double VisitCircle(Circle circle) =>
+        2 * Math.PI * circle.Radius;
+
+    public double VisitRectangle(Rectangle rectangle) =>
+        2 * (rectangle.Width + rectangle.Height);
+
+    public double VisitTriangle(Triangle triangle) =>
+        triangle.A + triangle.B + triangle.C;
+}
+```
+
+#### `TypeScript`
+
+```typescript
+interface ShapeVisitor {
+  visitCircle(circle: Circle): number;
+  visitRectangle(rectangle: Rectangle): number;
+  visitTriangle(triangle: Triangle): number;
+}
+
+interface Shape {
+  accept(visitor: ShapeVisitor): number;
+}
+
+class Circle implements Shape {
+  constructor(public readonly radius: number) {}
+
+  accept(visitor: ShapeVisitor): number {
+    return visitor.visitCircle(this);
+  }
+}
+
+class Rectangle implements Shape {
+  constructor(
+    public readonly width: number,
+    public readonly height: number
+  ) {}
+
+  accept(visitor: ShapeVisitor): number {
+    return visitor.visitRectangle(this);
+  }
+}
+
+class Triangle implements Shape {
+  constructor(
+    public readonly a: number,
+    public readonly b: number,
+    public readonly c: number
+  ) {}
+
+  accept(visitor: ShapeVisitor): number {
+    return visitor.visitTriangle(this);
+  }
+}
+
+class AreaCalculator implements ShapeVisitor {
+  visitCircle(circle: Circle): number {
+    return Math.PI * circle.radius ** 2;
+  }
+
+  visitRectangle(rectangle: Rectangle): number {
+    return rectangle.width * rectangle.height;
+  }
+
+  visitTriangle(triangle: Triangle): number {
+    const { a, b, c } = triangle;
+    const s = (a + b + c) / 2;
+    return Math.sqrt(s * (s - a) * (s - b) * (s - c));
+  }
+}
+
+class PerimeterCalculator implements ShapeVisitor {
+  visitCircle(circle: Circle): number {
+    return 2 * Math.PI * circle.radius;
+  }
+
+  visitRectangle(rectangle: Rectangle): number {
+    return 2 * (rectangle.width + rectangle.height);
+  }
+
+  visitTriangle(triangle: Triangle): number {
+    return triangle.a + triangle.b + triangle.c;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+import 'dart:math';
+
+abstract class ShapeVisitor {
+  double visitCircle(Circle circle);
+  double visitRectangle(Rectangle rectangle);
+  double visitTriangle(Triangle triangle);
+}
+
+abstract class Shape {
+  double accept(ShapeVisitor visitor);
+}
+
+class Circle implements Shape {
+  final double radius;
+
+  Circle(this.radius);
+
+  @override
+  double accept(ShapeVisitor visitor) => visitor.visitCircle(this);
+}
+
+class Rectangle implements Shape {
+  final double width;
+  final double height;
+
+  Rectangle(this.width, this.height);
+
+  @override
+  double accept(ShapeVisitor visitor) => visitor.visitRectangle(this);
+}
+
+class Triangle implements Shape {
+  final double a, b, c;
+
+  Triangle(this.a, this.b, this.c);
+
+  @override
+  double accept(ShapeVisitor visitor) => visitor.visitTriangle(this);
+}
+
+class AreaCalculator implements ShapeVisitor {
+  @override
+  double visitCircle(Circle circle) => pi * circle.radius * circle.radius;
+
+  @override
+  double visitRectangle(Rectangle rectangle) =>
+      rectangle.width * rectangle.height;
+
+  @override
+  double visitTriangle(Triangle triangle) {
+    final s = (triangle.a + triangle.b + triangle.c) / 2;
+    return sqrt(
+        s * (s - triangle.a) * (s - triangle.b) * (s - triangle.c));
+  }
+}
+
+class PerimeterCalculator implements ShapeVisitor {
+  @override
+  double visitCircle(Circle circle) => 2 * pi * circle.radius;
+
+  @override
+  double visitRectangle(Rectangle rectangle) =>
+      2 * (rectangle.width + rectangle.height);
+
+  @override
+  double visitTriangle(Triangle triangle) =>
+      triangle.a + triangle.b + triangle.c;
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Create shapes
+shapes: list[Shape] = [
+    Circle(5),
+    Rectangle(4, 6),
+    Triangle(3, 4, 5),
+]
+
+# Create visitors
+area_calc = AreaCalculator()
+perimeter_calc = PerimeterCalculator()
+
+# Calculate areas using visitor
+print("=== Areas ===")
+for shape in shapes:
+    area = shape.accept(area_calc)
+    print(f"{shape.__class__.__name__}: {area:.2f}")
+# Circle: 78.54
+# Rectangle: 24.00
+# Triangle: 6.00
+
+# Calculate perimeters using visitor
+print("\n=== Perimeters ===")
+for shape in shapes:
+    perimeter = shape.accept(perimeter_calc)
+    print(f"{shape.__class__.__name__}: {perimeter:.2f}")
+# Circle: 31.42
+# Rectangle: 20.00
+# Triangle: 12.00
+
+# Adding a new operation? Just create a new visitor!
+# No need to modify any shape class.
+```
+
+#### `C#`
+
+```csharp
+// Create shapes
+IShape[] shapes = [
+    new Circle(5),
+    new Rectangle(4, 6),
+    new Triangle(3, 4, 5),
+];
+
+// Create visitors
+var areaCalc = new AreaCalculator();
+var perimeterCalc = new PerimeterCalculator();
+
+// Calculate areas using visitor
+Console.WriteLine("=== Areas ===");
+foreach (var shape in shapes)
+{
+    var area = shape.Accept(areaCalc);
+    Console.WriteLine($"{shape.GetType().Name}: {area:F2}");
+}
+// Circle: 78.54
+// Rectangle: 24.00
+// Triangle: 6.00
+
+// Calculate perimeters using visitor
+Console.WriteLine("\n=== Perimeters ===");
+foreach (var shape in shapes)
+{
+    var perimeter = shape.Accept(perimeterCalc);
+    Console.WriteLine($"{shape.GetType().Name}: {perimeter:F2}");
+}
+// Circle: 31.42
+// Rectangle: 20.00
+// Triangle: 12.00
+
+// Adding a new operation? Just create a new visitor!
+// No need to modify any shape class.
+```
+
+#### `TypeScript`
+
+```typescript
+// Create shapes
+const shapes: Shape[] = [
+  new Circle(5),
+  new Rectangle(4, 6),
+  new Triangle(3, 4, 5),
+];
+
+// Create visitors
+const areaCalc = new AreaCalculator();
+const perimeterCalc = new PerimeterCalculator();
+
+// Calculate areas using visitor
+console.log("=== Areas ===");
+for (const shape of shapes) {
+  const area = shape.accept(areaCalc);
+  console.log(`${shape.constructor.name}: ${area.toFixed(2)}`);
+}
+// Circle: 78.54
+// Rectangle: 24.00
+// Triangle: 6.00
+
+// Calculate perimeters using visitor
+console.log("\n=== Perimeters ===");
+for (const shape of shapes) {
+  const perimeter = shape.accept(perimeterCalc);
+  console.log(`${shape.constructor.name}: ${perimeter.toFixed(2)}`);
+}
+// Circle: 31.42
+// Rectangle: 20.00
+// Triangle: 12.00
+
+// Adding a new operation? Just create a new visitor!
+// No need to modify any shape class.
+```
+
+#### `Dart`
+
+```dart
+// Create shapes
+final shapes = <Shape>[
+  Circle(5),
+  Rectangle(4, 6),
+  Triangle(3, 4, 5),
+];
+
+// Create visitors
+final areaCalc = AreaCalculator();
+final perimeterCalc = PerimeterCalculator();
+
+// Calculate areas using visitor
+print('=== Areas ===');
+for (final shape in shapes) {
+  final area = shape.accept(areaCalc);
+  print('${shape.runtimeType}: ${area.toStringAsFixed(2)}');
+}
+// Circle: 78.54
+// Rectangle: 24.00
+// Triangle: 6.00
+
+// Calculate perimeters using visitor
+print('\n=== Perimeters ===');
+for (final shape in shapes) {
+  final perimeter = shape.accept(perimeterCalc);
+  print('${shape.runtimeType}: ${perimeter.toStringAsFixed(2)}');
+}
+// Circle: 31.42
+// Rectangle: 20.00
+// Triangle: 12.00
+
+// Adding a new operation? Just create a new visitor!
+// No need to modify any shape class.
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+The Visitor pattern separates algorithms from the objects they operate on, allowing you to add new operations without modifying existing classes — at the cost of making it harder to add new element types.
+:::
+
+### Key Benefits
+
+1. **Open/Closed for Operations**: Add new operations without modifying element classes
+2. **Single Responsibility**: Operation logic is centralized in visitor classes
+3. **Accumulating State**: Visitors can accumulate results while traversing
+4. **Works with Heterogeneous Structures**: Process different element types uniformly
+
+### Double Dispatch Explained
+
+```
+1. Client calls:      shape.accept(visitor)
+2. Shape calls:       visitor.visitCircle(this)  // First dispatch: which shape
+3. Visitor executes:  π * circle.radius²         // Second dispatch: which visitor
+```
+
+The combination of **which shape** and **which visitor** determines the final behavior.
+
+### The Trade-off
+
+| Easy to Add | Hard to Add |
+|-------------|-------------|
+| **New operations** — just create a new Visitor | **New element types** — must update ALL visitors |
+
+Choose Visitor when:
+- Element types are stable
+- Operations will grow over time
+
+Avoid Visitor when:
+- New element types are added frequently
+- Element internals should stay private
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Object structure is stable | New classes are added frequently |
+| Many distinct operations needed | Only a few operations exist |
+| Operations need to work across class hierarchy | Elements have complex private state |
+| You want operation logic in one place | Simpler polymorphism would suffice |

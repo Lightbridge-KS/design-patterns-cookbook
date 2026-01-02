@@ -1,0 +1,958 @@
+---
+title: "Strategy"
+---
+
+The **Strategy** pattern defines a family of algorithms, encapsulates each one, and makes them interchangeable. It lets the algorithm vary independently from clients that use it — like a checkout system where users can pay with credit card, PayPal, or cryptocurrency, and the payment method can be switched at runtime.
+
+## Problem
+
+Imagine you're building an e-commerce checkout system. Users can pay using different methods: credit card, PayPal, or cryptocurrency. The naive approach is to use conditionals in the checkout method to handle each payment type.
+
+This leads to:
+
+- Adding a new payment method requires modifying the checkout class
+- Payment logic is mixed with cart logic
+- Each payment method is hard to test in isolation
+- Violates Open/Closed Principle
+
+### Example
+
+```{mermaid}
+flowchart LR
+    subgraph ShoppingCart
+        CO["checkout(paymentType)"]
+    end
+
+    CO --> IF{"if credit_card?<br/>elif paypal?<br/>elif crypto?<br/>elif ...?"}
+
+    IF --> CC["Credit Card Logic"]
+    IF --> PP["PayPal Logic"]
+    IF --> CR["Crypto Logic"]
+    IF --> NEW["??? New Payment ???"]
+
+    style IF fill:#fcc,stroke:#c33
+    style NEW fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- ShoppingCart must know the details of every payment method
+- Adding Apple Pay, Google Pay, etc. requires modifying ShoppingCart
+- Payment validation and processing logic is all in one place
+- Can't reuse payment logic elsewhere
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class ShoppingCart:
+    def __init__(self):
+        self.items: list[tuple[str, float]] = []
+
+    def add_item(self, name: str, price: float) -> None:
+        self.items.append((name, price))
+
+    def get_total(self) -> float:
+        return sum(price for _, price in self.items)
+
+    def checkout(self, payment_type: str, **kwargs) -> bool:
+        amount = self.get_total()
+
+        if payment_type == "credit_card":
+            card_number = kwargs.get("card_number", "")
+            cvv = kwargs.get("cvv", "")
+            if len(card_number) != 16 or len(cvv) != 3:
+                print("Invalid card details")
+                return False
+            print(f"Processing credit card payment of ${amount:.2f}")
+            print(f"Card: ****{card_number[-4:]}")
+            return True
+
+        elif payment_type == "paypal":
+            email = kwargs.get("email", "")
+            if "@" not in email:
+                print("Invalid PayPal email")
+                return False
+            print(f"Redirecting to PayPal for ${amount:.2f}")
+            print(f"Account: {email}")
+            return True
+
+        elif payment_type == "crypto":
+            wallet = kwargs.get("wallet_address", "")
+            if not wallet.startswith("0x"):
+                print("Invalid wallet address")
+                return False
+            print(f"Sending ${amount:.2f} worth of crypto")
+            print(f"Wallet: {wallet[:10]}...")
+            return True
+
+        else:
+            print(f"Unknown payment type: {payment_type}")
+            return False
+```
+
+#### `C#`
+
+```csharp
+public class ShoppingCart
+{
+    private readonly List<(string Name, decimal Price)> _items = [];
+
+    public void AddItem(string name, decimal price)
+    {
+        _items.Add((name, price));
+    }
+
+    public decimal GetTotal() => _items.Sum(item => item.Price);
+
+    public bool Checkout(string paymentType, Dictionary<string, string> options)
+    {
+        var amount = GetTotal();
+
+        if (paymentType == "credit_card")
+        {
+            var cardNumber = options.GetValueOrDefault("card_number", "");
+            var cvv = options.GetValueOrDefault("cvv", "");
+            if (cardNumber.Length != 16 || cvv.Length != 3)
+            {
+                Console.WriteLine("Invalid card details");
+                return false;
+            }
+            Console.WriteLine($"Processing credit card payment of ${amount:F2}");
+            Console.WriteLine($"Card: ****{cardNumber[^4..]}");
+            return true;
+        }
+        else if (paymentType == "paypal")
+        {
+            var email = options.GetValueOrDefault("email", "");
+            if (!email.Contains('@'))
+            {
+                Console.WriteLine("Invalid PayPal email");
+                return false;
+            }
+            Console.WriteLine($"Redirecting to PayPal for ${amount:F2}");
+            Console.WriteLine($"Account: {email}");
+            return true;
+        }
+        else if (paymentType == "crypto")
+        {
+            var wallet = options.GetValueOrDefault("wallet_address", "");
+            if (!wallet.StartsWith("0x"))
+            {
+                Console.WriteLine("Invalid wallet address");
+                return false;
+            }
+            Console.WriteLine($"Sending ${amount:F2} worth of crypto");
+            Console.WriteLine($"Wallet: {wallet[..10]}...");
+            return true;
+        }
+        else
+        {
+            Console.WriteLine($"Unknown payment type: {paymentType}");
+            return false;
+        }
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class ShoppingCart {
+  private items: Array<{ name: string; price: number }> = [];
+
+  addItem(name: string, price: number): void {
+    this.items.push({ name, price });
+  }
+
+  getTotal(): number {
+    return this.items.reduce((sum, item) => sum + item.price, 0);
+  }
+
+  checkout(paymentType: string, options: Record<string, string>): boolean {
+    const amount = this.getTotal();
+
+    if (paymentType === "credit_card") {
+      const cardNumber = options.card_number ?? "";
+      const cvv = options.cvv ?? "";
+      if (cardNumber.length !== 16 || cvv.length !== 3) {
+        console.log("Invalid card details");
+        return false;
+      }
+      console.log(`Processing credit card payment of $${amount.toFixed(2)}`);
+      console.log(`Card: ****${cardNumber.slice(-4)}`);
+      return true;
+    } else if (paymentType === "paypal") {
+      const email = options.email ?? "";
+      if (!email.includes("@")) {
+        console.log("Invalid PayPal email");
+        return false;
+      }
+      console.log(`Redirecting to PayPal for $${amount.toFixed(2)}`);
+      console.log(`Account: ${email}`);
+      return true;
+    } else if (paymentType === "crypto") {
+      const wallet = options.wallet_address ?? "";
+      if (!wallet.startsWith("0x")) {
+        console.log("Invalid wallet address");
+        return false;
+      }
+      console.log(`Sending $${amount.toFixed(2)} worth of crypto`);
+      console.log(`Wallet: ${wallet.slice(0, 10)}...`);
+      return true;
+    } else {
+      console.log(`Unknown payment type: ${paymentType}`);
+      return false;
+    }
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class ShoppingCart {
+  final List<({String name, double price})> _items = [];
+
+  void addItem(String name, double price) {
+    _items.add((name: name, price: price));
+  }
+
+  double getTotal() {
+    return _items.fold(0, (sum, item) => sum + item.price);
+  }
+
+  bool checkout(String paymentType, Map<String, String> options) {
+    final amount = getTotal();
+
+    if (paymentType == 'credit_card') {
+      final cardNumber = options['card_number'] ?? '';
+      final cvv = options['cvv'] ?? '';
+      if (cardNumber.length != 16 || cvv.length != 3) {
+        print('Invalid card details');
+        return false;
+      }
+      print('Processing credit card payment of \$${amount.toStringAsFixed(2)}');
+      print('Card: ****${cardNumber.substring(cardNumber.length - 4)}');
+      return true;
+    } else if (paymentType == 'paypal') {
+      final email = options['email'] ?? '';
+      if (!email.contains('@')) {
+        print('Invalid PayPal email');
+        return false;
+      }
+      print('Redirecting to PayPal for \$${amount.toStringAsFixed(2)}');
+      print('Account: $email');
+      return true;
+    } else if (paymentType == 'crypto') {
+      final wallet = options['wallet_address'] ?? '';
+      if (!wallet.startsWith('0x')) {
+        print('Invalid wallet address');
+        return false;
+      }
+      print('Sending \$${amount.toStringAsFixed(2)} worth of crypto');
+      print('Wallet: ${wallet.substring(0, 10)}...');
+      return true;
+    } else {
+      print('Unknown payment type: $paymentType');
+      return false;
+    }
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+cart = ShoppingCart()
+cart.add_item("Laptop", 999.99)
+cart.add_item("Mouse", 29.99)
+
+# Pay with credit card
+cart.checkout("credit_card", card_number="1234567890123456", cvv="123")
+# Processing credit card payment of $1029.98
+# Card: ****3456
+
+# Pay with PayPal
+cart.checkout("paypal", email="user@example.com")
+# Redirecting to PayPal for $1029.98
+# Account: user@example.com
+
+# Adding new payment method requires modifying checkout()!
+```
+
+#### `C#`
+
+```csharp
+var cart = new ShoppingCart();
+cart.AddItem("Laptop", 999.99m);
+cart.AddItem("Mouse", 29.99m);
+
+// Pay with credit card
+cart.Checkout("credit_card", new Dictionary<string, string>
+{
+    ["card_number"] = "1234567890123456",
+    ["cvv"] = "123"
+});
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+// Pay with PayPal
+cart.Checkout("paypal", new Dictionary<string, string>
+{
+    ["email"] = "user@example.com"
+});
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+// Adding new payment method requires modifying Checkout()!
+```
+
+#### `TypeScript`
+
+```typescript
+const cart = new ShoppingCart();
+cart.addItem("Laptop", 999.99);
+cart.addItem("Mouse", 29.99);
+
+// Pay with credit card
+cart.checkout("credit_card", {
+  card_number: "1234567890123456",
+  cvv: "123",
+});
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+// Pay with PayPal
+cart.checkout("paypal", { email: "user@example.com" });
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+// Adding new payment method requires modifying checkout()!
+```
+
+#### `Dart`
+
+```dart
+final cart = ShoppingCart();
+cart.addItem('Laptop', 999.99);
+cart.addItem('Mouse', 29.99);
+
+// Pay with credit card
+cart.checkout('credit_card', {
+  'card_number': '1234567890123456',
+  'cvv': '123',
+});
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+// Pay with PayPal
+cart.checkout('paypal', {'email': 'user@example.com'});
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+// Adding new payment method requires modifying checkout()!
+```
+
+:::
+
+
+## Solution
+
+The **Strategy** pattern solves this by encapsulating each payment method into its own class:
+
+- **Strategy Interface** defines the common payment method
+- **Concrete Strategies** implement different payment algorithms
+- **Context** (ShoppingCart) holds a strategy reference and delegates to it
+- Client selects which strategy to use at runtime
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class PaymentStrategy {
+        <<interface>>
+        +pay(amount: float): bool
+    }
+
+    class CreditCardPayment {
+        -cardNumber: string
+        -cvv: string
+        +pay(amount: float): bool
+    }
+
+    class PayPalPayment {
+        -email: string
+        +pay(amount: float): bool
+    }
+
+    class CryptoPayment {
+        -walletAddress: string
+        +pay(amount: float): bool
+    }
+
+    class ShoppingCart {
+        -items: List~Item~
+        -paymentStrategy: PaymentStrategy
+        +addItem(name, price)
+        +setPaymentStrategy(strategy)
+        +checkout(): bool
+        +getTotal(): float
+    }
+
+    ShoppingCart --> PaymentStrategy : uses
+    CreditCardPayment ..|> PaymentStrategy
+    PayPalPayment ..|> PaymentStrategy
+    CryptoPayment ..|> PaymentStrategy
+```
+
+### Refactor Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+
+class PaymentStrategy(ABC):
+    """Strategy interface for payment methods."""
+
+    @abstractmethod
+    def pay(self, amount: float) -> bool:
+        pass
+
+
+class CreditCardPayment(PaymentStrategy):
+    """Concrete strategy for credit card payments."""
+
+    def __init__(self, card_number: str, cvv: str):
+        self._card_number = card_number
+        self._cvv = cvv
+
+    def pay(self, amount: float) -> bool:
+        if len(self._card_number) != 16 or len(self._cvv) != 3:
+            print("Invalid card details")
+            return False
+        print(f"Processing credit card payment of ${amount:.2f}")
+        print(f"Card: ****{self._card_number[-4:]}")
+        return True
+
+
+class PayPalPayment(PaymentStrategy):
+    """Concrete strategy for PayPal payments."""
+
+    def __init__(self, email: str):
+        self._email = email
+
+    def pay(self, amount: float) -> bool:
+        if "@" not in self._email:
+            print("Invalid PayPal email")
+            return False
+        print(f"Redirecting to PayPal for ${amount:.2f}")
+        print(f"Account: {self._email}")
+        return True
+
+
+class CryptoPayment(PaymentStrategy):
+    """Concrete strategy for cryptocurrency payments."""
+
+    def __init__(self, wallet_address: str):
+        self._wallet_address = wallet_address
+
+    def pay(self, amount: float) -> bool:
+        if not self._wallet_address.startswith("0x"):
+            print("Invalid wallet address")
+            return False
+        print(f"Sending ${amount:.2f} worth of crypto")
+        print(f"Wallet: {self._wallet_address[:10]}...")
+        return True
+
+
+class ShoppingCart:
+    """Context that uses a payment strategy."""
+
+    def __init__(self):
+        self._items: list[tuple[str, float]] = []
+        self._payment_strategy: PaymentStrategy | None = None
+
+    def add_item(self, name: str, price: float) -> None:
+        self._items.append((name, price))
+        print(f"Added {name} - ${price:.2f}")
+
+    def get_total(self) -> float:
+        return sum(price for _, price in self._items)
+
+    def set_payment_strategy(self, strategy: PaymentStrategy) -> None:
+        self._payment_strategy = strategy
+
+    def checkout(self) -> bool:
+        if not self._payment_strategy:
+            print("No payment method selected")
+            return False
+        if not self._items:
+            print("Cart is empty")
+            return False
+        return self._payment_strategy.pay(self.get_total())
+```
+
+#### `C#`
+
+```csharp
+public interface IPaymentStrategy
+{
+    bool Pay(decimal amount);
+}
+
+public class CreditCardPayment : IPaymentStrategy
+{
+    private readonly string _cardNumber;
+    private readonly string _cvv;
+
+    public CreditCardPayment(string cardNumber, string cvv)
+    {
+        _cardNumber = cardNumber;
+        _cvv = cvv;
+    }
+
+    public bool Pay(decimal amount)
+    {
+        if (_cardNumber.Length != 16 || _cvv.Length != 3)
+        {
+            Console.WriteLine("Invalid card details");
+            return false;
+        }
+        Console.WriteLine($"Processing credit card payment of ${amount:F2}");
+        Console.WriteLine($"Card: ****{_cardNumber[^4..]}");
+        return true;
+    }
+}
+
+public class PayPalPayment : IPaymentStrategy
+{
+    private readonly string _email;
+
+    public PayPalPayment(string email) => _email = email;
+
+    public bool Pay(decimal amount)
+    {
+        if (!_email.Contains('@'))
+        {
+            Console.WriteLine("Invalid PayPal email");
+            return false;
+        }
+        Console.WriteLine($"Redirecting to PayPal for ${amount:F2}");
+        Console.WriteLine($"Account: {_email}");
+        return true;
+    }
+}
+
+public class CryptoPayment : IPaymentStrategy
+{
+    private readonly string _walletAddress;
+
+    public CryptoPayment(string walletAddress) => _walletAddress = walletAddress;
+
+    public bool Pay(decimal amount)
+    {
+        if (!_walletAddress.StartsWith("0x"))
+        {
+            Console.WriteLine("Invalid wallet address");
+            return false;
+        }
+        Console.WriteLine($"Sending ${amount:F2} worth of crypto");
+        Console.WriteLine($"Wallet: {_walletAddress[..10]}...");
+        return true;
+    }
+}
+
+public class ShoppingCart
+{
+    private readonly List<(string Name, decimal Price)> _items = [];
+    private IPaymentStrategy? _paymentStrategy;
+
+    public void AddItem(string name, decimal price)
+    {
+        _items.Add((name, price));
+        Console.WriteLine($"Added {name} - ${price:F2}");
+    }
+
+    public decimal GetTotal() => _items.Sum(item => item.Price);
+
+    public void SetPaymentStrategy(IPaymentStrategy strategy)
+    {
+        _paymentStrategy = strategy;
+    }
+
+    public bool Checkout()
+    {
+        if (_paymentStrategy == null)
+        {
+            Console.WriteLine("No payment method selected");
+            return false;
+        }
+        if (_items.Count == 0)
+        {
+            Console.WriteLine("Cart is empty");
+            return false;
+        }
+        return _paymentStrategy.Pay(GetTotal());
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+interface PaymentStrategy {
+  pay(amount: number): boolean;
+}
+
+class CreditCardPayment implements PaymentStrategy {
+  constructor(
+    private cardNumber: string,
+    private cvv: string
+  ) {}
+
+  pay(amount: number): boolean {
+    if (this.cardNumber.length !== 16 || this.cvv.length !== 3) {
+      console.log("Invalid card details");
+      return false;
+    }
+    console.log(`Processing credit card payment of $${amount.toFixed(2)}`);
+    console.log(`Card: ****${this.cardNumber.slice(-4)}`);
+    return true;
+  }
+}
+
+class PayPalPayment implements PaymentStrategy {
+  constructor(private email: string) {}
+
+  pay(amount: number): boolean {
+    if (!this.email.includes("@")) {
+      console.log("Invalid PayPal email");
+      return false;
+    }
+    console.log(`Redirecting to PayPal for $${amount.toFixed(2)}`);
+    console.log(`Account: ${this.email}`);
+    return true;
+  }
+}
+
+class CryptoPayment implements PaymentStrategy {
+  constructor(private walletAddress: string) {}
+
+  pay(amount: number): boolean {
+    if (!this.walletAddress.startsWith("0x")) {
+      console.log("Invalid wallet address");
+      return false;
+    }
+    console.log(`Sending $${amount.toFixed(2)} worth of crypto`);
+    console.log(`Wallet: ${this.walletAddress.slice(0, 10)}...`);
+    return true;
+  }
+}
+
+class ShoppingCart {
+  private items: Array<{ name: string; price: number }> = [];
+  private paymentStrategy: PaymentStrategy | null = null;
+
+  addItem(name: string, price: number): void {
+    this.items.push({ name, price });
+    console.log(`Added ${name} - $${price.toFixed(2)}`);
+  }
+
+  getTotal(): number {
+    return this.items.reduce((sum, item) => sum + item.price, 0);
+  }
+
+  setPaymentStrategy(strategy: PaymentStrategy): void {
+    this.paymentStrategy = strategy;
+  }
+
+  checkout(): boolean {
+    if (!this.paymentStrategy) {
+      console.log("No payment method selected");
+      return false;
+    }
+    if (this.items.length === 0) {
+      console.log("Cart is empty");
+      return false;
+    }
+    return this.paymentStrategy.pay(this.getTotal());
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+abstract class PaymentStrategy {
+  bool pay(double amount);
+}
+
+class CreditCardPayment implements PaymentStrategy {
+  final String _cardNumber;
+  final String _cvv;
+
+  CreditCardPayment(this._cardNumber, this._cvv);
+
+  @override
+  bool pay(double amount) {
+    if (_cardNumber.length != 16 || _cvv.length != 3) {
+      print('Invalid card details');
+      return false;
+    }
+    print('Processing credit card payment of \$${amount.toStringAsFixed(2)}');
+    print('Card: ****${_cardNumber.substring(_cardNumber.length - 4)}');
+    return true;
+  }
+}
+
+class PayPalPayment implements PaymentStrategy {
+  final String _email;
+
+  PayPalPayment(this._email);
+
+  @override
+  bool pay(double amount) {
+    if (!_email.contains('@')) {
+      print('Invalid PayPal email');
+      return false;
+    }
+    print('Redirecting to PayPal for \$${amount.toStringAsFixed(2)}');
+    print('Account: $_email');
+    return true;
+  }
+}
+
+class CryptoPayment implements PaymentStrategy {
+  final String _walletAddress;
+
+  CryptoPayment(this._walletAddress);
+
+  @override
+  bool pay(double amount) {
+    if (!_walletAddress.startsWith('0x')) {
+      print('Invalid wallet address');
+      return false;
+    }
+    print('Sending \$${amount.toStringAsFixed(2)} worth of crypto');
+    print('Wallet: ${_walletAddress.substring(0, 10)}...');
+    return true;
+  }
+}
+
+class ShoppingCart {
+  final List<({String name, double price})> _items = [];
+  PaymentStrategy? _paymentStrategy;
+
+  void addItem(String name, double price) {
+    _items.add((name: name, price: price));
+    print('Added $name - \$${price.toStringAsFixed(2)}');
+  }
+
+  double getTotal() {
+    return _items.fold(0, (sum, item) => sum + item.price);
+  }
+
+  void setPaymentStrategy(PaymentStrategy strategy) {
+    _paymentStrategy = strategy;
+  }
+
+  bool checkout() {
+    if (_paymentStrategy == null) {
+      print('No payment method selected');
+      return false;
+    }
+    if (_items.isEmpty) {
+      print('Cart is empty');
+      return false;
+    }
+    return _paymentStrategy!.pay(getTotal());
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Create shopping cart and add items
+cart = ShoppingCart()
+cart.add_item("Laptop", 999.99)
+cart.add_item("Mouse", 29.99)
+# Added Laptop - $999.99
+# Added Mouse - $29.99
+
+print(f"\nTotal: ${cart.get_total():.2f}")
+# Total: $1029.98
+
+# Pay with credit card
+print("\n=== Paying with Credit Card ===")
+cart.set_payment_strategy(CreditCardPayment("1234567890123456", "123"))
+cart.checkout()
+# Processing credit card payment of $1029.98
+# Card: ****3456
+
+# Switch to PayPal at runtime
+print("\n=== Switching to PayPal ===")
+cart.set_payment_strategy(PayPalPayment("user@example.com"))
+cart.checkout()
+# Redirecting to PayPal for $1029.98
+# Account: user@example.com
+
+# Switch to Crypto
+print("\n=== Switching to Crypto ===")
+cart.set_payment_strategy(CryptoPayment("0x742d35Cc6634C0532925a3b844Bc9e7595f"))
+cart.checkout()
+# Sending $1029.98 worth of crypto
+# Wallet: 0x742d35Cc...
+```
+
+#### `C#`
+
+```csharp
+// Create shopping cart and add items
+var cart = new ShoppingCart();
+cart.AddItem("Laptop", 999.99m);
+cart.AddItem("Mouse", 29.99m);
+// Added Laptop - $999.99
+// Added Mouse - $29.99
+
+Console.WriteLine($"\nTotal: ${cart.GetTotal():F2}");
+// Total: $1029.98
+
+// Pay with credit card
+Console.WriteLine("\n=== Paying with Credit Card ===");
+cart.SetPaymentStrategy(new CreditCardPayment("1234567890123456", "123"));
+cart.Checkout();
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+// Switch to PayPal at runtime
+Console.WriteLine("\n=== Switching to PayPal ===");
+cart.SetPaymentStrategy(new PayPalPayment("user@example.com"));
+cart.Checkout();
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+// Switch to Crypto
+Console.WriteLine("\n=== Switching to Crypto ===");
+cart.SetPaymentStrategy(new CryptoPayment("0x742d35Cc6634C0532925a3b844Bc9e7595f"));
+cart.Checkout();
+// Sending $1029.98 worth of crypto
+// Wallet: 0x742d35Cc...
+```
+
+#### `TypeScript`
+
+```typescript
+// Create shopping cart and add items
+const cart = new ShoppingCart();
+cart.addItem("Laptop", 999.99);
+cart.addItem("Mouse", 29.99);
+// Added Laptop - $999.99
+// Added Mouse - $29.99
+
+console.log(`\nTotal: $${cart.getTotal().toFixed(2)}`);
+// Total: $1029.98
+
+// Pay with credit card
+console.log("\n=== Paying with Credit Card ===");
+cart.setPaymentStrategy(new CreditCardPayment("1234567890123456", "123"));
+cart.checkout();
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+// Switch to PayPal at runtime
+console.log("\n=== Switching to PayPal ===");
+cart.setPaymentStrategy(new PayPalPayment("user@example.com"));
+cart.checkout();
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+// Switch to Crypto
+console.log("\n=== Switching to Crypto ===");
+cart.setPaymentStrategy(new CryptoPayment("0x742d35Cc6634C0532925a3b844Bc9e7595f"));
+cart.checkout();
+// Sending $1029.98 worth of crypto
+// Wallet: 0x742d35Cc...
+```
+
+#### `Dart`
+
+```dart
+// Create shopping cart and add items
+final cart = ShoppingCart();
+cart.addItem('Laptop', 999.99);
+cart.addItem('Mouse', 29.99);
+// Added Laptop - $999.99
+// Added Mouse - $29.99
+
+print('\nTotal: \$${cart.getTotal().toStringAsFixed(2)}');
+// Total: $1029.98
+
+// Pay with credit card
+print('\n=== Paying with Credit Card ===');
+cart.setPaymentStrategy(CreditCardPayment('1234567890123456', '123'));
+cart.checkout();
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+// Switch to PayPal at runtime
+print('\n=== Switching to PayPal ===');
+cart.setPaymentStrategy(PayPalPayment('user@example.com'));
+cart.checkout();
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+// Switch to Crypto
+print('\n=== Switching to Crypto ===');
+cart.setPaymentStrategy(CryptoPayment('0x742d35Cc6634C0532925a3b844Bc9e7595f'));
+cart.checkout();
+// Sending $1029.98 worth of crypto
+// Wallet: 0x742d35Cc...
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+The Strategy pattern encapsulates interchangeable algorithms into separate classes, allowing clients to select and switch algorithms at runtime without modifying the context.
+:::
+
+### Key Benefits
+
+1. **Open/Closed Principle**: Add new payment methods without modifying ShoppingCart
+2. **Single Responsibility**: Each strategy handles only its own algorithm
+3. **Runtime Flexibility**: Switch strategies dynamically based on user choice
+4. **Testability**: Test each payment method in isolation
+
+### Strategy vs State Pattern
+
+| Aspect | Strategy | State |
+|--------|----------|-------|
+| **Who controls change** | Client explicitly sets strategy | Object transitions internally |
+| **Awareness** | Strategies don't know about each other | States know about other states |
+| **Purpose** | Choose algorithm | Change behavior based on state |
+| **Typical usage** | Set once or changed by user action | Changes automatically during lifecycle |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Multiple algorithms for same task | Only one algorithm exists |
+| Client should choose algorithm at runtime | Algorithm is fixed and never changes |
+| Algorithms are interchangeable | Algorithms need different interfaces |
+| You want to isolate algorithm logic | Overhead of extra classes isn't justified |

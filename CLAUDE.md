@@ -38,17 +38,17 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
   - Flyweight → Text Editor (Character Styles)
   - Proxy → Document Access (Protection Proxy)
 
-- **Behavioral Design Patterns** (5/10 done)
+- **Behavioral Design Patterns:** ✅ DONE
   - Chain of Responsibility → HTTP Middleware Pipeline
   - Command → Text Editor (Undo/Redo)
   - Iterator → Playlist (Sequential/Reverse)
   - Mediator → Smart Home Hub
   - Memento → Game Save System
-  - Observer
-  - State
-  - Strategy
-  - Template Method
-  - Visitor
+  - Observer → Weather Station
+  - State → Document Workflow
+  - Strategy → Payment Processing
+  - Template Method → Beverage Preparation
+  - Visitor → Shape Operations
 
 ## Template
 

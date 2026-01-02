@@ -1,0 +1,1031 @@
+---
+title: "State"
+---
+
+The **State** pattern allows an object to alter its behavior when its internal state changes — the object appears to change its class. It's like a document workflow where the same actions (edit, submit, approve) behave differently depending on whether the document is in Draft, Review, or Published state.
+
+## Problem
+
+Imagine you're building a document management system with a workflow: documents start as drafts, get submitted for review, and are eventually published. Each state allows different actions — you can edit a draft but not a published document.
+
+The naive approach is to use conditionals in every method to check the current state:
+
+- Every method has state-checking if/else chains
+- Adding a new state requires modifying ALL methods
+- State transition logic is scattered throughout
+- Violates Open/Closed Principle
+
+### Example
+
+```{mermaid}
+flowchart LR
+    subgraph Document
+        E["edit()"]
+        S["submit()"]
+        A["approve()"]
+        R["reject()"]
+    end
+
+    E --> IF1{"if draft?<br/>elif review?<br/>elif published?"}
+    S --> IF2{"if draft?<br/>elif review?<br/>elif published?"}
+    A --> IF3{"if draft?<br/>elif review?<br/>elif published?"}
+    R --> IF4{"if draft?<br/>elif review?<br/>elif published?"}
+
+    style IF1 fill:#fcc,stroke:#c33
+    style IF2 fill:#fcc,stroke:#c33
+    style IF3 fill:#fcc,stroke:#c33
+    style IF4 fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Every action method repeats the same state-checking logic
+- Adding a new state (e.g., "Archived") requires changing every method
+- Easy to forget a state check or make inconsistent changes
+- State transition logic is duplicated and error-prone
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Document:
+    def __init__(self, title: str):
+        self.title = title
+        self.content = ""
+        self.state = "draft"  # draft, review, published
+
+    def edit(self, content: str) -> None:
+        if self.state == "draft":
+            self.content = content
+            print(f"Document edited: {content[:20]}...")
+        elif self.state == "review":
+            print("Cannot edit: document is under review")
+        elif self.state == "published":
+            print("Cannot edit: document is published")
+
+    def submit(self) -> None:
+        if self.state == "draft":
+            self.state = "review"
+            print("Document submitted for review")
+        elif self.state == "review":
+            print("Cannot submit: already under review")
+        elif self.state == "published":
+            print("Cannot submit: document is published")
+
+    def approve(self) -> None:
+        if self.state == "draft":
+            print("Cannot approve: document not submitted")
+        elif self.state == "review":
+            self.state = "published"
+            print("Document approved and published!")
+        elif self.state == "published":
+            print("Cannot approve: already published")
+
+    def reject(self) -> None:
+        if self.state == "draft":
+            print("Cannot reject: document not submitted")
+        elif self.state == "review":
+            self.state = "draft"
+            print("Document rejected, back to draft")
+        elif self.state == "published":
+            print("Cannot reject: already published")
+```
+
+#### `C#`
+
+```csharp
+public class Document
+{
+    public string Title { get; }
+    public string Content { get; private set; } = "";
+    private string _state = "draft"; // draft, review, published
+
+    public Document(string title) => Title = title;
+
+    public void Edit(string content)
+    {
+        if (_state == "draft")
+        {
+            Content = content;
+            Console.WriteLine($"Document edited: {content[..Math.Min(20, content.Length)]}...");
+        }
+        else if (_state == "review")
+            Console.WriteLine("Cannot edit: document is under review");
+        else if (_state == "published")
+            Console.WriteLine("Cannot edit: document is published");
+    }
+
+    public void Submit()
+    {
+        if (_state == "draft")
+        {
+            _state = "review";
+            Console.WriteLine("Document submitted for review");
+        }
+        else if (_state == "review")
+            Console.WriteLine("Cannot submit: already under review");
+        else if (_state == "published")
+            Console.WriteLine("Cannot submit: document is published");
+    }
+
+    public void Approve()
+    {
+        if (_state == "draft")
+            Console.WriteLine("Cannot approve: document not submitted");
+        else if (_state == "review")
+        {
+            _state = "published";
+            Console.WriteLine("Document approved and published!");
+        }
+        else if (_state == "published")
+            Console.WriteLine("Cannot approve: already published");
+    }
+
+    public void Reject()
+    {
+        if (_state == "draft")
+            Console.WriteLine("Cannot reject: document not submitted");
+        else if (_state == "review")
+        {
+            _state = "draft";
+            Console.WriteLine("Document rejected, back to draft");
+        }
+        else if (_state == "published")
+            Console.WriteLine("Cannot reject: already published");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Document {
+  private content: string = "";
+  private state: string = "draft"; // draft, review, published
+
+  constructor(public readonly title: string) {}
+
+  edit(content: string): void {
+    if (this.state === "draft") {
+      this.content = content;
+      console.log(`Document edited: ${content.slice(0, 20)}...`);
+    } else if (this.state === "review") {
+      console.log("Cannot edit: document is under review");
+    } else if (this.state === "published") {
+      console.log("Cannot edit: document is published");
+    }
+  }
+
+  submit(): void {
+    if (this.state === "draft") {
+      this.state = "review";
+      console.log("Document submitted for review");
+    } else if (this.state === "review") {
+      console.log("Cannot submit: already under review");
+    } else if (this.state === "published") {
+      console.log("Cannot submit: document is published");
+    }
+  }
+
+  approve(): void {
+    if (this.state === "draft") {
+      console.log("Cannot approve: document not submitted");
+    } else if (this.state === "review") {
+      this.state = "published";
+      console.log("Document approved and published!");
+    } else if (this.state === "published") {
+      console.log("Cannot approve: already published");
+    }
+  }
+
+  reject(): void {
+    if (this.state === "draft") {
+      console.log("Cannot reject: document not submitted");
+    } else if (this.state === "review") {
+      this.state = "draft";
+      console.log("Document rejected, back to draft");
+    } else if (this.state === "published") {
+      console.log("Cannot reject: already published");
+    }
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Document {
+  final String title;
+  String _content = '';
+  String _state = 'draft'; // draft, review, published
+
+  Document(this.title);
+
+  void edit(String content) {
+    if (_state == 'draft') {
+      _content = content;
+      print('Document edited: ${content.substring(0, content.length < 20 ? content.length : 20)}...');
+    } else if (_state == 'review') {
+      print('Cannot edit: document is under review');
+    } else if (_state == 'published') {
+      print('Cannot edit: document is published');
+    }
+  }
+
+  void submit() {
+    if (_state == 'draft') {
+      _state = 'review';
+      print('Document submitted for review');
+    } else if (_state == 'review') {
+      print('Cannot submit: already under review');
+    } else if (_state == 'published') {
+      print('Cannot submit: document is published');
+    }
+  }
+
+  void approve() {
+    if (_state == 'draft') {
+      print('Cannot approve: document not submitted');
+    } else if (_state == 'review') {
+      _state = 'published';
+      print('Document approved and published!');
+    } else if (_state == 'published') {
+      print('Cannot approve: already published');
+    }
+  }
+
+  void reject() {
+    if (_state == 'draft') {
+      print('Cannot reject: document not submitted');
+    } else if (_state == 'review') {
+      _state = 'draft';
+      print('Document rejected, back to draft');
+    } else if (_state == 'published') {
+      print('Cannot reject: already published');
+    }
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+doc = Document("My Article")
+
+doc.edit("Hello, World!")     # Document edited: Hello, World!...
+doc.approve()                 # Cannot approve: document not submitted
+doc.submit()                  # Document submitted for review
+doc.edit("New content")       # Cannot edit: document is under review
+doc.reject()                  # Document rejected, back to draft
+doc.edit("Revised content")   # Document edited: Revised content...
+doc.submit()                  # Document submitted for review
+doc.approve()                 # Document approved and published!
+doc.edit("More changes")      # Cannot edit: document is published
+```
+
+#### `C#`
+
+```csharp
+var doc = new Document("My Article");
+
+doc.Edit("Hello, World!");    // Document edited: Hello, World!...
+doc.Approve();                // Cannot approve: document not submitted
+doc.Submit();                 // Document submitted for review
+doc.Edit("New content");      // Cannot edit: document is under review
+doc.Reject();                 // Document rejected, back to draft
+doc.Edit("Revised content");  // Document edited: Revised content...
+doc.Submit();                 // Document submitted for review
+doc.Approve();                // Document approved and published!
+doc.Edit("More changes");     // Cannot edit: document is published
+```
+
+#### `TypeScript`
+
+```typescript
+const doc = new Document("My Article");
+
+doc.edit("Hello, World!");    // Document edited: Hello, World!...
+doc.approve();                // Cannot approve: document not submitted
+doc.submit();                 // Document submitted for review
+doc.edit("New content");      // Cannot edit: document is under review
+doc.reject();                 // Document rejected, back to draft
+doc.edit("Revised content");  // Document edited: Revised content...
+doc.submit();                 // Document submitted for review
+doc.approve();                // Document approved and published!
+doc.edit("More changes");     // Cannot edit: document is published
+```
+
+#### `Dart`
+
+```dart
+final doc = Document('My Article');
+
+doc.edit('Hello, World!');    // Document edited: Hello, World!...
+doc.approve();                // Cannot approve: document not submitted
+doc.submit();                 // Document submitted for review
+doc.edit('New content');      // Cannot edit: document is under review
+doc.reject();                 // Document rejected, back to draft
+doc.edit('Revised content');  // Document edited: Revised content...
+doc.submit();                 // Document submitted for review
+doc.approve();                // Document approved and published!
+doc.edit('More changes');     // Cannot edit: document is published
+```
+
+:::
+
+
+## Solution
+
+The **State** pattern solves this by encapsulating state-specific behavior into separate state classes:
+
+- **State Interface** defines all possible actions
+- **Concrete State Classes** implement behavior for each state
+- **Context** (Document) holds current state and delegates actions to it
+- State transitions are handled by state objects setting a new state on the context
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class DocumentState {
+        <<interface>>
+        +edit(doc: Document, content: string)
+        +submit(doc: Document)
+        +approve(doc: Document)
+        +reject(doc: Document)
+        +getName(): string
+    }
+
+    class Document {
+        -state: DocumentState
+        -content: string
+        -title: string
+        +setState(state: DocumentState)
+        +edit(content: string)
+        +submit()
+        +approve()
+        +reject()
+        +setContent(content: string)
+        +getStateName(): string
+    }
+
+    class DraftState {
+        +edit(doc, content)
+        +submit(doc)
+        +approve(doc)
+        +reject(doc)
+        +getName(): string
+    }
+
+    class ReviewState {
+        +edit(doc, content)
+        +submit(doc)
+        +approve(doc)
+        +reject(doc)
+        +getName(): string
+    }
+
+    class PublishedState {
+        +edit(doc, content)
+        +submit(doc)
+        +approve(doc)
+        +reject(doc)
+        +getName(): string
+    }
+
+    Document --> DocumentState : delegates to
+    DraftState ..|> DocumentState
+    ReviewState ..|> DocumentState
+    PublishedState ..|> DocumentState
+```
+
+### Refactor Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+
+class DocumentState(ABC):
+    """Interface for document states."""
+
+    @abstractmethod
+    def edit(self, doc: "Document", content: str) -> None:
+        pass
+
+    @abstractmethod
+    def submit(self, doc: "Document") -> None:
+        pass
+
+    @abstractmethod
+    def approve(self, doc: "Document") -> None:
+        pass
+
+    @abstractmethod
+    def reject(self, doc: "Document") -> None:
+        pass
+
+    @abstractmethod
+    def get_name(self) -> str:
+        pass
+
+
+class DraftState(DocumentState):
+    """State when document is being drafted."""
+
+    def edit(self, doc: "Document", content: str) -> None:
+        doc.set_content(content)
+        print(f"Document edited: {content[:20]}...")
+
+    def submit(self, doc: "Document") -> None:
+        doc.set_state(ReviewState())
+        print("Document submitted for review")
+
+    def approve(self, doc: "Document") -> None:
+        print("Cannot approve: document not submitted")
+
+    def reject(self, doc: "Document") -> None:
+        print("Cannot reject: document not submitted")
+
+    def get_name(self) -> str:
+        return "Draft"
+
+
+class ReviewState(DocumentState):
+    """State when document is under review."""
+
+    def edit(self, doc: "Document", content: str) -> None:
+        print("Cannot edit: document is under review")
+
+    def submit(self, doc: "Document") -> None:
+        print("Cannot submit: already under review")
+
+    def approve(self, doc: "Document") -> None:
+        doc.set_state(PublishedState())
+        print("Document approved and published!")
+
+    def reject(self, doc: "Document") -> None:
+        doc.set_state(DraftState())
+        print("Document rejected, back to draft")
+
+    def get_name(self) -> str:
+        return "Review"
+
+
+class PublishedState(DocumentState):
+    """State when document is published."""
+
+    def edit(self, doc: "Document", content: str) -> None:
+        print("Cannot edit: document is published")
+
+    def submit(self, doc: "Document") -> None:
+        print("Cannot submit: document is published")
+
+    def approve(self, doc: "Document") -> None:
+        print("Cannot approve: already published")
+
+    def reject(self, doc: "Document") -> None:
+        print("Cannot reject: already published")
+
+    def get_name(self) -> str:
+        return "Published"
+
+
+class Document:
+    """Context that maintains current state and delegates actions."""
+
+    def __init__(self, title: str):
+        self.title = title
+        self._content = ""
+        self._state: DocumentState = DraftState()
+
+    def set_state(self, state: DocumentState) -> None:
+        self._state = state
+
+    def set_content(self, content: str) -> None:
+        self._content = content
+
+    def get_state_name(self) -> str:
+        return self._state.get_name()
+
+    def edit(self, content: str) -> None:
+        self._state.edit(self, content)
+
+    def submit(self) -> None:
+        self._state.submit(self)
+
+    def approve(self) -> None:
+        self._state.approve(self)
+
+    def reject(self) -> None:
+        self._state.reject(self)
+```
+
+#### `C#`
+
+```csharp
+public interface IDocumentState
+{
+    void Edit(Document doc, string content);
+    void Submit(Document doc);
+    void Approve(Document doc);
+    void Reject(Document doc);
+    string Name { get; }
+}
+
+public class DraftState : IDocumentState
+{
+    public string Name => "Draft";
+
+    public void Edit(Document doc, string content)
+    {
+        doc.SetContent(content);
+        Console.WriteLine($"Document edited: {content[..Math.Min(20, content.Length)]}...");
+    }
+
+    public void Submit(Document doc)
+    {
+        doc.SetState(new ReviewState());
+        Console.WriteLine("Document submitted for review");
+    }
+
+    public void Approve(Document doc)
+    {
+        Console.WriteLine("Cannot approve: document not submitted");
+    }
+
+    public void Reject(Document doc)
+    {
+        Console.WriteLine("Cannot reject: document not submitted");
+    }
+}
+
+public class ReviewState : IDocumentState
+{
+    public string Name => "Review";
+
+    public void Edit(Document doc, string content)
+    {
+        Console.WriteLine("Cannot edit: document is under review");
+    }
+
+    public void Submit(Document doc)
+    {
+        Console.WriteLine("Cannot submit: already under review");
+    }
+
+    public void Approve(Document doc)
+    {
+        doc.SetState(new PublishedState());
+        Console.WriteLine("Document approved and published!");
+    }
+
+    public void Reject(Document doc)
+    {
+        doc.SetState(new DraftState());
+        Console.WriteLine("Document rejected, back to draft");
+    }
+}
+
+public class PublishedState : IDocumentState
+{
+    public string Name => "Published";
+
+    public void Edit(Document doc, string content)
+    {
+        Console.WriteLine("Cannot edit: document is published");
+    }
+
+    public void Submit(Document doc)
+    {
+        Console.WriteLine("Cannot submit: document is published");
+    }
+
+    public void Approve(Document doc)
+    {
+        Console.WriteLine("Cannot approve: already published");
+    }
+
+    public void Reject(Document doc)
+    {
+        Console.WriteLine("Cannot reject: already published");
+    }
+}
+
+public class Document
+{
+    private IDocumentState _state;
+    private string _content = "";
+
+    public string Title { get; }
+
+    public Document(string title)
+    {
+        Title = title;
+        _state = new DraftState();
+    }
+
+    public void SetState(IDocumentState state) => _state = state;
+    public void SetContent(string content) => _content = content;
+    public string GetStateName() => _state.Name;
+
+    public void Edit(string content) => _state.Edit(this, content);
+    public void Submit() => _state.Submit(this);
+    public void Approve() => _state.Approve(this);
+    public void Reject() => _state.Reject(this);
+}
+```
+
+#### `TypeScript`
+
+```typescript
+interface DocumentState {
+  edit(doc: Document, content: string): void;
+  submit(doc: Document): void;
+  approve(doc: Document): void;
+  reject(doc: Document): void;
+  getName(): string;
+}
+
+class DraftState implements DocumentState {
+  edit(doc: Document, content: string): void {
+    doc.setContent(content);
+    console.log(`Document edited: ${content.slice(0, 20)}...`);
+  }
+
+  submit(doc: Document): void {
+    doc.setState(new ReviewState());
+    console.log("Document submitted for review");
+  }
+
+  approve(doc: Document): void {
+    console.log("Cannot approve: document not submitted");
+  }
+
+  reject(doc: Document): void {
+    console.log("Cannot reject: document not submitted");
+  }
+
+  getName(): string {
+    return "Draft";
+  }
+}
+
+class ReviewState implements DocumentState {
+  edit(doc: Document, content: string): void {
+    console.log("Cannot edit: document is under review");
+  }
+
+  submit(doc: Document): void {
+    console.log("Cannot submit: already under review");
+  }
+
+  approve(doc: Document): void {
+    doc.setState(new PublishedState());
+    console.log("Document approved and published!");
+  }
+
+  reject(doc: Document): void {
+    doc.setState(new DraftState());
+    console.log("Document rejected, back to draft");
+  }
+
+  getName(): string {
+    return "Review";
+  }
+}
+
+class PublishedState implements DocumentState {
+  edit(doc: Document, content: string): void {
+    console.log("Cannot edit: document is published");
+  }
+
+  submit(doc: Document): void {
+    console.log("Cannot submit: document is published");
+  }
+
+  approve(doc: Document): void {
+    console.log("Cannot approve: already published");
+  }
+
+  reject(doc: Document): void {
+    console.log("Cannot reject: already published");
+  }
+
+  getName(): string {
+    return "Published";
+  }
+}
+
+class Document {
+  private state: DocumentState;
+  private content: string = "";
+
+  constructor(public readonly title: string) {
+    this.state = new DraftState();
+  }
+
+  setState(state: DocumentState): void {
+    this.state = state;
+  }
+
+  setContent(content: string): void {
+    this.content = content;
+  }
+
+  getStateName(): string {
+    return this.state.getName();
+  }
+
+  edit(content: string): void {
+    this.state.edit(this, content);
+  }
+
+  submit(): void {
+    this.state.submit(this);
+  }
+
+  approve(): void {
+    this.state.approve(this);
+  }
+
+  reject(): void {
+    this.state.reject(this);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+abstract class DocumentState {
+  void edit(Document doc, String content);
+  void submit(Document doc);
+  void approve(Document doc);
+  void reject(Document doc);
+  String get name;
+}
+
+class DraftState implements DocumentState {
+  @override
+  String get name => 'Draft';
+
+  @override
+  void edit(Document doc, String content) {
+    doc.setContent(content);
+    print('Document edited: ${content.substring(0, content.length < 20 ? content.length : 20)}...');
+  }
+
+  @override
+  void submit(Document doc) {
+    doc.setState(ReviewState());
+    print('Document submitted for review');
+  }
+
+  @override
+  void approve(Document doc) {
+    print('Cannot approve: document not submitted');
+  }
+
+  @override
+  void reject(Document doc) {
+    print('Cannot reject: document not submitted');
+  }
+}
+
+class ReviewState implements DocumentState {
+  @override
+  String get name => 'Review';
+
+  @override
+  void edit(Document doc, String content) {
+    print('Cannot edit: document is under review');
+  }
+
+  @override
+  void submit(Document doc) {
+    print('Cannot submit: already under review');
+  }
+
+  @override
+  void approve(Document doc) {
+    doc.setState(PublishedState());
+    print('Document approved and published!');
+  }
+
+  @override
+  void reject(Document doc) {
+    doc.setState(DraftState());
+    print('Document rejected, back to draft');
+  }
+}
+
+class PublishedState implements DocumentState {
+  @override
+  String get name => 'Published';
+
+  @override
+  void edit(Document doc, String content) {
+    print('Cannot edit: document is published');
+  }
+
+  @override
+  void submit(Document doc) {
+    print('Cannot submit: document is published');
+  }
+
+  @override
+  void approve(Document doc) {
+    print('Cannot approve: already published');
+  }
+
+  @override
+  void reject(Document doc) {
+    print('Cannot reject: already published');
+  }
+}
+
+class Document {
+  final String title;
+  DocumentState _state;
+  String _content = '';
+
+  Document(this.title) : _state = DraftState();
+
+  void setState(DocumentState state) {
+    _state = state;
+  }
+
+  void setContent(String content) {
+    _content = content;
+  }
+
+  String getStateName() => _state.name;
+
+  void edit(String content) => _state.edit(this, content);
+  void submit() => _state.submit(this);
+  void approve() => _state.approve(this);
+  void reject() => _state.reject(this);
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+doc = Document("My Article")
+print(f"State: {doc.get_state_name()}")  # State: Draft
+
+# Draft state: can edit and submit
+doc.edit("Hello, World!")     # Document edited: Hello, World!...
+doc.approve()                 # Cannot approve: document not submitted
+
+doc.submit()                  # Document submitted for review
+print(f"State: {doc.get_state_name()}")  # State: Review
+
+# Review state: can approve or reject
+doc.edit("New content")       # Cannot edit: document is under review
+doc.reject()                  # Document rejected, back to draft
+print(f"State: {doc.get_state_name()}")  # State: Draft
+
+# Back to draft: can edit again
+doc.edit("Revised content")   # Document edited: Revised content...
+doc.submit()                  # Document submitted for review
+doc.approve()                 # Document approved and published!
+print(f"State: {doc.get_state_name()}")  # State: Published
+
+# Published state: all actions blocked
+doc.edit("More changes")      # Cannot edit: document is published
+doc.reject()                  # Cannot reject: already published
+```
+
+#### `C#`
+
+```csharp
+var doc = new Document("My Article");
+Console.WriteLine($"State: {doc.GetStateName()}");  // State: Draft
+
+// Draft state: can edit and submit
+doc.Edit("Hello, World!");    // Document edited: Hello, World!...
+doc.Approve();                // Cannot approve: document not submitted
+
+doc.Submit();                 // Document submitted for review
+Console.WriteLine($"State: {doc.GetStateName()}");  // State: Review
+
+// Review state: can approve or reject
+doc.Edit("New content");      // Cannot edit: document is under review
+doc.Reject();                 // Document rejected, back to draft
+Console.WriteLine($"State: {doc.GetStateName()}");  // State: Draft
+
+// Back to draft: can edit again
+doc.Edit("Revised content");  // Document edited: Revised content...
+doc.Submit();                 // Document submitted for review
+doc.Approve();                // Document approved and published!
+Console.WriteLine($"State: {doc.GetStateName()}");  // State: Published
+
+// Published state: all actions blocked
+doc.Edit("More changes");     // Cannot edit: document is published
+doc.Reject();                 // Cannot reject: already published
+```
+
+#### `TypeScript`
+
+```typescript
+const doc = new Document("My Article");
+console.log(`State: ${doc.getStateName()}`);  // State: Draft
+
+// Draft state: can edit and submit
+doc.edit("Hello, World!");    // Document edited: Hello, World!...
+doc.approve();                // Cannot approve: document not submitted
+
+doc.submit();                 // Document submitted for review
+console.log(`State: ${doc.getStateName()}`);  // State: Review
+
+// Review state: can approve or reject
+doc.edit("New content");      // Cannot edit: document is under review
+doc.reject();                 // Document rejected, back to draft
+console.log(`State: ${doc.getStateName()}`);  // State: Draft
+
+// Back to draft: can edit again
+doc.edit("Revised content");  // Document edited: Revised content...
+doc.submit();                 // Document submitted for review
+doc.approve();                // Document approved and published!
+console.log(`State: ${doc.getStateName()}`);  // State: Published
+
+// Published state: all actions blocked
+doc.edit("More changes");     // Cannot edit: document is published
+doc.reject();                 // Cannot reject: already published
+```
+
+#### `Dart`
+
+```dart
+final doc = Document('My Article');
+print('State: ${doc.getStateName()}');  // State: Draft
+
+// Draft state: can edit and submit
+doc.edit('Hello, World!');    // Document edited: Hello, World!...
+doc.approve();                // Cannot approve: document not submitted
+
+doc.submit();                 // Document submitted for review
+print('State: ${doc.getStateName()}');  // State: Review
+
+// Review state: can approve or reject
+doc.edit('New content');      // Cannot edit: document is under review
+doc.reject();                 // Document rejected, back to draft
+print('State: ${doc.getStateName()}');  // State: Draft
+
+// Back to draft: can edit again
+doc.edit('Revised content');  // Document edited: Revised content...
+doc.submit();                 // Document submitted for review
+doc.approve();                // Document approved and published!
+print('State: ${doc.getStateName()}');  // State: Published
+
+// Published state: all actions blocked
+doc.edit('More changes');     // Cannot edit: document is published
+doc.reject();                 // Cannot reject: already published
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+The State pattern encapsulates state-specific behavior into separate classes, allowing an object to change its behavior when its internal state changes without using conditionals.
+:::
+
+### Key Benefits
+
+1. **Single Responsibility**: Each state class handles behavior for one state only
+2. **Open/Closed Principle**: Add new states without modifying existing code
+3. **Eliminates Conditionals**: No more if/else chains checking state
+4. **Explicit Transitions**: State changes are clear and controlled
+
+### State vs Strategy Pattern
+
+| Aspect | State | Strategy |
+|--------|-------|----------|
+| **Intent** | Object changes behavior based on internal state | Client selects algorithm at runtime |
+| **Awareness** | States know about each other (for transitions) | Strategies are independent |
+| **Transitions** | State objects trigger transitions | Client switches strategies |
+| **Lifecycle** | State changes during object lifetime | Strategy typically set once |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Object behavior depends on its state | Only 1-2 states with simple logic |
+| State-checking conditionals are everywhere | State rarely changes |
+| State transition rules are complex | States don't share a common interface |
+| You need to add new states frequently | Overhead of multiple classes isn't justified |

@@ -1,0 +1,801 @@
+---
+title: "Template Method"
+---
+
+The **Template Method** pattern defines the skeleton of an algorithm in a base class, letting subclasses override specific steps without changing the algorithm's structure. It's like a beverage recipe where boiling water and pouring are always the same, but brewing and adding condiments differ between coffee and tea.
+
+## Problem
+
+Imagine you're building a beverage preparation system. Both coffee and tea follow similar steps: boil water, brew, pour in cup, add condiments. The naive approach is to implement the full recipe in each class.
+
+This leads to:
+
+- Algorithm structure duplicated in each class
+- Changes to the algorithm order require updating all classes
+- No enforcement that all beverages follow the same structure
+- Easy to forget a step or implement them in wrong order
+
+### Example
+
+```{mermaid}
+flowchart LR
+    subgraph Coffee
+        C1["boilWater()"] --> C2["brewCoffee()"]
+        C2 --> C3["pourInCup()"]
+        C3 --> C4["addMilkSugar()"]
+    end
+
+    subgraph Tea
+        T1["boilWater()"] --> T2["steepTea()"]
+        T2 --> T3["pourInCup()"]
+        T3 --> T4["addLemon()"]
+    end
+
+    C1 -.- NOTE1["Duplicated!"]
+    T1 -.- NOTE1
+    C3 -.- NOTE2["Duplicated!"]
+    T3 -.- NOTE2
+
+    style NOTE1 fill:#fcc,stroke:#c33
+    style NOTE2 fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- `boilWater()` and `pourInCup()` are identical but duplicated
+- If we add a new step (like warming the cup), we must update all classes
+- Nothing prevents a new beverage from implementing steps in wrong order
+- Code duplication violates DRY principle
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Coffee:
+    def prepare(self) -> None:
+        self.boil_water()
+        self.brew_coffee()
+        self.pour_in_cup()
+        self.add_sugar_and_milk()
+
+    def boil_water(self) -> None:
+        print("Boiling water")
+
+    def brew_coffee(self) -> None:
+        print("Dripping coffee through filter")
+
+    def pour_in_cup(self) -> None:
+        print("Pouring into cup")
+
+    def add_sugar_and_milk(self) -> None:
+        print("Adding sugar and milk")
+
+
+class Tea:
+    def prepare(self) -> None:
+        self.boil_water()       # Duplicated!
+        self.steep_tea()
+        self.pour_in_cup()      # Duplicated!
+        self.add_lemon()
+
+    def boil_water(self) -> None:
+        print("Boiling water")  # Duplicated!
+
+    def steep_tea(self) -> None:
+        print("Steeping the tea")
+
+    def pour_in_cup(self) -> None:
+        print("Pouring into cup")  # Duplicated!
+
+    def add_lemon(self) -> None:
+        print("Adding lemon")
+```
+
+#### `C#`
+
+```csharp
+public class Coffee
+{
+    public void Prepare()
+    {
+        BoilWater();
+        BrewCoffee();
+        PourInCup();
+        AddSugarAndMilk();
+    }
+
+    private void BoilWater() => Console.WriteLine("Boiling water");
+    private void BrewCoffee() => Console.WriteLine("Dripping coffee through filter");
+    private void PourInCup() => Console.WriteLine("Pouring into cup");
+    private void AddSugarAndMilk() => Console.WriteLine("Adding sugar and milk");
+}
+
+public class Tea
+{
+    public void Prepare()
+    {
+        BoilWater();       // Duplicated!
+        SteepTea();
+        PourInCup();       // Duplicated!
+        AddLemon();
+    }
+
+    private void BoilWater() => Console.WriteLine("Boiling water");  // Duplicated!
+    private void SteepTea() => Console.WriteLine("Steeping the tea");
+    private void PourInCup() => Console.WriteLine("Pouring into cup");  // Duplicated!
+    private void AddLemon() => Console.WriteLine("Adding lemon");
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Coffee {
+  prepare(): void {
+    this.boilWater();
+    this.brewCoffee();
+    this.pourInCup();
+    this.addSugarAndMilk();
+  }
+
+  private boilWater(): void {
+    console.log("Boiling water");
+  }
+
+  private brewCoffee(): void {
+    console.log("Dripping coffee through filter");
+  }
+
+  private pourInCup(): void {
+    console.log("Pouring into cup");
+  }
+
+  private addSugarAndMilk(): void {
+    console.log("Adding sugar and milk");
+  }
+}
+
+class Tea {
+  prepare(): void {
+    this.boilWater(); // Duplicated!
+    this.steepTea();
+    this.pourInCup(); // Duplicated!
+    this.addLemon();
+  }
+
+  private boilWater(): void {
+    console.log("Boiling water"); // Duplicated!
+  }
+
+  private steepTea(): void {
+    console.log("Steeping the tea");
+  }
+
+  private pourInCup(): void {
+    console.log("Pouring into cup"); // Duplicated!
+  }
+
+  private addLemon(): void {
+    console.log("Adding lemon");
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Coffee {
+  void prepare() {
+    _boilWater();
+    _brewCoffee();
+    _pourInCup();
+    _addSugarAndMilk();
+  }
+
+  void _boilWater() {
+    print('Boiling water');
+  }
+
+  void _brewCoffee() {
+    print('Dripping coffee through filter');
+  }
+
+  void _pourInCup() {
+    print('Pouring into cup');
+  }
+
+  void _addSugarAndMilk() {
+    print('Adding sugar and milk');
+  }
+}
+
+class Tea {
+  void prepare() {
+    _boilWater();      // Duplicated!
+    _steepTea();
+    _pourInCup();      // Duplicated!
+    _addLemon();
+  }
+
+  void _boilWater() {
+    print('Boiling water');  // Duplicated!
+  }
+
+  void _steepTea() {
+    print('Steeping the tea');
+  }
+
+  void _pourInCup() {
+    print('Pouring into cup');  // Duplicated!
+  }
+
+  void _addLemon() {
+    print('Adding lemon');
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+print("Making coffee:")
+coffee = Coffee()
+coffee.prepare()
+# Boiling water
+# Dripping coffee through filter
+# Pouring into cup
+# Adding sugar and milk
+
+print("\nMaking tea:")
+tea = Tea()
+tea.prepare()
+# Boiling water
+# Steeping the tea
+# Pouring into cup
+# Adding lemon
+
+# If we want to add "warm the cup" step, we need to modify BOTH classes!
+```
+
+#### `C#`
+
+```csharp
+Console.WriteLine("Making coffee:");
+var coffee = new Coffee();
+coffee.Prepare();
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+Console.WriteLine("\nMaking tea:");
+var tea = new Tea();
+tea.Prepare();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+// If we want to add "warm the cup" step, we need to modify BOTH classes!
+```
+
+#### `TypeScript`
+
+```typescript
+console.log("Making coffee:");
+const coffee = new Coffee();
+coffee.prepare();
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+console.log("\nMaking tea:");
+const tea = new Tea();
+tea.prepare();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+// If we want to add "warm the cup" step, we need to modify BOTH classes!
+```
+
+#### `Dart`
+
+```dart
+print('Making coffee:');
+final coffee = Coffee();
+coffee.prepare();
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+print('\nMaking tea:');
+final tea = Tea();
+tea.prepare();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+// If we want to add "warm the cup" step, we need to modify BOTH classes!
+```
+
+:::
+
+
+## Solution
+
+The **Template Method** pattern solves this by extracting the algorithm skeleton into a base class:
+
+- **Template Method** defines the fixed sequence of steps
+- **Concrete Methods** implement common steps in the base class
+- **Abstract Methods** force subclasses to provide specific implementations
+- **Hook Methods** provide optional customization points with default behavior
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Beverage {
+        <<abstract>>
+        +prepareRecipe()
+        -boilWater()
+        -pourInCup()
+        #brew()*
+        #addCondiments()*
+        #customerWantsCondiments(): bool
+    }
+
+    class Coffee {
+        #brew()
+        #addCondiments()
+    }
+
+    class Tea {
+        #brew()
+        #addCondiments()
+        #customerWantsCondiments(): bool
+    }
+
+    Beverage <|-- Coffee
+    Beverage <|-- Tea
+
+    note for Beverage "prepareRecipe() is the\ntemplate method that\ndefines the algorithm"
+```
+
+### Refactor Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+
+class Beverage(ABC):
+    """Abstract class defining the template method."""
+
+    def prepare_recipe(self) -> None:
+        """Template method - defines the algorithm skeleton."""
+        self._boil_water()
+        self._brew()
+        self._pour_in_cup()
+        if self._customer_wants_condiments():
+            self._add_condiments()
+
+    def _boil_water(self) -> None:
+        """Concrete method - same for all beverages."""
+        print("Boiling water")
+
+    def _pour_in_cup(self) -> None:
+        """Concrete method - same for all beverages."""
+        print("Pouring into cup")
+
+    @abstractmethod
+    def _brew(self) -> None:
+        """Abstract method - subclasses must implement."""
+        pass
+
+    @abstractmethod
+    def _add_condiments(self) -> None:
+        """Abstract method - subclasses must implement."""
+        pass
+
+    def _customer_wants_condiments(self) -> bool:
+        """Hook method - subclasses can override."""
+        return True
+
+
+class Coffee(Beverage):
+    """Concrete class implementing coffee-specific steps."""
+
+    def _brew(self) -> None:
+        print("Dripping coffee through filter")
+
+    def _add_condiments(self) -> None:
+        print("Adding sugar and milk")
+
+
+class Tea(Beverage):
+    """Concrete class implementing tea-specific steps."""
+
+    def __init__(self, with_condiments: bool = True):
+        self._with_condiments = with_condiments
+
+    def _brew(self) -> None:
+        print("Steeping the tea")
+
+    def _add_condiments(self) -> None:
+        print("Adding lemon")
+
+    def _customer_wants_condiments(self) -> bool:
+        """Override hook to customize behavior."""
+        return self._with_condiments
+```
+
+#### `C#`
+
+```csharp
+public abstract class Beverage
+{
+    // Template method - defines the algorithm skeleton
+    public void PrepareRecipe()
+    {
+        BoilWater();
+        Brew();
+        PourInCup();
+        if (CustomerWantsCondiments())
+        {
+            AddCondiments();
+        }
+    }
+
+    // Concrete method - same for all beverages
+    private void BoilWater() => Console.WriteLine("Boiling water");
+
+    // Concrete method - same for all beverages
+    private void PourInCup() => Console.WriteLine("Pouring into cup");
+
+    // Abstract method - subclasses must implement
+    protected abstract void Brew();
+
+    // Abstract method - subclasses must implement
+    protected abstract void AddCondiments();
+
+    // Hook method - subclasses can override
+    protected virtual bool CustomerWantsCondiments() => true;
+}
+
+public class Coffee : Beverage
+{
+    protected override void Brew()
+    {
+        Console.WriteLine("Dripping coffee through filter");
+    }
+
+    protected override void AddCondiments()
+    {
+        Console.WriteLine("Adding sugar and milk");
+    }
+}
+
+public class Tea : Beverage
+{
+    private readonly bool _withCondiments;
+
+    public Tea(bool withCondiments = true)
+    {
+        _withCondiments = withCondiments;
+    }
+
+    protected override void Brew()
+    {
+        Console.WriteLine("Steeping the tea");
+    }
+
+    protected override void AddCondiments()
+    {
+        Console.WriteLine("Adding lemon");
+    }
+
+    protected override bool CustomerWantsCondiments() => _withCondiments;
+}
+```
+
+#### `TypeScript`
+
+```typescript
+abstract class Beverage {
+  // Template method - defines the algorithm skeleton
+  prepareRecipe(): void {
+    this.boilWater();
+    this.brew();
+    this.pourInCup();
+    if (this.customerWantsCondiments()) {
+      this.addCondiments();
+    }
+  }
+
+  // Concrete method - same for all beverages
+  private boilWater(): void {
+    console.log("Boiling water");
+  }
+
+  // Concrete method - same for all beverages
+  private pourInCup(): void {
+    console.log("Pouring into cup");
+  }
+
+  // Abstract method - subclasses must implement
+  protected abstract brew(): void;
+
+  // Abstract method - subclasses must implement
+  protected abstract addCondiments(): void;
+
+  // Hook method - subclasses can override
+  protected customerWantsCondiments(): boolean {
+    return true;
+  }
+}
+
+class Coffee extends Beverage {
+  protected brew(): void {
+    console.log("Dripping coffee through filter");
+  }
+
+  protected addCondiments(): void {
+    console.log("Adding sugar and milk");
+  }
+}
+
+class Tea extends Beverage {
+  constructor(private withCondiments: boolean = true) {
+    super();
+  }
+
+  protected brew(): void {
+    console.log("Steeping the tea");
+  }
+
+  protected addCondiments(): void {
+    console.log("Adding lemon");
+  }
+
+  protected customerWantsCondiments(): boolean {
+    return this.withCondiments;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+abstract class Beverage {
+  // Template method - defines the algorithm skeleton
+  void prepareRecipe() {
+    _boilWater();
+    brew();
+    _pourInCup();
+    if (customerWantsCondiments()) {
+      addCondiments();
+    }
+  }
+
+  // Concrete method - same for all beverages
+  void _boilWater() {
+    print('Boiling water');
+  }
+
+  // Concrete method - same for all beverages
+  void _pourInCup() {
+    print('Pouring into cup');
+  }
+
+  // Abstract method - subclasses must implement
+  void brew();
+
+  // Abstract method - subclasses must implement
+  void addCondiments();
+
+  // Hook method - subclasses can override
+  bool customerWantsCondiments() => true;
+}
+
+class Coffee extends Beverage {
+  @override
+  void brew() {
+    print('Dripping coffee through filter');
+  }
+
+  @override
+  void addCondiments() {
+    print('Adding sugar and milk');
+  }
+}
+
+class Tea extends Beverage {
+  final bool _withCondiments;
+
+  Tea({bool withCondiments = true}) : _withCondiments = withCondiments;
+
+  @override
+  void brew() {
+    print('Steeping the tea');
+  }
+
+  @override
+  void addCondiments() {
+    print('Adding lemon');
+  }
+
+  @override
+  bool customerWantsCondiments() => _withCondiments;
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+print("=== Making Coffee ===")
+coffee = Coffee()
+coffee.prepare_recipe()
+# Boiling water
+# Dripping coffee through filter
+# Pouring into cup
+# Adding sugar and milk
+
+print("\n=== Making Tea (with lemon) ===")
+tea = Tea(with_condiments=True)
+tea.prepare_recipe()
+# Boiling water
+# Steeping the tea
+# Pouring into cup
+# Adding lemon
+
+print("\n=== Making Tea (no condiments) ===")
+plain_tea = Tea(with_condiments=False)
+plain_tea.prepare_recipe()
+# Boiling water
+# Steeping the tea
+# Pouring into cup
+# (No condiments added - hook returned False)
+```
+
+#### `C#`
+
+```csharp
+Console.WriteLine("=== Making Coffee ===");
+var coffee = new Coffee();
+coffee.PrepareRecipe();
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+Console.WriteLine("\n=== Making Tea (with lemon) ===");
+var tea = new Tea(withCondiments: true);
+tea.PrepareRecipe();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+Console.WriteLine("\n=== Making Tea (no condiments) ===");
+var plainTea = new Tea(withCondiments: false);
+plainTea.PrepareRecipe();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// (No condiments added - hook returned false)
+```
+
+#### `TypeScript`
+
+```typescript
+console.log("=== Making Coffee ===");
+const coffee = new Coffee();
+coffee.prepareRecipe();
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+console.log("\n=== Making Tea (with lemon) ===");
+const tea = new Tea(true);
+tea.prepareRecipe();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+console.log("\n=== Making Tea (no condiments) ===");
+const plainTea = new Tea(false);
+plainTea.prepareRecipe();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// (No condiments added - hook returned false)
+```
+
+#### `Dart`
+
+```dart
+print('=== Making Coffee ===');
+final coffee = Coffee();
+coffee.prepareRecipe();
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+print('\n=== Making Tea (with lemon) ===');
+final tea = Tea(withCondiments: true);
+tea.prepareRecipe();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+print('\n=== Making Tea (no condiments) ===');
+final plainTea = Tea(withCondiments: false);
+plainTea.prepareRecipe();
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// (No condiments added - hook returned false)
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+The Template Method pattern defines an algorithm skeleton in a base class and lets subclasses override specific steps without changing the overall structure — enforcing consistency while allowing customization.
+:::
+
+### Key Benefits
+
+1. **Code Reuse**: Common steps implemented once in base class
+2. **Consistency**: Algorithm structure is enforced and can't be changed by subclasses
+3. **Hollywood Principle**: "Don't call us, we'll call you" — base class controls the flow
+4. **Extensibility**: Add new variants by creating new subclasses
+
+### Method Types in Template Method
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **Template Method** | Defines algorithm skeleton, calls other methods | `prepareRecipe()` |
+| **Concrete Method** | Implemented in base, same for all subclasses | `boilWater()` |
+| **Abstract Method** | Must be implemented by subclasses | `brew()` |
+| **Hook Method** | Has default implementation, optionally overridden | `customerWantsCondiments()` |
+
+### Template Method vs Strategy
+
+| Aspect | Template Method | Strategy |
+|--------|-----------------|----------|
+| **Mechanism** | Inheritance | Composition |
+| **Algorithm variation** | Override steps | Swap entire algorithm |
+| **Control** | Base class controls flow | Client controls which strategy |
+| **Coupling** | Subclass tied to base | Strategies are independent |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Multiple classes share algorithm structure | Algorithms are completely different |
+| You want to enforce algorithm sequence | Subclasses need to change the sequence |
+| Common steps should not be duplicated | Composition would be simpler |
+| Hook methods provide enough flexibility | Too many hooks make base class complex |
