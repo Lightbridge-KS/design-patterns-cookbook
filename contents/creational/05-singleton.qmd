@@ -1,0 +1,724 @@
+---
+title: "Singleton"
+---
+
+The **Singleton** pattern ensures a class has only one instance and provides a global point of access to it. While controversial (it can hinder testability), it's useful for truly global resources like loggers, configuration managers, or connection pools.
+
+## Problem
+
+Imagine you're building an application that needs logging. Different parts of the codebase create their own logger instances, leading to:
+
+- Multiple file handles to the same log file
+- Inconsistent log formatting
+- No single point to control log levels
+
+### Example
+
+```{mermaid}
+flowchart TB
+    subgraph "Multiple Instances Problem"
+        A[Module A] --> L1[Logger #1]
+        B[Module B] --> L2[Logger #2]
+        C[Module C] --> L3[Logger #3]
+        L1 --> F[log.txt]
+        L2 --> F
+        L3 --> F
+    end
+
+    style L1 fill:#f96,stroke:#333
+    style L2 fill:#f96,stroke:#333
+    style L3 fill:#f96,stroke:#333
+```
+
+**Problems with multiple instances:**
+
+- Wasted resources (each instance opens its own file handle)
+- Inconsistent state (different log levels in different instances)
+- Race conditions when writing to the same file
+- No centralized control
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from datetime import datetime
+
+class Logger:
+    def __init__(self):
+        # Each instance opens a new file handle!
+        self._log_file = open("app.log", "a")
+        self._level = "INFO"
+
+    def log(self, message: str) -> None:
+        timestamp = datetime.now().isoformat()
+        self._log_file.write(f"[{timestamp}] {self._level}: {message}\n")
+        self._log_file.flush()
+
+    def set_level(self, level: str) -> None:
+        self._level = level
+```
+
+#### `C#`
+
+```csharp
+public class Logger
+{
+    private StreamWriter _logFile;
+    private string _level = "INFO";
+
+    public Logger()
+    {
+        // Each instance opens a new file handle!
+        _logFile = new StreamWriter("app.log", append: true);
+    }
+
+    public void Log(string message)
+    {
+        var timestamp = DateTime.Now.ToString("o");
+        _logFile.WriteLine($"[{timestamp}] {_level}: {message}");
+        _logFile.Flush();
+    }
+
+    public void SetLevel(string level) => _level = level;
+}
+```
+
+#### `TypeScript`
+
+```typescript
+import * as fs from "fs";
+
+class Logger {
+  private logFile: fs.WriteStream;
+  private level: string = "INFO";
+
+  constructor() {
+    // Each instance opens a new file handle!
+    this.logFile = fs.createWriteStream("app.log", { flags: "a" });
+  }
+
+  log(message: string): void {
+    const timestamp = new Date().toISOString();
+    this.logFile.write(`[${timestamp}] ${this.level}: ${message}\n`);
+  }
+
+  setLevel(level: string): void {
+    this.level = level;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+import 'dart:io';
+
+class Logger {
+  late IOSink _logFile;
+  String _level = "INFO";
+
+  Logger() {
+    // Each instance opens a new file handle!
+    _logFile = File("app.log").openWrite(mode: FileMode.append);
+  }
+
+  void log(String message) {
+    final timestamp = DateTime.now().toIso8601String();
+    _logFile.writeln("[$timestamp] $_level: $message");
+  }
+
+  void setLevel(String level) => _level = level;
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Different parts of the application create their own loggers
+logger1 = Logger()  # Opens file handle #1
+logger2 = Logger()  # Opens file handle #2
+
+logger1.set_level("DEBUG")
+logger2.set_level("ERROR")  # Different level!
+
+logger1.log("This is debug")   # Uses DEBUG level
+logger2.log("This is error")   # Uses ERROR level - inconsistent!
+
+print(logger1 is logger2)  # False - two different objects!
+```
+
+#### `C#`
+
+```csharp
+// Different parts of the application create their own loggers
+var logger1 = new Logger();  // Opens file handle #1
+var logger2 = new Logger();  // Opens file handle #2
+
+logger1.SetLevel("DEBUG");
+logger2.SetLevel("ERROR");  // Different level!
+
+logger1.Log("This is debug");   // Uses DEBUG level
+logger2.Log("This is error");   // Uses ERROR level - inconsistent!
+
+Console.WriteLine(logger1 == logger2);  // False - two different objects!
+```
+
+#### `TypeScript`
+
+```typescript
+// Different parts of the application create their own loggers
+const logger1 = new Logger();  // Opens file handle #1
+const logger2 = new Logger();  // Opens file handle #2
+
+logger1.setLevel("DEBUG");
+logger2.setLevel("ERROR");  // Different level!
+
+logger1.log("This is debug");   // Uses DEBUG level
+logger2.log("This is error");   // Uses ERROR level - inconsistent!
+
+console.log(logger1 === logger2);  // false - two different objects!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Different parts of the application create their own loggers
+  final logger1 = Logger();  // Opens file handle #1
+  final logger2 = Logger();  // Opens file handle #2
+
+  logger1.setLevel("DEBUG");
+  logger2.setLevel("ERROR");  // Different level!
+
+  logger1.log("This is debug");   // Uses DEBUG level
+  logger2.log("This is error");   // Uses ERROR level - inconsistent!
+
+  print(identical(logger1, logger2));  // false - two different objects!
+}
+```
+
+:::
+
+
+## Solution
+
+The Singleton pattern solves this by:
+
+1. Making the constructor **private** (or protected)
+2. Providing a **static method** (`getInstance()`) that returns the single instance
+3. Creating the instance on first access (lazy initialization)
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Logger {
+        -instance$ : Logger
+        -logFile : file
+        -level : string
+        -Logger()
+        +getInstance()$ Logger
+        +log(message)
+        +setLevel(level)
+    }
+
+    Logger ..> Logger : returns instance
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from datetime import datetime
+
+class Logger:
+    _instance: "Logger | None" = None
+
+    def __new__(cls) -> "Logger":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        # Prevent re-initialization
+        if self._initialized:
+            return
+        self._initialized = True
+        self._log_file = open("app.log", "a")
+        self._level = "INFO"
+
+    @classmethod
+    def get_instance(cls) -> "Logger":
+        """Alternative way to get the singleton instance."""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def log(self, message: str) -> None:
+        timestamp = datetime.now().isoformat()
+        self._log_file.write(f"[{timestamp}] {self._level}: {message}\n")
+        self._log_file.flush()
+
+    def set_level(self, level: str) -> None:
+        self._level = level
+```
+
+#### `C#`
+
+```csharp
+public sealed class Logger
+{
+    // Lazy<T> ensures thread-safe lazy initialization
+    private static readonly Lazy<Logger> _instance =
+        new Lazy<Logger>(() => new Logger());
+
+    private StreamWriter _logFile;
+    private string _level = "INFO";
+
+    // Private constructor prevents external instantiation
+    private Logger()
+    {
+        _logFile = new StreamWriter("app.log", append: true);
+    }
+
+    public static Logger Instance => _instance.Value;
+
+    public void Log(string message)
+    {
+        var timestamp = DateTime.Now.ToString("o");
+        lock (_logFile)  // Thread-safe logging
+        {
+            _logFile.WriteLine($"[{timestamp}] {_level}: {message}");
+            _logFile.Flush();
+        }
+    }
+
+    public void SetLevel(string level) => _level = level;
+}
+```
+
+#### `TypeScript`
+
+```typescript
+import * as fs from "fs";
+
+class Logger {
+  private static instance: Logger | null = null;
+
+  private logFile: fs.WriteStream;
+  private level: string = "INFO";
+
+  // Private constructor prevents external instantiation
+  private constructor() {
+    this.logFile = fs.createWriteStream("app.log", { flags: "a" });
+  }
+
+  static getInstance(): Logger {
+    if (Logger.instance === null) {
+      Logger.instance = new Logger();
+    }
+    return Logger.instance;
+  }
+
+  log(message: string): void {
+    const timestamp = new Date().toISOString();
+    this.logFile.write(`[${timestamp}] ${this.level}: ${message}\n`);
+  }
+
+  setLevel(level: string): void {
+    this.level = level;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+import 'dart:io';
+
+class Logger {
+  static Logger? _instance;
+
+  late IOSink _logFile;
+  String _level = "INFO";
+
+  // Private named constructor
+  Logger._internal() {
+    _logFile = File("app.log").openWrite(mode: FileMode.append);
+  }
+
+  // Factory constructor returns the singleton instance
+  factory Logger() {
+    _instance ??= Logger._internal();
+    return _instance!;
+  }
+
+  // Alternative static getter
+  static Logger get instance {
+    _instance ??= Logger._internal();
+    return _instance!;
+  }
+
+  void log(String message) {
+    final timestamp = DateTime.now().toIso8601String();
+    _logFile.writeln("[$timestamp] $_level: $message");
+  }
+
+  void setLevel(String level) => _level = level;
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Both return the SAME instance
+logger1 = Logger()
+logger2 = Logger()
+logger3 = Logger.get_instance()
+
+print(logger1 is logger2)  # True - same object!
+print(logger1 is logger3)  # True - same object!
+
+# Changes affect all references
+logger1.set_level("DEBUG")
+print(logger2._level)  # "DEBUG" - same instance!
+
+# Use anywhere in the application
+Logger.get_instance().log("Application started")
+```
+
+#### `C#`
+
+```csharp
+// Both return the SAME instance
+var logger1 = Logger.Instance;
+var logger2 = Logger.Instance;
+
+Console.WriteLine(logger1 == logger2);  // True - same object!
+
+// Changes affect all references
+logger1.SetLevel("DEBUG");
+// logger2 also has DEBUG level - same instance!
+
+// Use anywhere in the application
+Logger.Instance.Log("Application started");
+```
+
+#### `TypeScript`
+
+```typescript
+// Both return the SAME instance
+const logger1 = Logger.getInstance();
+const logger2 = Logger.getInstance();
+
+console.log(logger1 === logger2);  // true - same object!
+
+// Changes affect all references
+logger1.setLevel("DEBUG");
+// logger2 also has DEBUG level - same instance!
+
+// Use anywhere in the application
+Logger.getInstance().log("Application started");
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Both return the SAME instance
+  final logger1 = Logger();
+  final logger2 = Logger();
+  final logger3 = Logger.instance;
+
+  print(identical(logger1, logger2));  // true - same object!
+  print(identical(logger1, logger3));  // true - same object!
+
+  // Changes affect all references
+  logger1.setLevel("DEBUG");
+  // logger2 also has DEBUG level - same instance!
+
+  // Use anywhere in the application
+  Logger.instance.log("Application started");
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Singleton** ensures a class has only one instance with global access — useful for shared resources, but use sparingly due to testability concerns.
+:::
+
+### Key Benefits
+
+- **Single Instance**: Guarantees exactly one instance exists
+- **Global Access**: Easy access from anywhere in the codebase
+- **Lazy Initialization**: Instance created only when needed
+- **Controlled Access**: Centralized point for managing shared state
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need exactly one instance (logger, config) | You need multiple instances in tests |
+| The instance should be globally accessible | Dependency injection is available |
+| You want to control shared resource access | The class has mutable state that varies |
+| Instance creation is expensive | It's just for "convenience" (use DI instead) |
+
+::: {.callout-warning appearance="simple"}
+**Testability Warning**: Singletons make unit testing harder because you can't easily replace them with mocks. Consider using Dependency Injection instead, where the "singleton" lifetime is managed by the DI container.
+:::
+
+### Alternative: Dependency Injection
+
+The core problem with Singleton is **hidden dependencies**. When a class calls `Logger.getInstance()` internally, you can't replace that logger with a mock during testing.
+
+```{mermaid}
+flowchart LR
+    subgraph "Singleton (Hard to Test)"
+        S[Service] -->|"calls internally"| L1[Logger.getInstance]
+        T[Test] -->|"can't intercept"| S
+    end
+
+    subgraph "DI (Easy to Test)"
+        S2[Service] -->|"receives"| L2[ILogger]
+        T2[Test] -->|"injects MockLogger"| S2
+    end
+
+    style L1 fill:#faa,stroke:#333
+    style L2 fill:#afa,stroke:#333
+```
+
+**The Solution**: Instead of classes fetching the singleton themselves, **inject** the dependency. The DI container manages the "singleton" lifetime.
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# 1. Define an interface (protocol)
+class ILogger(ABC):
+    @abstractmethod
+    def log(self, message: str) -> None:
+        pass
+
+# 2. Real implementation
+class FileLogger(ILogger):
+    def __init__(self, filename: str = "app.log"):
+        self._file = open(filename, "a")
+
+    def log(self, message: str) -> None:
+        self._file.write(f"{message}\n")
+        self._file.flush()
+
+# 3. Service receives logger via constructor (DI)
+class OrderService:
+    def __init__(self, logger: ILogger):  # Injected!
+        self._logger = logger
+
+    def place_order(self, order_id: str) -> None:
+        self._logger.log(f"Order {order_id} placed")
+
+# 4. Mock for testing
+class MockLogger(ILogger):
+    def __init__(self):
+        self.messages: list[str] = []
+
+    def log(self, message: str) -> None:
+        self.messages.append(message)
+
+# --- Usage ---
+# Production: inject real logger
+logger = FileLogger()
+service = OrderService(logger)
+
+# Testing: inject mock logger
+mock_logger = MockLogger()
+test_service = OrderService(mock_logger)
+test_service.place_order("123")
+assert "Order 123 placed" in mock_logger.messages  # Easy to verify!
+```
+
+#### `C#`
+
+```csharp
+// 1. Define an interface
+public interface ILogger
+{
+    void Log(string message);
+}
+
+// 2. Real implementation
+public class FileLogger : ILogger
+{
+    private readonly StreamWriter _file;
+
+    public FileLogger(string filename = "app.log")
+    {
+        _file = new StreamWriter(filename, append: true);
+    }
+
+    public void Log(string message)
+    {
+        _file.WriteLine(message);
+        _file.Flush();
+    }
+}
+
+// 3. Service receives logger via constructor (DI)
+public class OrderService
+{
+    private readonly ILogger _logger;  // Injected!
+
+    public OrderService(ILogger logger)
+    {
+        _logger = logger;
+    }
+
+    public void PlaceOrder(string orderId)
+    {
+        _logger.Log($"Order {orderId} placed");
+    }
+}
+
+// 4. Mock for testing
+public class MockLogger : ILogger
+{
+    public List<string> Messages { get; } = new();
+
+    public void Log(string message) => Messages.Add(message);
+}
+
+// --- Usage with DI Container (e.g., Microsoft.Extensions.DependencyInjection) ---
+var services = new ServiceCollection();
+services.AddSingleton<ILogger, FileLogger>();  // Singleton lifetime!
+services.AddTransient<OrderService>();
+
+var provider = services.BuildServiceProvider();
+var service = provider.GetRequiredService<OrderService>();
+
+// --- Testing ---
+var mockLogger = new MockLogger();
+var testService = new OrderService(mockLogger);
+testService.PlaceOrder("123");
+Assert.Contains("Order 123 placed", mockLogger.Messages);  // Easy to verify!
+```
+
+#### `TypeScript`
+
+```typescript
+// 1. Define an interface
+interface ILogger {
+  log(message: string): void;
+}
+
+// 2. Real implementation
+class FileLogger implements ILogger {
+  log(message: string): void {
+    console.log(`[FILE] ${message}`);  // Simplified for example
+  }
+}
+
+// 3. Service receives logger via constructor (DI)
+class OrderService {
+  private logger: ILogger;  // Injected!
+
+  constructor(logger: ILogger) {
+    this.logger = logger;
+  }
+
+  placeOrder(orderId: string): void {
+    this.logger.log(`Order ${orderId} placed`);
+  }
+}
+
+// 4. Mock for testing
+class MockLogger implements ILogger {
+  messages: string[] = [];
+
+  log(message: string): void {
+    this.messages.push(message);
+  }
+}
+
+// --- Usage ---
+// Production: inject real logger
+const logger = new FileLogger();
+const service = new OrderService(logger);
+
+// Testing: inject mock logger
+const mockLogger = new MockLogger();
+const testService = new OrderService(mockLogger);
+testService.placeOrder("123");
+console.assert(mockLogger.messages.includes("Order 123 placed"));  // Easy!
+```
+
+#### `Dart`
+
+```dart
+// 1. Define an interface
+abstract class ILogger {
+  void log(String message);
+}
+
+// 2. Real implementation
+class FileLogger implements ILogger {
+  @override
+  void log(String message) {
+    print("[FILE] $message");  // Simplified for example
+  }
+}
+
+// 3. Service receives logger via constructor (DI)
+class OrderService {
+  final ILogger _logger;  // Injected!
+
+  OrderService(this._logger);
+
+  void placeOrder(String orderId) {
+    _logger.log("Order $orderId placed");
+  }
+}
+
+// 4. Mock for testing
+class MockLogger implements ILogger {
+  final List<String> messages = [];
+
+  @override
+  void log(String message) {
+    messages.add(message);
+  }
+}
+
+// --- Usage ---
+void main() {
+  // Production: inject real logger
+  final logger = FileLogger();
+  final service = OrderService(logger);
+
+  // Testing: inject mock logger
+  final mockLogger = MockLogger();
+  final testService = OrderService(mockLogger);
+  testService.placeOrder("123");
+  assert(mockLogger.messages.contains("Order 123 placed"));  // Easy!
+}
+```
+
+:::
+
+**Key Insight**: The DI container (or manual wiring) ensures only one `FileLogger` instance exists (singleton behavior), but the code is **testable** because dependencies are explicit and replaceable.

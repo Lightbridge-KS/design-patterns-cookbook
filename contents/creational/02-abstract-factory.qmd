@@ -1,0 +1,668 @@
+---
+title: "Abstract Factory"
+---
+
+The **Abstract Factory** pattern provides an interface for creating *families of related objects* without specifying their concrete classes. Unlike Factory Method (which creates one product), Abstract Factory creates multiple products that belong together.
+
+## Problem
+
+Imagine you're building a game engine that supports different themes: Medieval and Sci-Fi. Each theme has its own units — warriors and buildings — that must match stylistically.
+
+The naive approach uses conditionals to create themed objects, but this leads to:
+
+- Repeated theme checks across multiple creation methods
+- Risk of mixing incompatible products (Knight with Spaceship)
+- Every new theme requires modifying existing code
+
+### Example
+
+```{mermaid}
+flowchart TB
+    GF[GameFactory]
+
+    GF -->|"if medieval"| K[Knight]
+    GF -->|"if scifi"| R[Robot]
+    GF -->|"if medieval"| C[Castle]
+    GF -->|"if scifi"| S[Spaceship]
+
+    K -.-x S
+    R -.-x C
+
+    style GF fill:#f96,stroke:#333
+    style K fill:#c9e,stroke:#333
+    style C fill:#c9e,stroke:#333
+    style R fill:#9ce,stroke:#333
+    style S fill:#9ce,stroke:#333
+```
+
+**Problems with this approach:**
+
+- Theme parameter must be passed to every creation method
+- Nothing prevents mixing `Knight` with `Spaceship` (wrong family!)
+- Adding a new theme requires modifying multiple methods
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Knight:
+    def attack(self):
+        print("Knight swings sword!")
+
+class Robot:
+    def attack(self):
+        print("Robot fires laser!")
+
+class Castle:
+    def describe(self):
+        print("A medieval stone castle")
+
+class Spaceship:
+    def describe(self):
+        print("A futuristic spaceship base")
+
+class GameFactory:
+    def create_warrior(self, theme: str):
+        if theme == "medieval":
+            return Knight()
+        elif theme == "scifi":
+            return Robot()
+        raise ValueError(f"Unknown theme: {theme}")
+
+    def create_building(self, theme: str):
+        if theme == "medieval":
+            return Castle()
+        elif theme == "scifi":
+            return Spaceship()
+        raise ValueError(f"Unknown theme: {theme}")
+```
+
+#### `C#`
+
+```csharp
+public class Knight
+{
+    public void Attack() => Console.WriteLine("Knight swings sword!");
+}
+
+public class Robot
+{
+    public void Attack() => Console.WriteLine("Robot fires laser!");
+}
+
+public class Castle
+{
+    public void Describe() => Console.WriteLine("A medieval stone castle");
+}
+
+public class Spaceship
+{
+    public void Describe() => Console.WriteLine("A futuristic spaceship base");
+}
+
+public class GameFactory
+{
+    public object CreateWarrior(string theme) => theme switch
+    {
+        "medieval" => new Knight(),
+        "scifi" => new Robot(),
+        _ => throw new ArgumentException($"Unknown theme: {theme}")
+    };
+
+    public object CreateBuilding(string theme) => theme switch
+    {
+        "medieval" => new Castle(),
+        "scifi" => new Spaceship(),
+        _ => throw new ArgumentException($"Unknown theme: {theme}")
+    };
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Knight {
+  attack(): void {
+    console.log("Knight swings sword!");
+  }
+}
+
+class Robot {
+  attack(): void {
+    console.log("Robot fires laser!");
+  }
+}
+
+class Castle {
+  describe(): void {
+    console.log("A medieval stone castle");
+  }
+}
+
+class Spaceship {
+  describe(): void {
+    console.log("A futuristic spaceship base");
+  }
+}
+
+class GameFactory {
+  createWarrior(theme: string): Knight | Robot {
+    if (theme === "medieval") return new Knight();
+    if (theme === "scifi") return new Robot();
+    throw new Error(`Unknown theme: ${theme}`);
+  }
+
+  createBuilding(theme: string): Castle | Spaceship {
+    if (theme === "medieval") return new Castle();
+    if (theme === "scifi") return new Spaceship();
+    throw new Error(`Unknown theme: ${theme}`);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Knight {
+  void attack() => print("Knight swings sword!");
+}
+
+class Robot {
+  void attack() => print("Robot fires laser!");
+}
+
+class Castle {
+  void describe() => print("A medieval stone castle");
+}
+
+class Spaceship {
+  void describe() => print("A futuristic spaceship base");
+}
+
+class GameFactory {
+  dynamic createWarrior(String theme) {
+    switch (theme) {
+      case "medieval": return Knight();
+      case "scifi": return Robot();
+      default: throw ArgumentError("Unknown theme: $theme");
+    }
+  }
+
+  dynamic createBuilding(String theme) {
+    switch (theme) {
+      case "medieval": return Castle();
+      case "scifi": return Spaceship();
+      default: throw ArgumentError("Unknown theme: $theme");
+    }
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+factory = GameFactory()
+
+# Easy to accidentally mix themes!
+warrior = factory.create_warrior("medieval")  # Knight
+building = factory.create_building("scifi")   # Spaceship - WRONG MIX!
+
+warrior.attack()
+building.describe()
+```
+
+#### `C#`
+
+```csharp
+var factory = new GameFactory();
+
+// Easy to accidentally mix themes!
+dynamic warrior = factory.CreateWarrior("medieval");  // Knight
+dynamic building = factory.CreateBuilding("scifi");   // Spaceship - WRONG MIX!
+
+warrior.Attack();
+building.Describe();
+```
+
+#### `TypeScript`
+
+```typescript
+const factory = new GameFactory();
+
+// Easy to accidentally mix themes!
+const warrior = factory.createWarrior("medieval");  // Knight
+const building = factory.createBuilding("scifi");   // Spaceship - WRONG MIX!
+
+warrior.attack();
+building.describe();
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final factory = GameFactory();
+
+  // Easy to accidentally mix themes!
+  final warrior = factory.createWarrior("medieval");  // Knight
+  final building = factory.createBuilding("scifi");   // Spaceship - WRONG MIX!
+
+  warrior.attack();
+  building.describe();
+}
+```
+
+:::
+
+
+## Solution
+
+The Abstract Factory pattern solves this by:
+
+1. Defining **product interfaces** (`Warrior`, `Building`) for each product type
+2. Creating an **abstract factory interface** (`GameFactory`) that declares creation methods for all products
+3. Implementing **concrete factories** (`MedievalFactory`, `SciFiFactory`) that return matching product families
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Warrior {
+        <<interface>>
+        +attack()
+    }
+
+    class Building {
+        <<interface>>
+        +describe()
+    }
+
+    class Knight {
+        +attack()
+    }
+
+    class Robot {
+        +attack()
+    }
+
+    class Castle {
+        +describe()
+    }
+
+    class Spaceship {
+        +describe()
+    }
+
+    class GameFactory {
+        <<interface>>
+        +createWarrior() Warrior
+        +createBuilding() Building
+    }
+
+    class MedievalFactory {
+        +createWarrior() Warrior
+        +createBuilding() Building
+    }
+
+    class SciFiFactory {
+        +createWarrior() Warrior
+        +createBuilding() Building
+    }
+
+    Warrior <|.. Knight
+    Warrior <|.. Robot
+    Building <|.. Castle
+    Building <|.. Spaceship
+
+    GameFactory <|.. MedievalFactory
+    GameFactory <|.. SciFiFactory
+
+    MedievalFactory ..> Knight : creates
+    MedievalFactory ..> Castle : creates
+    SciFiFactory ..> Robot : creates
+    SciFiFactory ..> Spaceship : creates
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Product interfaces
+class Warrior(ABC):
+    @abstractmethod
+    def attack(self) -> None:
+        pass
+
+class Building(ABC):
+    @abstractmethod
+    def describe(self) -> None:
+        pass
+
+# Concrete Products - Medieval
+class Knight(Warrior):
+    def attack(self) -> None:
+        print("Knight swings sword!")
+
+class Castle(Building):
+    def describe(self) -> None:
+        print("A medieval stone castle")
+
+# Concrete Products - Sci-Fi
+class Robot(Warrior):
+    def attack(self) -> None:
+        print("Robot fires laser!")
+
+class Spaceship(Building):
+    def describe(self) -> None:
+        print("A futuristic spaceship base")
+
+# Abstract Factory
+class GameFactory(ABC):
+    @abstractmethod
+    def create_warrior(self) -> Warrior:
+        pass
+
+    @abstractmethod
+    def create_building(self) -> Building:
+        pass
+
+# Concrete Factories
+class MedievalFactory(GameFactory):
+    def create_warrior(self) -> Warrior:
+        return Knight()
+
+    def create_building(self) -> Building:
+        return Castle()
+
+class SciFiFactory(GameFactory):
+    def create_warrior(self) -> Warrior:
+        return Robot()
+
+    def create_building(self) -> Building:
+        return Spaceship()
+```
+
+#### `C#`
+
+```csharp
+// Product interfaces
+public interface IWarrior
+{
+    void Attack();
+}
+
+public interface IBuilding
+{
+    void Describe();
+}
+
+// Concrete Products - Medieval
+public class Knight : IWarrior
+{
+    public void Attack() => Console.WriteLine("Knight swings sword!");
+}
+
+public class Castle : IBuilding
+{
+    public void Describe() => Console.WriteLine("A medieval stone castle");
+}
+
+// Concrete Products - Sci-Fi
+public class Robot : IWarrior
+{
+    public void Attack() => Console.WriteLine("Robot fires laser!");
+}
+
+public class Spaceship : IBuilding
+{
+    public void Describe() => Console.WriteLine("A futuristic spaceship base");
+}
+
+// Abstract Factory
+public interface IGameFactory
+{
+    IWarrior CreateWarrior();
+    IBuilding CreateBuilding();
+}
+
+// Concrete Factories
+public class MedievalFactory : IGameFactory
+{
+    public IWarrior CreateWarrior() => new Knight();
+    public IBuilding CreateBuilding() => new Castle();
+}
+
+public class SciFiFactory : IGameFactory
+{
+    public IWarrior CreateWarrior() => new Robot();
+    public IBuilding CreateBuilding() => new Spaceship();
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Product interfaces
+interface Warrior {
+  attack(): void;
+}
+
+interface Building {
+  describe(): void;
+}
+
+// Concrete Products - Medieval
+class Knight implements Warrior {
+  attack(): void {
+    console.log("Knight swings sword!");
+  }
+}
+
+class Castle implements Building {
+  describe(): void {
+    console.log("A medieval stone castle");
+  }
+}
+
+// Concrete Products - Sci-Fi
+class Robot implements Warrior {
+  attack(): void {
+    console.log("Robot fires laser!");
+  }
+}
+
+class Spaceship implements Building {
+  describe(): void {
+    console.log("A futuristic spaceship base");
+  }
+}
+
+// Abstract Factory
+interface GameFactory {
+  createWarrior(): Warrior;
+  createBuilding(): Building;
+}
+
+// Concrete Factories
+class MedievalFactory implements GameFactory {
+  createWarrior(): Warrior {
+    return new Knight();
+  }
+
+  createBuilding(): Building {
+    return new Castle();
+  }
+}
+
+class SciFiFactory implements GameFactory {
+  createWarrior(): Warrior {
+    return new Robot();
+  }
+
+  createBuilding(): Building {
+    return new Spaceship();
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Product interfaces
+abstract class Warrior {
+  void attack();
+}
+
+abstract class Building {
+  void describe();
+}
+
+// Concrete Products - Medieval
+class Knight implements Warrior {
+  @override
+  void attack() => print("Knight swings sword!");
+}
+
+class Castle implements Building {
+  @override
+  void describe() => print("A medieval stone castle");
+}
+
+// Concrete Products - Sci-Fi
+class Robot implements Warrior {
+  @override
+  void attack() => print("Robot fires laser!");
+}
+
+class Spaceship implements Building {
+  @override
+  void describe() => print("A futuristic spaceship base");
+}
+
+// Abstract Factory
+abstract class GameFactory {
+  Warrior createWarrior();
+  Building createBuilding();
+}
+
+// Concrete Factories
+class MedievalFactory implements GameFactory {
+  @override
+  Warrior createWarrior() => Knight();
+
+  @override
+  Building createBuilding() => Castle();
+}
+
+class SciFiFactory implements GameFactory {
+  @override
+  Warrior createWarrior() => Robot();
+
+  @override
+  Building createBuilding() => Spaceship();
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+def play_game(factory: GameFactory) -> None:
+    warrior = factory.create_warrior()
+    building = factory.create_building()
+
+    warrior.attack()
+    building.describe()
+
+# Products are guaranteed to match!
+play_game(MedievalFactory())  # Knight + Castle
+play_game(SciFiFactory())     # Robot + Spaceship
+```
+
+#### `C#`
+
+```csharp
+void PlayGame(IGameFactory factory)
+{
+    var warrior = factory.CreateWarrior();
+    var building = factory.CreateBuilding();
+
+    warrior.Attack();
+    building.Describe();
+}
+
+// Products are guaranteed to match!
+PlayGame(new MedievalFactory());  // Knight + Castle
+PlayGame(new SciFiFactory());     // Robot + Spaceship
+```
+
+#### `TypeScript`
+
+```typescript
+function playGame(factory: GameFactory): void {
+  const warrior = factory.createWarrior();
+  const building = factory.createBuilding();
+
+  warrior.attack();
+  building.describe();
+}
+
+// Products are guaranteed to match!
+playGame(new MedievalFactory());  // Knight + Castle
+playGame(new SciFiFactory());     // Robot + Spaceship
+```
+
+#### `Dart`
+
+```dart
+void playGame(GameFactory factory) {
+  final warrior = factory.createWarrior();
+  final building = factory.createBuilding();
+
+  warrior.attack();
+  building.describe();
+}
+
+void main() {
+  // Products are guaranteed to match!
+  playGame(MedievalFactory());  // Knight + Castle
+  playGame(SciFiFactory());     // Robot + Spaceship
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Abstract Factory** ensures that products created together are compatible, preventing mismatched combinations and making it easy to swap entire product families.
+:::
+
+### Key Benefits
+
+- **Product Consistency**: Factory guarantees all products belong to the same family
+- **Open/Closed Principle**: Add new themes by creating new factory classes — no existing code changes
+- **Single Responsibility**: Each factory is responsible for one product family
+- **Loose Coupling**: Client code depends only on abstract interfaces
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Products come in families that must be used together | You only have one product type (use Factory Method) |
+| You need to enforce consistency across related products | Product families rarely change |
+| System should be independent of how products are created | The additional abstraction adds unnecessary complexity |
+| You want to swap entire product families easily | |

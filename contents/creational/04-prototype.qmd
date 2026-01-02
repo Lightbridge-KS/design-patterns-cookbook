@@ -1,0 +1,662 @@
+---
+title: "Prototype"
+---
+
+The **Prototype** pattern creates new objects by **cloning** existing ones. Instead of building objects from scratch, you copy a prototype and modify it as needed. This is especially useful when object creation is expensive or when you want to avoid coupling to concrete classes.
+
+## Problem
+
+Imagine you're building a graphic editor. Users can create shapes (circles, rectangles) and need to duplicate them. The naive approach requires knowing all the fields of each shape class to copy them manually.
+
+### Example
+
+```{mermaid}
+flowchart LR
+    subgraph "Manual Copying"
+        O[Original Circle]
+        C[Copy Code]
+        N[New Circle]
+        O -->|"read x, y"| C
+        O -->|"read radius"| C
+        O -->|"read color"| C
+        O -->|"private fields?"| Q[???]
+        C --> N
+    end
+
+    style Q fill:#faa,stroke:#333
+    style C fill:#f96,stroke:#333
+```
+
+**Problems with manual copying:**
+
+- Must know all fields of the object (including private ones)
+- Client code is coupled to concrete classes
+- If the class changes, all copy code must be updated
+- Some objects have circular references or complex state
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Circle:
+    def __init__(self, x: int, y: int, radius: int, color: str):
+        self.x = x
+        self.y = y
+        self.radius = radius
+        self.color = color
+        self._internal_id = id(self)  # Private field!
+
+class Rectangle:
+    def __init__(self, x: int, y: int, width: int, height: int, color: str):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.color = color
+        self._internal_id = id(self)  # Private field!
+
+def copy_shape(shape):
+    # Must know the concrete type!
+    if isinstance(shape, Circle):
+        # Must know all fields
+        copy = Circle(shape.x, shape.y, shape.radius, shape.color)
+        # Can't copy _internal_id - it's private!
+        return copy
+    elif isinstance(shape, Rectangle):
+        copy = Rectangle(shape.x, shape.y, shape.width, shape.height, shape.color)
+        return copy
+    raise TypeError("Unknown shape type")
+```
+
+#### `C#`
+
+```csharp
+public class Circle
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Radius { get; set; }
+    public string Color { get; set; }
+    private readonly Guid _internalId = Guid.NewGuid();  // Private field!
+}
+
+public class Rectangle
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public string Color { get; set; }
+    private readonly Guid _internalId = Guid.NewGuid();  // Private field!
+}
+
+public static class ShapeCopier
+{
+    // Must know the concrete type!
+    public static object CopyShape(object shape)
+    {
+        if (shape is Circle c)
+        {
+            // Must know all fields
+            return new Circle { X = c.X, Y = c.Y, Radius = c.Radius, Color = c.Color };
+            // Can't copy _internalId - it's private!
+        }
+        if (shape is Rectangle r)
+        {
+            return new Rectangle { X = r.X, Y = r.Y, Width = r.Width, Height = r.Height, Color = r.Color };
+        }
+        throw new ArgumentException("Unknown shape type");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Circle {
+  x: number;
+  y: number;
+  radius: number;
+  color: string;
+  private internalId: string;  // Private field!
+
+  constructor(x: number, y: number, radius: number, color: string) {
+    this.x = x;
+    this.y = y;
+    this.radius = radius;
+    this.color = color;
+    this.internalId = crypto.randomUUID();
+  }
+}
+
+class Rectangle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  private internalId: string;  // Private field!
+
+  constructor(x: number, y: number, width: number, height: number, color: string) {
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+    this.color = color;
+    this.internalId = crypto.randomUUID();
+  }
+}
+
+// Must know the concrete type!
+function copyShape(shape: Circle | Rectangle): Circle | Rectangle {
+  if (shape instanceof Circle) {
+    // Must know all fields
+    return new Circle(shape.x, shape.y, shape.radius, shape.color);
+    // Can't copy internalId - it's private!
+  }
+  if (shape instanceof Rectangle) {
+    return new Rectangle(shape.x, shape.y, shape.width, shape.height, shape.color);
+  }
+  throw new Error("Unknown shape type");
+}
+```
+
+#### `Dart`
+
+```dart
+class Circle {
+  int x;
+  int y;
+  int radius;
+  String color;
+  final String _internalId;  // Private field!
+
+  Circle(this.x, this.y, this.radius, this.color)
+      : _internalId = DateTime.now().microsecondsSinceEpoch.toString();
+}
+
+class Rectangle {
+  int x;
+  int y;
+  int width;
+  int height;
+  String color;
+  final String _internalId;  // Private field!
+
+  Rectangle(this.x, this.y, this.width, this.height, this.color)
+      : _internalId = DateTime.now().microsecondsSinceEpoch.toString();
+}
+
+// Must know the concrete type!
+dynamic copyShape(dynamic shape) {
+  if (shape is Circle) {
+    // Must know all fields
+    return Circle(shape.x, shape.y, shape.radius, shape.color);
+    // Can't copy _internalId - it's private!
+  }
+  if (shape is Rectangle) {
+    return Rectangle(shape.x, shape.y, shape.width, shape.height, shape.color);
+  }
+  throw ArgumentError("Unknown shape type");
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+original = Circle(10, 20, 50, "red")
+copy = copy_shape(original)
+
+# Works, but tightly coupled to concrete types
+# Adding a Triangle requires modifying copy_shape()
+```
+
+#### `C#`
+
+```csharp
+var original = new Circle { X = 10, Y = 20, Radius = 50, Color = "red" };
+var copy = ShapeCopier.CopyShape(original);
+
+// Works, but tightly coupled to concrete types
+// Adding a Triangle requires modifying CopyShape()
+```
+
+#### `TypeScript`
+
+```typescript
+const original = new Circle(10, 20, 50, "red");
+const copy = copyShape(original);
+
+// Works, but tightly coupled to concrete types
+// Adding a Triangle requires modifying copyShape()
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final original = Circle(10, 20, 50, "red");
+  final copy = copyShape(original);
+
+  // Works, but tightly coupled to concrete types
+  // Adding a Triangle requires modifying copyShape()
+}
+```
+
+:::
+
+
+## Solution
+
+The Prototype pattern solves this by:
+
+1. Defining a `clone()` method in the base class/interface
+2. Each concrete class implements `clone()` to copy itself
+3. Client code calls `clone()` without knowing the concrete type
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Shape {
+        <<abstract>>
+        +x: int
+        +y: int
+        +color: string
+        +clone() Shape
+    }
+
+    class Circle {
+        +radius: int
+        +clone() Shape
+    }
+
+    class Rectangle {
+        +width: int
+        +height: int
+        +clone() Shape
+    }
+
+    Shape <|-- Circle
+    Shape <|-- Rectangle
+
+    Circle ..> Circle : clones
+    Rectangle ..> Rectangle : clones
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+import copy
+
+# Prototype Interface
+class Shape(ABC):
+    def __init__(self, x: int = 0, y: int = 0, color: str = "white"):
+        self.x = x
+        self.y = y
+        self.color = color
+
+    @abstractmethod
+    def clone(self) -> "Shape":
+        pass
+
+    @abstractmethod
+    def __str__(self) -> str:
+        pass
+
+# Concrete Prototype
+class Circle(Shape):
+    def __init__(self, x: int = 0, y: int = 0, color: str = "white", radius: int = 0):
+        super().__init__(x, y, color)
+        self.radius = radius
+        self._internal_id = id(self)  # Private field - still gets cloned!
+
+    def clone(self) -> "Circle":
+        # Deep copy handles all fields including private ones
+        return copy.deepcopy(self)
+
+    def __str__(self) -> str:
+        return f"Circle(x={self.x}, y={self.y}, radius={self.radius}, color={self.color})"
+
+# Concrete Prototype
+class Rectangle(Shape):
+    def __init__(self, x: int = 0, y: int = 0, color: str = "white", width: int = 0, height: int = 0):
+        super().__init__(x, y, color)
+        self.width = width
+        self.height = height
+        self._internal_id = id(self)
+
+    def clone(self) -> "Rectangle":
+        return copy.deepcopy(self)
+
+    def __str__(self) -> str:
+        return f"Rectangle(x={self.x}, y={self.y}, {self.width}x{self.height}, color={self.color})"
+```
+
+#### `C#`
+
+```csharp
+// Prototype Interface
+public abstract class Shape : ICloneable
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public string Color { get; set; } = "white";
+
+    public abstract Shape Clone();
+
+    // Explicit interface implementation
+    object ICloneable.Clone() => Clone();
+}
+
+// Concrete Prototype
+public class Circle : Shape
+{
+    public int Radius { get; set; }
+    private readonly Guid _internalId = Guid.NewGuid();  // Private field - still gets cloned!
+
+    public override Shape Clone()
+    {
+        // MemberwiseClone handles all fields including private ones
+        return (Circle)MemberwiseClone();
+    }
+
+    public override string ToString()
+        => $"Circle(x={X}, y={Y}, radius={Radius}, color={Color})";
+}
+
+// Concrete Prototype
+public class Rectangle : Shape
+{
+    public int Width { get; set; }
+    public int Height { get; set; }
+    private readonly Guid _internalId = Guid.NewGuid();
+
+    public override Shape Clone()
+    {
+        return (Rectangle)MemberwiseClone();
+    }
+
+    public override string ToString()
+        => $"Rectangle(x={X}, y={Y}, {Width}x{Height}, color={Color})";
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Prototype Interface
+abstract class Shape {
+  x: number;
+  y: number;
+  color: string;
+
+  constructor(x: number = 0, y: number = 0, color: string = "white") {
+    this.x = x;
+    this.y = y;
+    this.color = color;
+  }
+
+  abstract clone(): Shape;
+}
+
+// Concrete Prototype
+class Circle extends Shape {
+  radius: number;
+  private internalId: string;  // Private field - still gets cloned!
+
+  constructor(x: number = 0, y: number = 0, color: string = "white", radius: number = 0) {
+    super(x, y, color);
+    this.radius = radius;
+    this.internalId = crypto.randomUUID();
+  }
+
+  clone(): Circle {
+    const cloned = new Circle(this.x, this.y, this.color, this.radius);
+    // Copy private field explicitly if needed
+    return cloned;
+  }
+
+  toString(): string {
+    return `Circle(x=${this.x}, y=${this.y}, radius=${this.radius}, color=${this.color})`;
+  }
+}
+
+// Concrete Prototype
+class Rectangle extends Shape {
+  width: number;
+  height: number;
+  private internalId: string;
+
+  constructor(x: number = 0, y: number = 0, color: string = "white", width: number = 0, height: number = 0) {
+    super(x, y, color);
+    this.width = width;
+    this.height = height;
+    this.internalId = crypto.randomUUID();
+  }
+
+  clone(): Rectangle {
+    return new Rectangle(this.x, this.y, this.color, this.width, this.height);
+  }
+
+  toString(): string {
+    return `Rectangle(x=${this.x}, y=${this.y}, ${this.width}x${this.height}, color=${this.color})`;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Prototype Interface
+abstract class Shape {
+  int x;
+  int y;
+  String color;
+
+  Shape({this.x = 0, this.y = 0, this.color = "white"});
+
+  Shape clone();
+}
+
+// Concrete Prototype
+class Circle extends Shape {
+  int radius;
+  final String _internalId;  // Private field - still gets cloned!
+
+  Circle({super.x, super.y, super.color, this.radius = 0})
+      : _internalId = DateTime.now().microsecondsSinceEpoch.toString();
+
+  // Private constructor for cloning
+  Circle._clone({
+    required int x,
+    required int y,
+    required String color,
+    required this.radius,
+    required String internalId,
+  }) : _internalId = internalId, super(x: x, y: y, color: color);
+
+  @override
+  Circle clone() {
+    return Circle._clone(
+      x: x,
+      y: y,
+      color: color,
+      radius: radius,
+      internalId: _internalId,
+    );
+  }
+
+  @override
+  String toString() => "Circle(x=$x, y=$y, radius=$radius, color=$color)";
+}
+
+// Concrete Prototype
+class Rectangle extends Shape {
+  int width;
+  int height;
+  final String _internalId;
+
+  Rectangle({super.x, super.y, super.color, this.width = 0, this.height = 0})
+      : _internalId = DateTime.now().microsecondsSinceEpoch.toString();
+
+  Rectangle._clone({
+    required int x,
+    required int y,
+    required String color,
+    required this.width,
+    required this.height,
+    required String internalId,
+  }) : _internalId = internalId, super(x: x, y: y, color: color);
+
+  @override
+  Rectangle clone() {
+    return Rectangle._clone(
+      x: x,
+      y: y,
+      color: color,
+      width: width,
+      height: height,
+      internalId: _internalId,
+    );
+  }
+
+  @override
+  String toString() => "Rectangle(x=$x, y=$y, ${width}x$height, color=$color)";
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Create original shapes
+circle = Circle(10, 20, "red", 50)
+rectangle = Rectangle(0, 0, "blue", 100, 50)
+
+# Clone without knowing concrete type!
+def duplicate_shape(shape: Shape) -> Shape:
+    return shape.clone()
+
+# Clone and modify
+circle_copy = circle.clone()
+circle_copy.x = 100  # Move the copy
+circle_copy.color = "green"
+
+print(f"Original: {circle}")    # Circle(x=10, y=20, radius=50, color=red)
+print(f"Copy: {circle_copy}")   # Circle(x=100, y=20, radius=50, color=green)
+
+# Works with any shape
+shapes: list[Shape] = [circle, rectangle]
+copies = [s.clone() for s in shapes]
+```
+
+#### `C#`
+
+```csharp
+// Create original shapes
+var circle = new Circle { X = 10, Y = 20, Color = "red", Radius = 50 };
+var rectangle = new Rectangle { X = 0, Y = 0, Color = "blue", Width = 100, Height = 50 };
+
+// Clone without knowing concrete type!
+Shape DuplicateShape(Shape shape) => shape.Clone();
+
+// Clone and modify
+var circleCopy = (Circle)circle.Clone();
+circleCopy.X = 100;  // Move the copy
+circleCopy.Color = "green";
+
+Console.WriteLine($"Original: {circle}");   // Circle(x=10, y=20, radius=50, color=red)
+Console.WriteLine($"Copy: {circleCopy}");   // Circle(x=100, y=20, radius=50, color=green)
+
+// Works with any shape
+var shapes = new List<Shape> { circle, rectangle };
+var copies = shapes.Select(s => s.Clone()).ToList();
+```
+
+#### `TypeScript`
+
+```typescript
+// Create original shapes
+const circle = new Circle(10, 20, "red", 50);
+const rectangle = new Rectangle(0, 0, "blue", 100, 50);
+
+// Clone without knowing concrete type!
+function duplicateShape(shape: Shape): Shape {
+  return shape.clone();
+}
+
+// Clone and modify
+const circleCopy = circle.clone();
+circleCopy.x = 100;  // Move the copy
+circleCopy.color = "green";
+
+console.log(`Original: ${circle}`);   // Circle(x=10, y=20, radius=50, color=red)
+console.log(`Copy: ${circleCopy}`);   // Circle(x=100, y=20, radius=50, color=green)
+
+// Works with any shape
+const shapes: Shape[] = [circle, rectangle];
+const copies = shapes.map(s => s.clone());
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Create original shapes
+  final circle = Circle(x: 10, y: 20, color: "red", radius: 50);
+  final rectangle = Rectangle(x: 0, y: 0, color: "blue", width: 100, height: 50);
+
+  // Clone without knowing concrete type!
+  Shape duplicateShape(Shape shape) => shape.clone();
+
+  // Clone and modify
+  final circleCopy = circle.clone();
+  circleCopy.x = 100;  // Move the copy
+  circleCopy.color = "green";
+
+  print("Original: $circle");   // Circle(x=10, y=20, radius=50, color=red)
+  print("Copy: $circleCopy");   // Circle(x=100, y=20, radius=50, color=green)
+
+  // Works with any shape
+  final shapes = <Shape>[circle, rectangle];
+  final copies = shapes.map((s) => s.clone()).toList();
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Prototype** creates new objects by cloning existing ones, letting you copy objects without coupling to their concrete classes.
+:::
+
+### Key Benefits
+
+- **Independence from Concrete Classes**: Clone via interface without knowing the actual type
+- **Avoid Expensive Initialization**: Skip costly setup by copying pre-configured objects
+- **Copy Private State**: The object can copy its own private fields
+- **Simpler Than Subclassing**: Create variants by cloning and modifying instead of creating subclasses
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Creating objects is expensive (DB calls, file loading) | Objects are simple and cheap to create |
+| You need copies with slight modifications | Each instance needs unique initialization |
+| You want to reduce subclasses for object variants | Objects have circular references (complex deep copy) |
+| Client shouldn't depend on concrete classes | |

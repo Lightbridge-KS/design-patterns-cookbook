@@ -1,0 +1,1747 @@
+---
+title: "OOP CheatSheet"
+---
+
+## Concepts
+
+### Common Properties in a Class
+
+**Instance Properties** (unique to each object):
+
+- **Data attributes**: Store object state
+- **Private attributes**: Internal state (often prefixed with `_` or `__`)
+- **Computed/derived attributes**: Calculated from other properties
+
+**Class Properties** (shared across all instances):
+
+- **Class variables**: Shared data among all instances
+- **Constants**: Immutable values
+- **Static properties**: Class-level data
+
+### Common Methods in a Class
+
+**Core Methods**:
+
+- **Constructor** (`__init__`): Initializes new instances
+- **Destructor** (`__del__`): Cleanup when object is destroyed
+- **String representation** (`__str__`, `__repr__`): Human-readable representation
+
+**Access Methods**:
+
+- **Getters**: Retrieve property values
+- **Setters**: Modify property values
+- **Properties**: Pythonic way to access attributes
+
+**Behavioral Methods**:
+
+- **Instance methods**: Operate on instance data
+- **Class methods**: Operate on class-level data
+- **Static methods**: Utility functions without instance/class access
+
+**Special Methods** (dunder/magic methods):
+
+- **Comparison** (`__eq__`, `__lt__`, etc.)
+- **Arithmetic** (`__add__`, `__sub__`, etc.)
+- **Container** (`__len__`, `__getitem__`, etc.)
+
+## Python 
+
+```python
+class BankAccount:
+    # Class variables
+    bank_name = "SimpleBank"
+    total_accounts = 0
+    minimum_balance = 100
+    
+    def __init__(self, account_holder, initial_balance=0):
+        # Instance properties
+        self.account_holder = account_holder
+        self._balance = initial_balance  # Protected attribute
+        self.__pin = None  # Private attribute
+        self.transaction_history = []
+        self.account_number = self._generate_account_number()
+        
+        # Update class variable
+        BankAccount.total_accounts += 1
+    
+    # Destructor
+    def __del__(self):
+        BankAccount.total_accounts -= 1
+    
+    # String representations
+    def __str__(self):
+        return f"Account({self.account_holder}, Balance: ${self._balance})"
+    
+    def __repr__(self):
+        return f"BankAccount('{self.account_holder}', {self._balance})"
+    
+    # Getter method
+    def get_balance(self):
+        return self._balance
+    
+    # Setter method  
+    def set_pin(self, pin):
+        if len(str(pin)) == 4:
+            self.__pin = pin
+        else:
+            raise ValueError("PIN must be 4 digits")
+    
+    # Property decorator (Pythonic getter/setter)
+    @property
+    def balance(self):
+        return self._balance
+    
+    @balance.setter
+    def balance(self, amount):
+        if amount >= 0:
+            self._balance = amount
+        else:
+            raise ValueError("Balance cannot be negative")
+    
+    # Instance methods
+    def deposit(self, amount):
+        if amount > 0:
+            self._balance += amount
+            self._record_transaction("deposit", amount)
+            return True
+        return False
+    
+    def withdraw(self, amount):
+        if 0 < amount <= self._balance - BankAccount.minimum_balance:
+            self._balance -= amount
+            self._record_transaction("withdrawal", amount)
+            return True
+        return False
+    
+    # Protected method
+    def _record_transaction(self, transaction_type, amount):
+        from datetime import datetime
+        self.transaction_history.append({
+            'type': transaction_type,
+            'amount': amount,
+            'timestamp': datetime.now(),
+            'balance_after': self._balance
+        })
+    
+    # Private method
+    def _generate_account_number(self):
+        import random
+        return f"ACC{random.randint(100000, 999999)}"
+    
+    # Class method
+    @classmethod
+    def get_total_accounts(cls):
+        return cls.total_accounts
+    
+    @classmethod
+    def from_csv_row(cls, csv_row):
+        # Alternative constructor
+        name, balance = csv_row.split(',')
+        return cls(name, float(balance))
+    
+    # Static method
+    @staticmethod
+    def calculate_interest(principal, rate, years):
+        # Utility function - doesn't need instance or class
+        return principal * rate * years
+    
+    # Comparison magic methods
+    def __eq__(self, other):
+        if isinstance(other, BankAccount):
+            return self._balance == other._balance
+        return False
+    
+    def __lt__(self, other):
+        if isinstance(other, BankAccount):
+            return self._balance < other._balance
+        return NotImplemented
+    
+    # Arithmetic magic methods
+    def __add__(self, amount):
+        # Allow account + number syntax
+        new_account = BankAccount(self.account_holder, self._balance + amount)
+        return new_account
+    
+    # Container magic methods
+    def __len__(self):
+        # Return number of transactions
+        return len(self.transaction_history)
+    
+    def __getitem__(self, index):
+        # Allow indexing to get transaction
+        return self.transaction_history[index]
+    
+    # Context manager methods
+    def __enter__(self):
+        print(f"Starting transaction for {self.account_holder}")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print(f"Transaction completed. Current balance: ${self._balance}")
+        return False
+
+# Usage examples
+if __name__ == "__main__":
+    # Create instances
+    acc1 = BankAccount("Alice", 1000)
+    acc2 = BankAccount.from_csv_row("Bob,2000")
+    
+    # Use properties
+    print(acc1.balance)  # Getter via property
+    acc1.balance = 1500  # Setter via property
+    
+    # Use methods
+    acc1.deposit(500)
+    acc1.withdraw(200)
+    
+    # Class method
+    print(f"Total accounts: {BankAccount.get_total_accounts()}")
+    
+    # Static method
+    interest = BankAccount.calculate_interest(1000, 0.05, 2)
+    
+    # Magic methods
+    print(acc1)  # Uses __str__
+    print(acc1 == acc2)  # Uses __eq__
+    acc3 = acc1 + 500  # Uses __add__
+    print(len(acc1))  # Uses __len__
+    
+    # Context manager
+    with acc1 as account:
+        account.deposit(100)
+```
+
+## Csharp
+
+Here's a comprehensive `C#` OOP CheatSheet using the BankAccount example:
+
+```csharp
+// C# OOP CHEATSHEET - BankAccount Example (C# 12)
+
+// ===== INTERFACES =====
+public interface IAuditable
+{
+    DateTime? LastAuditDate { get; set; }
+    void Audit();
+}
+
+public interface IAccount
+{
+    string AccountType { get; }
+    void CloseAccount();
+}
+
+// ===== RECORD TYPES (C# 9+) =====
+// Immutable data class with value semantics
+public record Transaction(
+    string Type,
+    decimal Amount,
+    string? Description,
+    DateTime Timestamp,
+    decimal BalanceAfter
+);
+
+// Record with additional members
+public record AccountConfig
+{
+    public required string AccountHolder { get; init; }
+    public decimal InitialBalance { get; init; } = 0;
+    public AccountType Type { get; init; } = AccountType.Checking;
+}
+
+// ===== ENUMS =====
+public enum AccountType
+{
+    Checking,
+    Savings,
+    Business
+}
+
+// ===== ABSTRACT CLASS =====
+public abstract class Account : IAccount
+{
+    public abstract string AccountType { get; }
+    public abstract void CloseAccount();
+
+    // Concrete method in abstract class
+    public void LogActivity(string activity)
+    {
+        Console.WriteLine($"[{AccountType}] {activity}");
+    }
+}
+
+// ===== MAIN CLASS =====
+/// <summary>
+/// A comprehensive BankAccount class demonstrating C# OOP concepts
+/// </summary>
+public class BankAccount : Account, IAuditable, IComparable<BankAccount>, IDisposable
+{
+    // ===== STATIC FIELDS =====
+    public const string BankName = "SimpleBank";           // Compile-time constant
+    public static readonly decimal MinimumBalance = 100;   // Runtime constant
+    private static int _totalAccounts = 0;                 // Private static field
+
+    // Static constructor
+    static BankAccount()
+    {
+        Console.WriteLine("BankAccount class initialized");
+    }
+
+    // ===== INSTANCE FIELDS =====
+    private decimal _balance;
+    private string? _pin;                                  // Nullable type
+    private readonly List<Transaction> _transactionHistory = [];  // Collection expression (C# 12)
+    private bool _disposed = false;
+
+    // ===== PROPERTIES =====
+    // Auto-implemented property with required modifier (C# 11+)
+    public required string AccountHolder { get; set; }
+
+    // Read-only auto-implemented property
+    public string AccountNumber { get; }
+    public DateTime CreatedAt { get; } = DateTime.Now;
+
+    // Property with backing field
+    public decimal Balance
+    {
+        get => _balance;
+        set
+        {
+            if (value >= 0)
+                _balance = value;
+            else
+                throw new ArgumentException("Balance cannot be negative");
+        }
+    }
+
+    // Expression-bodied read-only property
+    public bool IsVip => _balance > 50000;
+
+    // Property with init accessor (C# 9+)
+    public string? Email { get; init; }
+
+    // Interface property implementation
+    public DateTime? LastAuditDate { get; set; }
+
+    // Abstract property implementation
+    public override string AccountType => "Standard";
+
+    // Transaction history as read-only
+    public IReadOnlyList<Transaction> TransactionHistory => _transactionHistory;
+
+    // ===== INDEXER =====
+    public Transaction? this[int index]
+    {
+        get => index >= 0 && index < _transactionHistory.Count
+               ? _transactionHistory[index]
+               : null;
+    }
+
+    // ===== STATIC PROPERTIES =====
+    public static int TotalAccounts => _totalAccounts;
+
+    // ===== CONSTRUCTORS =====
+    // Main constructor
+    public BankAccount(string accountHolder, decimal initialBalance = 0)
+    {
+        AccountHolder = accountHolder;
+        _balance = initialBalance;
+        AccountNumber = GenerateAccountNumber();
+        _totalAccounts++;
+    }
+
+    // Constructor chaining
+    public BankAccount(string accountHolder) : this(accountHolder, 0) { }
+
+    // Factory method
+    public static BankAccount CreateBusinessAccount(string businessName)
+    {
+        var account = new BankAccount(businessName, 5000) { AccountHolder = businessName };
+        account.RecordTransaction("deposit", 5000, "Initial deposit");
+        return account;
+    }
+
+    // Factory method from config
+    public static BankAccount FromConfig(AccountConfig config)
+    {
+        return new BankAccount(config.AccountHolder, config.InitialBalance)
+        {
+            AccountHolder = config.AccountHolder
+        };
+    }
+
+    // ===== INSTANCE METHODS =====
+    public bool Deposit(decimal amount)
+    {
+        if (amount > 0)
+        {
+            _balance += amount;
+            RecordTransaction("deposit", amount);
+            return true;
+        }
+        return false;
+    }
+
+    // Method with optional parameter
+    public bool Withdraw(decimal amount, string? description = null)
+    {
+        if (amount > 0 && amount <= _balance - MinimumBalance)
+        {
+            _balance -= amount;
+            RecordTransaction("withdrawal", amount, description);
+            return true;
+        }
+        return false;
+    }
+
+    // Method with named parameters pattern
+    public void Transfer(BankAccount recipient, decimal amount, string? reference = null)
+    {
+        if (Withdraw(amount))
+        {
+            recipient.Deposit(amount);
+            RecordTransaction("transfer", amount, $"To: {recipient.AccountHolder}");
+        }
+    }
+
+    // Private method
+    private void RecordTransaction(string type, decimal amount, string? description = null)
+    {
+        _transactionHistory.Add(new Transaction(
+            type, amount, description, DateTime.Now, _balance
+        ));
+    }
+
+    // Private method with expression body
+    private static string GenerateAccountNumber()
+        => $"ACC{Random.Shared.Next(100000, 999999)}";
+
+    // Protected method (accessible in derived classes)
+    protected virtual void OnBalanceChanged(decimal oldBalance, decimal newBalance)
+    {
+        Console.WriteLine($"Balance changed from {oldBalance} to {newBalance}");
+    }
+
+    // ===== STATIC METHODS =====
+    public static decimal CalculateInterest(decimal principal, decimal rate, int years)
+        => principal * rate * years;
+
+    // ===== ASYNC METHODS =====
+    public async Task<bool> ProcessTransactionAsync(decimal amount)
+    {
+        // Simulate network delay
+        await Task.Delay(1000);
+        return Deposit(amount);
+    }
+
+    // Async enumerable (C# 8+)
+    public async IAsyncEnumerable<decimal> GetBalanceHistoryAsync()
+    {
+        foreach (var transaction in _transactionHistory)
+        {
+            await Task.Delay(100);
+            yield return transaction.BalanceAfter;
+        }
+    }
+
+    // ===== OPERATOR OVERLOADING =====
+    // Arithmetic operators
+    public static BankAccount operator +(BankAccount account, decimal amount)
+        => new(account.AccountHolder, account._balance + amount) { AccountHolder = account.AccountHolder };
+
+    public static BankAccount operator -(BankAccount account, decimal amount)
+        => new(account.AccountHolder, account._balance - amount) { AccountHolder = account.AccountHolder };
+
+    // Comparison operators
+    public static bool operator ==(BankAccount? left, BankAccount? right)
+        => left?.AccountNumber == right?.AccountNumber;
+
+    public static bool operator !=(BankAccount? left, BankAccount? right)
+        => !(left == right);
+
+    public static bool operator <(BankAccount left, BankAccount right)
+        => left._balance < right._balance;
+
+    public static bool operator >(BankAccount left, BankAccount right)
+        => left._balance > right._balance;
+
+    public static bool operator <=(BankAccount left, BankAccount right)
+        => left._balance <= right._balance;
+
+    public static bool operator >=(BankAccount left, BankAccount right)
+        => left._balance >= right._balance;
+
+    // Implicit/explicit conversion
+    public static implicit operator decimal(BankAccount account) => account._balance;
+    public static explicit operator int(BankAccount account) => (int)account._balance;
+
+    // ===== SPECIAL METHODS =====
+    public override string ToString()
+        => $"BankAccount({AccountHolder}, Balance: ${_balance})";
+
+    public override bool Equals(object? obj)
+        => obj is BankAccount other && AccountNumber == other.AccountNumber;
+
+    public override int GetHashCode()
+        => AccountNumber.GetHashCode();
+
+    // IComparable implementation
+    public int CompareTo(BankAccount? other)
+        => other is null ? 1 : _balance.CompareTo(other._balance);
+
+    // Interface implementation
+    public void Audit()
+    {
+        LastAuditDate = DateTime.Now;
+        Console.WriteLine($"Account {AccountNumber} audited");
+    }
+
+    // Abstract method implementation
+    public override void CloseAccount()
+    {
+        _balance = 0;
+        _totalAccounts--;
+    }
+
+    // IDisposable implementation
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                // Dispose managed resources
+                _transactionHistory.Clear();
+            }
+            _disposed = true;
+        }
+    }
+
+    // Finalizer (destructor)
+    ~BankAccount()
+    {
+        Dispose(false);
+    }
+}
+
+// ===== INHERITANCE =====
+public class SavingsAccount : BankAccount
+{
+    public decimal InterestRate { get; }
+
+    // Call base constructor
+    public SavingsAccount(string holder, decimal balance, decimal interestRate)
+        : base(holder, balance)
+    {
+        InterestRate = interestRate;
+    }
+
+    // Override property
+    public override string AccountType => "Savings";
+
+    // Override method
+    public override bool Withdraw(decimal amount, string? description = null)
+    {
+        // Add withdrawal limit logic
+        if (amount > 5000)
+        {
+            Console.WriteLine("Withdrawal limit exceeded");
+            return false;
+        }
+        return base.Withdraw(amount, description);
+    }
+
+    // New method
+    public void ApplyInterest()
+    {
+        var interest = Balance * InterestRate;
+        Deposit(interest);
+    }
+}
+
+// ===== SEALED CLASS =====
+public sealed class FixedDepositAccount : BankAccount
+{
+    public DateTime MaturityDate { get; }
+
+    public FixedDepositAccount(string holder, decimal balance, int months)
+        : base(holder, balance)
+    {
+        MaturityDate = DateTime.Now.AddMonths(months);
+    }
+
+    // Override - cannot be overridden further (sealed class)
+    public override string AccountType => "FixedDeposit";
+}
+
+// ===== PRIMARY CONSTRUCTOR (C# 12) =====
+public class CheckingAccount(string holder, decimal balance, decimal overdraftLimit)
+    : BankAccount(holder, balance)
+{
+    // Primary constructor parameter used directly
+    public decimal OverdraftLimit { get; } = overdraftLimit;
+
+    public override string AccountType => "Checking";
+
+    public override bool Withdraw(decimal amount, string? description = null)
+    {
+        // Allow overdraft up to limit
+        if (amount > 0 && amount <= Balance + overdraftLimit - MinimumBalance)
+        {
+            Balance -= amount;
+            return true;
+        }
+        return false;
+    }
+}
+
+// ===== GENERIC CLASS =====
+public class TransactionProcessor<T> where T : BankAccount
+{
+    private readonly List<T> _accounts = [];
+
+    public void AddAccount(T account) => _accounts.Add(account);
+
+    public IEnumerable<decimal> ProcessAll(Func<T, decimal> operation)
+        => _accounts.Select(operation);
+
+    public T? FindAccount(Func<T, bool> predicate)
+        => _accounts.FirstOrDefault(predicate);
+}
+
+// ===== GENERIC CLASS WITH MULTIPLE CONSTRAINTS =====
+public class SecureAccount<T>
+    where T : class, IAuditable, new()
+{
+    public T CreateAuditedInstance()
+    {
+        var instance = new T();
+        instance.Audit();
+        return instance;
+    }
+}
+
+// ===== EXTENSION METHODS =====
+public static class BankAccountExtensions
+{
+    public static string GetFormattedBalance(this BankAccount account)
+        => $"${account.Balance:N2}";
+
+    public static bool HasMinimumBalance(this BankAccount account)
+        => account.Balance >= BankAccount.MinimumBalance;
+
+    // Generic extension
+    public static void TransferTo<T>(this T source, T destination, decimal amount)
+        where T : BankAccount
+    {
+        source.Transfer(destination, amount);
+    }
+}
+
+// ===== PARTIAL CLASS =====
+public partial class PartialAccount
+{
+    public string AccountId { get; set; } = "";
+}
+
+// In another file:
+public partial class PartialAccount
+{
+    public void DoSomething() => Console.WriteLine(AccountId);
+}
+
+// ===== USAGE EXAMPLES =====
+public static class Program
+{
+    public static async Task Main()
+    {
+        // Create instances
+        var acc1 = new BankAccount("Alice", 1000) { AccountHolder = "Alice" };
+        var acc2 = new BankAccount("Bob") { AccountHolder = "Bob", Email = "bob@example.com" };
+
+        // Factory methods
+        var acc3 = BankAccount.CreateBusinessAccount("Acme Corp");
+        var acc4 = BankAccount.FromConfig(new AccountConfig
+        {
+            AccountHolder = "Charlie",
+            InitialBalance = 500
+        });
+
+        // Use properties
+        Console.WriteLine(acc1.Balance);           // Getter
+        acc1.Balance = 1500;                       // Setter
+        Console.WriteLine(acc1.IsVip);             // Computed property
+
+        // Use methods
+        acc1.Deposit(500);
+        acc1.Withdraw(200, "ATM withdrawal");
+        acc1.Transfer(acc2, 100, "REF123");
+
+        // Static methods
+        Console.WriteLine($"Total accounts: {BankAccount.TotalAccounts}");
+        var interest = BankAccount.CalculateInterest(1000, 0.05m, 2);
+
+        // Operators
+        var acc5 = acc1 + 500;                     // Addition operator
+        Console.WriteLine(acc1 == acc2);           // Equality operator
+        Console.WriteLine(acc1 < acc2);            // Comparison operator
+        Console.WriteLine(acc1[0]);                // Indexer
+
+        // Implicit conversion
+        decimal balance = acc1;                     // Implicit to decimal
+        int intBalance = (int)acc1;                 // Explicit to int
+
+        // Special methods
+        Console.WriteLine(acc1);                   // ToString()
+        Console.WriteLine(acc1.GetHashCode());
+
+        // Async usage
+        bool success = await acc1.ProcessTransactionAsync(100);
+
+        // Async enumerable
+        await foreach (var historicalBalance in acc1.GetBalanceHistoryAsync())
+        {
+            Console.WriteLine($"Historical balance: {historicalBalance}");
+        }
+
+        // Extension methods
+        Console.WriteLine(acc1.GetFormattedBalance());
+        Console.WriteLine(acc1.HasMinimumBalance());
+
+        // Inheritance
+        var savings = new SavingsAccount("Eve", 5000, 0.03m);
+        savings.ApplyInterest();
+
+        // Primary constructor class
+        var checking = new CheckingAccount("Frank", 1000, 500);
+        checking.Withdraw(1200); // Uses overdraft
+
+        // Pattern matching with type
+        BankAccount account = savings;
+        if (account is SavingsAccount sa)
+        {
+            sa.ApplyInterest();
+        }
+
+        // Switch expression with pattern matching
+        string accountDesc = account switch
+        {
+            SavingsAccount s => $"Savings with {s.InterestRate:P} interest",
+            CheckingAccount c => $"Checking with ${c.OverdraftLimit} overdraft",
+            _ => "Standard account"
+        };
+
+        // Using statement (IDisposable)
+        using (var tempAccount = new BankAccount("Temp") { AccountHolder = "Temp" })
+        {
+            tempAccount.Deposit(100);
+        } // Dispose called automatically
+
+        // Using declaration (C# 8+)
+        using var anotherTemp = new BankAccount("Temp2") { AccountHolder = "Temp2" };
+
+        // Generic usage
+        var processor = new TransactionProcessor<BankAccount>();
+        processor.AddAccount(acc1);
+        processor.AddAccount(acc2);
+
+        var balances = processor.ProcessAll(acc => acc.Balance);
+
+        // LINQ with accounts
+        var vipAccounts = new[] { acc1, acc2, acc3 }
+            .Where(a => a.IsVip)
+            .OrderByDescending(a => a.Balance)
+            .ToList();
+
+        // Record usage
+        var transaction = new Transaction("deposit", 100, "Test", DateTime.Now, 1100);
+        var (type, amount, _, _, _) = transaction; // Deconstruction
+
+        // With expression for records
+        var newTransaction = transaction with { Amount = 200 };
+    }
+}
+```
+
+### Quick Reference Summary
+
+**Class Declaration Patterns:**
+
+```csharp
+class Name { }                               // Regular class
+abstract class Name { }                      // Abstract class
+sealed class Name { }                        // Cannot be inherited
+class Name : Parent { }                      // Inheritance
+class Name : IInterface { }                  // Interface implementation
+class Name<T> { }                            // Generic class
+class Name<T> where T : class { }            // Generic with constraint
+partial class Name { }                       // Partial class
+record Name(Type Prop);                      // Record type
+class Name(Type param) { }                   // Primary constructor (C# 12)
+```
+
+**Property Patterns:**
+
+```csharp
+public Type Prop { get; set; }               // Auto-implemented
+public Type Prop { get; private set; }       // Private setter
+public Type Prop { get; init; }              // Init-only (C# 9+)
+public required Type Prop { get; set; }      // Required (C# 11+)
+public Type Prop => expression;              // Expression-bodied (readonly)
+public Type Prop { get => _f; set => _f = value; }  // Full property
+public static Type Prop { get; }             // Static property
+public Type? Prop { get; set; }              // Nullable property
+```
+
+**Method Patterns:**
+
+```csharp
+public void Method() { }                     // Instance method
+public static void Method() { }              // Static method
+public virtual void Method() { }             // Virtual (overridable)
+public override void Method() { }            // Override parent
+public sealed override void Method() { }     // Sealed override
+public abstract void Method();               // Abstract (no body)
+public async Task<T> Method() { }            // Async method
+public void Method() => expr;                // Expression-bodied
+private void Method() { }                    // Private method
+protected void Method() { }                  // Protected method
+internal void Method() { }                   // Internal (assembly)
+```
+
+**Constructor Patterns:**
+
+```csharp
+public Name() { }                            // Default constructor
+public Name(Type param) { }                  // Parameterized
+public Name(Type p) : this() { }             // Constructor chaining
+public Name(Type p) : base(p) { }            // Call base constructor
+static Name() { }                            // Static constructor
+class Name(Type param) { }                   // Primary constructor (C# 12)
+```
+
+**Access Modifiers:**
+
+```csharp
+public                                       // Accessible everywhere
+private                                      // Class only (default for members)
+protected                                    // Class and derived classes
+internal                                     // Same assembly
+protected internal                           // Same assembly OR derived classes
+private protected                            // Same assembly AND derived classes
+```
+
+## TypeScript
+
+Here's a comprehensive TypeScript OOP CheatSheet using the BankAccount example:
+
+```typescript
+// TYPESCRIPT OOP CHEATSHEET - BankAccount Example
+
+// ===== INTERFACES =====
+interface Auditable {
+  lastAuditDate?: Date;
+  audit(): void;
+}
+
+interface Transaction {
+  type: string;
+  amount: number;
+  description?: string;
+  timestamp: Date;
+  balanceAfter: number;
+}
+
+interface AccountConfig {
+  accountHolder: string;
+  initialBalance?: number;
+  accountType?: AccountType;
+}
+
+// ===== TYPE ALIASES =====
+type AccountNumber = `ACC${string}`;
+type Currency = number;
+type TransactionType = 'deposit' | 'withdrawal' | 'transfer';
+
+// ===== ENUMS =====
+enum AccountType {
+  Checking = 'CHK',
+  Savings = 'SAV',
+  Business = 'BUS'
+}
+
+// ===== ABSTRACT CLASS =====
+abstract class Account {
+  abstract readonly accountType: string;
+  abstract closeAccount(): void;
+  
+  // Concrete method in abstract class
+  logActivity(activity: string): void {
+    console.log(`[${this.accountType}] ${activity}`);
+  }
+}
+
+// ===== MAIN CLASS =====
+class BankAccount extends Account implements Auditable {
+  // ===== STATIC PROPERTIES =====
+  static readonly bankName: string = "SimpleBank";          // Readonly static
+  static readonly minimumBalance: number = 100;             // Compile-time constant
+  private static _totalAccounts: number = 0;                // Private static
+  
+  // ===== INSTANCE PROPERTIES =====
+  // Public properties
+  accountHolder: string;
+  transactionHistory: Transaction[] = [];
+  lastAuditDate?: Date;  // From Auditable interface
+  
+  // Private properties
+  private _balance: Currency;
+  private _pin?: string;  // Optional property
+  
+  // Protected property (accessible in subclasses)
+  protected overdraftLimit: number = 0;
+  
+  // Readonly properties
+  readonly accountNumber: AccountNumber;
+  readonly createdAt: Date;
+  
+  // ===== CONSTRUCTOR =====
+  constructor(accountHolder: string, initialBalance: Currency = 0) {
+    super();  // Call parent constructor
+    this.accountHolder = accountHolder;
+    this._balance = initialBalance;
+    this.accountNumber = this._generateAccountNumber();
+    this.createdAt = new Date();
+    BankAccount._totalAccounts++;
+  }
+  
+  // ===== GETTERS AND SETTERS =====
+  // Getter
+  get balance(): Currency {
+    return this._balance;
+  }
+  
+  // Setter with validation
+  set balance(amount: Currency) {
+    if (amount >= 0) {
+      this._balance = amount;
+    } else {
+      throw new Error('Balance cannot be negative');
+    }
+  }
+  
+  // Computed property (getter only)
+  get isVip(): boolean {
+    return this._balance > 50000;
+  }
+  
+  // Abstract property implementation
+  get accountType(): string {
+    return 'Standard';
+  }
+  
+  // ===== INSTANCE METHODS =====
+  // Public method
+  deposit(amount: Currency): boolean {
+    if (amount > 0) {
+      this._balance += amount;
+      this._recordTransaction('deposit', amount);
+      return true;
+    }
+    return false;
+  }
+  
+  // Method with optional parameter
+  withdraw(amount: Currency, description?: string): boolean {
+    if (amount > 0 && amount <= this._balance - BankAccount.minimumBalance) {
+      this._balance -= amount;
+      this._recordTransaction('withdrawal', amount, description);
+      return true;
+    }
+    return false;
+  }
+  
+  // Method with object parameter (named parameters pattern)
+  transfer(options: {
+    recipient: BankAccount;
+    amount: Currency;
+    reference?: string;
+  }): void {
+    const { recipient, amount, reference } = options;
+    if (this.withdraw(amount)) {
+      recipient.deposit(amount);
+      this._recordTransaction('transfer', amount, 
+        `To: ${recipient.accountHolder}`);
+    }
+  }
+  
+  // Private method
+  private _recordTransaction(
+    type: TransactionType, 
+    amount: Currency, 
+    description?: string
+  ): void {
+    this.transactionHistory.push({
+      type,
+      amount,
+      description,
+      timestamp: new Date(),
+      balanceAfter: this._balance,
+    });
+  }
+  
+  // Protected method (accessible in subclasses)
+  protected _generateAccountNumber(): AccountNumber {
+    const num = Math.floor(Math.random() * 999999)
+      .toString()
+      .padStart(6, '0');
+    return `ACC${num}`;
+  }
+  
+  // ===== STATIC METHODS =====
+  // Static getter
+  static get totalAccounts(): number {
+    return this._totalAccounts;
+  }
+  
+  // Static method
+  static calculateInterest(
+    principal: Currency, 
+    rate: number, 
+    years: number
+  ): Currency {
+    return principal * rate * years;
+  }
+  
+  // Static factory method
+  static createBusinessAccount(businessName: string): BankAccount {
+    const account = new BankAccount(businessName, 5000);
+    account._recordTransaction('deposit', 5000, 'Initial deposit');
+    return account;
+  }
+  
+  // ===== ASYNC METHODS =====
+  // Async method
+  async processTransaction(amount: Currency): Promise<boolean> {
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return this.deposit(amount);
+  }
+  
+  // Async generator
+  async *getBalanceHistory(): AsyncGenerator<Currency> {
+    for (const transaction of this.transactionHistory) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      yield transaction.balanceAfter;
+    }
+  }
+  
+  // ===== SPECIAL METHODS =====
+  // toString equivalent
+  toString(): string {
+    return `BankAccount(${this.accountHolder}, Balance: $${this._balance})`;
+  }
+  
+  // valueOf for numeric conversion
+  valueOf(): number {
+    return this._balance;
+  }
+  
+  // JSON serialization
+  toJSON(): object {
+    return {
+      accountHolder: this.accountHolder,
+      balance: this._balance,
+      accountNumber: this.accountNumber,
+      createdAt: this.createdAt.toISOString(),
+    };
+  }
+  
+  // Interface implementation
+  audit(): void {
+    this.lastAuditDate = new Date();
+    console.log(`Account ${this.accountNumber} audited`);
+  }
+  
+  // Abstract method implementation
+  closeAccount(): void {
+    this._balance = 0;
+    BankAccount._totalAccounts--;
+  }
+}
+
+// ===== INHERITANCE =====
+class SavingsAccount extends BankAccount {
+  private interestRate: number;
+  
+  constructor(holder: string, balance: Currency, interestRate: number) {
+    super(holder, balance);  // Call parent constructor
+    this.interestRate = interestRate;
+  }
+  
+  // Override parent method
+  override withdraw(amount: Currency, description?: string): boolean {
+    // Add withdrawal limit logic
+    if (amount > 5000) {
+      console.log('Withdrawal limit exceeded');
+      return false;
+    }
+    return super.withdraw(amount, description);
+  }
+  
+  // Override getter
+  override get accountType(): string {
+    return 'Savings';
+  }
+  
+  // New method
+  applyInterest(): void {
+    const interest = this.balance * this.interestRate;
+    this.deposit(interest);
+  }
+}
+
+// ===== GENERIC CLASS =====
+class TransactionProcessor<T extends BankAccount> {
+  private accounts: T[] = [];
+  
+  addAccount(account: T): void {
+    this.accounts.push(account);
+  }
+  
+  processAll(operation: (account: T) => Currency): Currency[] {
+    return this.accounts.map(operation);
+  }
+  
+  findAccount(predicate: (account: T) => boolean): T | undefined {
+    return this.accounts.find(predicate);
+  }
+}
+
+// ===== DECORATOR PATTERN (Method Decorator) =====
+function log(target: any, propertyName: string, descriptor: PropertyDescriptor) {
+  const method = descriptor.value;
+  descriptor.value = function(...args: any[]) {
+    console.log(`Calling ${propertyName} with args:`, args);
+    const result = method.apply(this, args);
+    console.log(`Result:`, result);
+    return result;
+  };
+}
+
+// ===== MIXIN PATTERN =====
+type Constructor<T = {}> = new (...args: any[]) => T;
+
+function NotificationMixin<TBase extends Constructor>(Base: TBase) {
+  return class extends Base {
+    sendNotification(message: string): void {
+      console.log(`Notification: ${message}`);
+    }
+    
+    notifyTransaction(type: string, amount: Currency): void {
+      this.sendNotification(`${type} of $${amount} processed`);
+    }
+  };
+}
+
+// Apply mixin
+class NotifiableBankAccount extends NotificationMixin(BankAccount) {
+  @log
+  override deposit(amount: Currency): boolean {
+    const result = super.deposit(amount);
+    if (result) {
+      this.notifyTransaction('Deposit', amount);
+    }
+    return result;
+  }
+}
+
+// ===== NAMESPACE =====
+namespace Banking {
+  export interface Fee {
+    type: string;
+    amount: Currency;
+  }
+  
+  export class FeeCalculator {
+    static calculateTransactionFee(amount: Currency): Currency {
+      return amount * 0.01;
+    }
+  }
+}
+
+// ===== TYPE GUARDS =====
+function isBankAccount(account: any): account is BankAccount {
+  return account instanceof BankAccount;
+}
+
+function isSavingsAccount(account: BankAccount): account is SavingsAccount {
+  return 'applyInterest' in account;
+}
+
+// ===== UTILITY TYPES =====
+// Partial type for updates
+type AccountUpdate = Partial<{
+  accountHolder: string;
+  balance: Currency;
+}>;
+
+// Readonly version
+type ReadonlyAccount = Readonly<BankAccount>;
+
+// Pick specific properties
+type AccountSummary = Pick<BankAccount, 'accountHolder' | 'accountNumber'>;
+
+// ===== USAGE EXAMPLES =====
+function main() {
+  // Create instances
+  const acc1 = new BankAccount('Alice', 1000);
+  const acc2 = new SavingsAccount('Bob', 5000, 0.03);
+  const acc3 = new NotifiableBankAccount('Charlie', 2000);
+  
+  // Use properties
+  console.log(acc1.balance);          // Getter
+  acc1.balance = 1500;                // Setter
+  console.log(acc1.isVip);           // Computed property
+  
+  // Use methods
+  acc1.deposit(500);
+  acc1.withdraw(200, 'ATM withdrawal');
+  acc1.transfer({
+    recipient: acc2,
+    amount: 100,
+    reference: 'REF123'
+  });
+  
+  // Static methods
+  console.log(`Total accounts: ${BankAccount.totalAccounts}`);
+  const interest = BankAccount.calculateInterest(1000, 0.05, 2);
+  
+  // Type guards
+  if (isSavingsAccount(acc2)) {
+    acc2.applyInterest();
+  }
+  
+  // Async usage
+  acc1.processTransaction(100).then(success => {
+    console.log('Transaction success:', success);
+  });
+  
+  // Async generator
+  (async () => {
+    for await (const balance of acc1.getBalanceHistory()) {
+      console.log('Historical balance:', balance);
+    }
+  })();
+  
+  // JSON serialization
+  const json = JSON.stringify(acc1);
+  const parsed = JSON.parse(json);
+  
+  // Generic usage
+  const processor = new TransactionProcessor<BankAccount>();
+  processor.addAccount(acc1);
+  processor.addAccount(acc2);
+  
+  const balances = processor.processAll(acc => acc.balance);
+  
+  // Namespace usage
+  const fee = Banking.FeeCalculator.calculateTransactionFee(100);
+  
+  // Type narrowing with discriminated unions
+  type AccountEvent = 
+    | { type: 'created'; account: BankAccount }
+    | { type: 'closed'; accountNumber: string }
+    | { type: 'transaction'; account: BankAccount; amount: number };
+  
+  function handleEvent(event: AccountEvent) {
+    switch (event.type) {
+      case 'created':
+        console.log('New account:', event.account.accountHolder);
+        break;
+      case 'closed':
+        console.log('Account closed:', event.accountNumber);
+        break;
+      case 'transaction':
+        console.log('Transaction:', event.amount);
+        break;
+    }
+  }
+}
+
+// ===== MODULE EXPORTS =====
+export {
+  BankAccount,
+  SavingsAccount,
+  TransactionProcessor,
+  AccountType,
+  type Transaction,
+  type AccountConfig
+};
+
+// Default export
+export default BankAccount;
+```
+
+## Dart
+
+Here's a comprehensive Dart OOP CheatSheet using the BankAccount example:
+
+```dart
+// DART OOP CHEATSHEET - BankAccount Example
+
+import 'dart:math';
+
+/// A comprehensive BankAccount class demonstrating Dart OOP concepts
+class BankAccount implements Comparable<BankAccount> {
+  // ===== CLASS VARIABLES (static) =====
+  static const String bankName = "SimpleBank";  // Compile-time constant
+  static final int minimumBalance = 100;        // Runtime constant
+  static int _totalAccounts = 0;                 // Private static variable
+  
+  // ===== INSTANCE VARIABLES =====
+  // Public variables
+  String accountHolder;
+  List<Map<String, dynamic>> transactionHistory = [];
+  
+  // Private variables (underscore prefix)
+  double _balance;
+  String? _pin;  // Nullable type
+  
+  // Late variables (initialized later)
+  late final String accountNumber;  // Can only be set once
+  late DateTime createdAt;          // Must be initialized before use
+  
+  // ===== CONSTRUCTORS =====
+  // Main constructor
+  BankAccount(this.accountHolder, [this._balance = 0]) {
+    accountNumber = _generateAccountNumber();
+    createdAt = DateTime.now();
+    _totalAccounts++;
+  }
+  
+  // Named constructor
+  BankAccount.vip(this.accountHolder) : _balance = 10000 {
+    accountNumber = 'VIP${Random().nextInt(9999)}';
+    createdAt = DateTime.now();
+    _totalAccounts++;
+  }
+  
+  // Factory constructor
+  factory BankAccount.fromJson(Map<String, dynamic> json) {
+    return BankAccount(
+      json['accountHolder'] as String,
+      json['balance'] as double,
+    );
+  }
+  
+  // Redirecting constructor
+  BankAccount.empty(String holder) : this(holder, 0);
+  
+  // ===== GETTERS AND SETTERS =====
+  // Getter
+  double get balance => _balance;
+  
+  // Setter with validation
+  set balance(double amount) {
+    if (amount >= 0) {
+      _balance = amount;
+    } else {
+      throw ArgumentError('Balance cannot be negative');
+    }
+  }
+  
+  // Computed property (getter only)
+  bool get isVip => _balance > 50000;
+  
+  // Expression-bodied getter
+  String get accountInfo => '$accountHolder: \$$_balance';
+  
+  // ===== INSTANCE METHODS =====
+  // Regular instance method
+  bool deposit(double amount) {
+    if (amount > 0) {
+      _balance += amount;
+      _recordTransaction('deposit', amount);
+      return true;
+    }
+    return false;
+  }
+  
+  // Method with optional positional parameter
+  bool withdraw(double amount, [String? description]) {
+    if (amount > 0 && amount <= _balance - minimumBalance) {
+      _balance -= amount;
+      _recordTransaction('withdrawal', amount, description: description);
+      return true;
+    }
+    return false;
+  }
+  
+  // Method with named parameters
+  void transfer({
+    required BankAccount recipient,
+    required double amount,
+    String? reference,
+  }) {
+    if (withdraw(amount)) {
+      recipient.deposit(amount);
+      _recordTransaction('transfer', amount, 
+          description: 'To: ${recipient.accountHolder}');
+    }
+  }
+  
+  // Private method
+  void _recordTransaction(String type, double amount, {String? description}) {
+    transactionHistory.add({
+      'type': type,
+      'amount': amount,
+      'description': description,
+      'timestamp': DateTime.now(),
+      'balanceAfter': _balance,
+    });
+  }
+  
+  // Private method returning value
+  String _generateAccountNumber() {
+    return 'ACC${Random().nextInt(999999).toString().padLeft(6, '0')}';
+  }
+  
+  // ===== STATIC METHODS =====
+  // Static getter
+  static int get totalAccounts => _totalAccounts;
+  
+  // Static method
+  static double calculateInterest(double principal, double rate, int years) {
+    return principal * rate * years;
+  }
+  
+  // Static factory method
+  static BankAccount createBusinessAccount(String businessName) {
+    var account = BankAccount(businessName, 5000);
+    account._recordTransaction('initial_deposit', 5000);
+    return account;
+  }
+  
+  // ===== OPERATOR OVERLOADING =====
+  // Arithmetic operators
+  BankAccount operator +(double amount) {
+    return BankAccount(accountHolder, _balance + amount);
+  }
+  
+  BankAccount operator -(double amount) {
+    return BankAccount(accountHolder, _balance - amount);
+  }
+  
+  // Comparison operators
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is BankAccount && 
+           other.accountNumber == accountNumber;
+  }
+  
+  bool operator <(BankAccount other) => _balance < other._balance;
+  bool operator >(BankAccount other) => _balance > other._balance;
+  bool operator <=(BankAccount other) => _balance <= other._balance;
+  bool operator >=(BankAccount other) => _balance >= other._balance;
+  
+  // Index operators
+  Map<String, dynamic>? operator [](int index) {
+    if (index >= 0 && index < transactionHistory.length) {
+      return transactionHistory[index];
+    }
+    return null;
+  }
+  
+  void operator []=(int index, Map<String, dynamic> transaction) {
+    if (index >= 0 && index < transactionHistory.length) {
+      transactionHistory[index] = transaction;
+    }
+  }
+  
+  // ===== SPECIAL METHODS =====
+  @override
+  String toString() => 'BankAccount($accountHolder, Balance: \$$_balance)';
+  
+  @override
+  int get hashCode => accountNumber.hashCode;
+  
+  // From Comparable interface
+  @override
+  int compareTo(BankAccount other) {
+    return _balance.compareTo(other._balance);
+  }
+  
+  // Call method (makes instance callable)
+  double call() => _balance;
+  
+  // ===== ASYNC METHODS =====
+  // Async method
+  Future<bool> processTransaction(double amount) async {
+    // Simulate network delay
+    await Future.delayed(Duration(seconds: 1));
+    return deposit(amount);
+  }
+  
+  // Async generator
+  Stream<double> get balanceStream async* {
+    while (true) {
+      await Future.delayed(Duration(seconds: 1));
+      yield _balance;
+    }
+  }
+  
+  // ===== JSON SERIALIZATION =====
+  Map<String, dynamic> toJson() => {
+    'accountHolder': accountHolder,
+    'balance': _balance,
+    'accountNumber': accountNumber,
+    'createdAt': createdAt.toIso8601String(),
+  };
+}
+
+// ===== INHERITANCE =====
+class SavingsAccount extends BankAccount {
+  final double interestRate;
+  
+  // Super constructor call
+  SavingsAccount(String holder, double balance, this.interestRate) 
+      : super(holder, balance);
+  
+  // Override method
+  @override
+  bool withdraw(double amount, [String? description]) {
+    // Add withdrawal limit logic
+    if (amount > 5000) {
+      print('Withdrawal limit exceeded');
+      return false;
+    }
+    return super.withdraw(amount, description);
+  }
+  
+  // New method
+  void applyInterest() {
+    double interest = balance * interestRate;
+    deposit(interest);
+  }
+}
+
+// ===== ABSTRACT CLASS =====
+abstract class Account {
+  String get accountType;
+  void closeAccount();
+  
+  // Concrete method in abstract class
+  void logActivity(String activity) {
+    print('[$accountType] $activity');
+  }
+}
+
+// ===== INTERFACE (implicit via class) =====
+class Auditable {
+  DateTime? lastAuditDate;
+  void audit() {}
+}
+
+// ===== MIXIN =====
+mixin NotificationMixin {
+  void sendNotification(String message) {
+    print('Notification: $message');
+  }
+  
+  void notifyTransaction(String type, double amount) {
+    sendNotification('$type of \$$amount processed');
+  }
+}
+
+// ===== ENUM =====
+enum AccountType {
+  checking('CHK'),
+  savings('SAV'),
+  business('BUS');
+  
+  final String code;
+  const AccountType(this.code);
+}
+
+// ===== EXTENSION =====
+extension BankAccountExtensions on BankAccount {
+  // Add new getter
+  String get formattedBalance => '\$${_balance.toStringAsFixed(2)}';
+  
+  // Add new method
+  bool get hasMinimumBalance => _balance >= BankAccount.minimumBalance;
+}
+
+// ===== GENERIC CLASS =====
+class TransactionProcessor<T extends BankAccount> {
+  final List<T> accounts = [];
+  
+  void processAll(double Function(T) operation) {
+    for (var account in accounts) {
+      operation(account);
+    }
+  }
+}
+
+// ===== USAGE EXAMPLES =====
+void main() {
+  // Create instances
+  var acc1 = BankAccount('Alice', 1000);
+  var acc2 = BankAccount.vip('Bob');
+  var acc3 = BankAccount.empty('Charlie');
+  
+  // Use properties
+  print(acc1.balance);          // Getter
+  acc1.balance = 1500;          // Setter
+  print(acc1.isVip);           // Computed property
+  
+  // Use methods
+  acc1.deposit(500);
+  acc1.withdraw(200, 'ATM withdrawal');
+  acc1.transfer(recipient: acc2, amount: 100);
+  
+  // Static methods
+  print('Total accounts: ${BankAccount.totalAccounts}');
+  var interest = BankAccount.calculateInterest(1000, 0.05, 2);
+  
+  // Operators
+  var acc4 = acc1 + 500;        // Addition operator
+  print(acc1 == acc2);          // Equality operator
+  print(acc1 < acc2);           // Comparison operator
+  print(acc1[0]);               // Index operator
+  
+  // Special methods
+  print(acc1);                  // toString()
+  print(acc1());                // Call method
+  
+  // Async usage
+  acc1.processTransaction(100).then((success) {
+    print('Transaction success: $success');
+  });
+  
+  // JSON serialization
+  var json = acc1.toJson();
+  var restored = BankAccount.fromJson(json);
+  
+  // Extension usage
+  print(acc1.formattedBalance);
+  print(acc1.hasMinimumBalance);
+  
+  // Inheritance
+  var savings = SavingsAccount('Eve', 5000, 0.03);
+  savings.applyInterest();
+  
+  // With cascade operator
+  var acc5 = BankAccount('Frank')
+    ..deposit(1000)
+    ..withdraw(200)
+    ..balance = 2000;
+}
+```
+
+### Quick Reference Summary
+
+**Class Declaration Patterns:**
+
+```dart
+class Name { }                    // Regular class
+abstract class Name { }           // Abstract class
+class Name extends Parent { }     // Inheritance
+class Name implements Interface { } // Interface implementation
+class Name with Mixin { }         // Mixin usage
+class Name<T> { }                 // Generic class
+```
+
+**Constructor Patterns:**
+
+```dart
+ClassName(this.field);            // Simplified constructor
+ClassName() : field = value;      // Initializer list
+ClassName.named();                // Named constructor
+factory ClassName() { }           // Factory constructor
+```
+
+**Method Patterns:**
+
+```dart
+void method() { }                 // Instance method
+static void method() { }          // Static method
+Future<void> method() async { }   // Async method
+Type get property => value;       // Getter
+set property(Type value) { }      // Setter
+```
+
+**Access Modifiers:**
+
+```dart
+field                            // Public (default)
+_field                           // Private (library-private)
+```
+
+This cheatsheet covers all major OOP concepts in Dart with practical examples you can adapt for your own classes!
+
+### Quick Reference Summary
+
+**Class Declaration Patterns:**
+
+```typescript
+class Name { }                           // Regular class
+abstract class Name { }                  // Abstract class
+class Name extends Parent { }            // Inheritance
+class Name implements Interface { }      // Interface implementation
+class Name<T> { }                       // Generic class
+```
+
+**Property Patterns:**
+
+```typescript
+property: Type;                         // Public property
+private property: Type;                 // Private property
+protected property: Type;               // Protected property
+readonly property: Type;                // Readonly property
+property?: Type;                        // Optional property
+static property: Type;                  // Static property
+#property: Type;                        // Private field (ES2022)
+```
+
+**Method Patterns:**
+
+```typescript
+method(): void { }                      // Instance method
+static method(): void { }               // Static method
+async method(): Promise<T> { }          // Async method
+*method(): Generator<T> { }             // Generator method
+get property(): Type { }                // Getter
+set property(value: Type) { }           // Setter
+private method(): void { }              // Private method
+protected method(): void { }            // Protected method
+override method(): void { }             // Override parent method
+```
+
+**Constructor Patterns:**
+
+```typescript
+constructor(param: Type) { }            // Basic constructor
+constructor(public param: Type) { }     // Parameter property
+constructor(param?: Type) { }           // Optional parameter
+constructor(...args: Type[]) { }        // Rest parameters
+```
+
+**Interface Patterns:**
+
+```typescript
+interface Name { }                      // Interface declaration
+interface Name extends Parent { }       // Interface inheritance
+type Name = { };                        // Type alias
+type Union = Type1 | Type2;            // Union type
+type Intersection = Type1 & Type2;      // Intersection type
+```
+

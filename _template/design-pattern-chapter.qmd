@@ -1,0 +1,105 @@
+---
+title: "[type-of-this-design-pattern]"
+---
+
+[Quick Introduction of this pattern]
+
+## Problem
+
+[The problem that this particular design pattern aim to solve]
+
+### Example
+
+[Show a messy diagram of the problematic code]
+
+```mermaid
+
+```
+
+[Give a example bad/messy code for each language that it will be rewritten]
+
+::: {.panel-tabset}
+#### `Python`
+
+#### `C#`
+
+#### `TypeScript`
+
+#### `Dart`
+
+:::
+
+#### Usage
+
+[Show Client-side code to demonstrate the usage]
+
+::: {.panel-tabset}
+#### `Python`
+
+#### `C#`
+
+#### `TypeScript`
+
+#### `Dart`
+
+:::
+
+
+## Solution 
+
+### UML Diagram
+
+[Show the mermaid UML diagram of the cleaner version applying the design pattern]
+
+```mermaid
+
+```
+
+### Refactor Code
+
+[Write your refactored code for each language below that use the design pattern. Emphasize at the "design pattern", NOT Specific implementation.]
+
+::: {.panel-tabset}
+#### `Python`
+
+#### `C#`
+
+#### `TypeScript`
+
+#### `Dart`
+
+:::
+
+#### Usage
+
+[Show Client-side code to demonstrate the usage]
+
+::: {.panel-tabset}
+#### `Python`
+
+#### `C#`
+
+#### `TypeScript`
+
+#### `Dart`
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+[One-line-summary-here]
+:::
+
+### Key Benefits
+
+[Summarize for why to use this pattern]
+
+### When to Use
+
+[Summarize for when to use this pattern in a table format]
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+|            |              |
+|            |              |

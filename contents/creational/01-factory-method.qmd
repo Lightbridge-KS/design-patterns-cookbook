@@ -1,0 +1,505 @@
+---
+title: "Factory Method"
+---
+
+The **Factory Method** pattern defines an interface for creating objects but lets subclasses decide which class to instantiate. Instead of calling a constructor directly, you call a "factory method" that returns the product.
+
+## Problem
+
+Imagine you're building a logistics application. Initially, you only handle road transport with trucks. Your code is tightly coupled to the `Truck` class.
+
+Later, you need to add sea transport with ships. The problem: your code is littered with `Truck` references, and adding `Ship` requires modifying existing code everywhere.
+
+### Example
+
+The naive approach uses conditional logic to decide which transport to create:
+
+```{mermaid}
+flowchart LR
+    L[Logistics] -->|"if road"| T[Truck]
+    L -->|"if sea"| S[Ship]
+    L -->|"if air?"| A[???]
+
+    style L fill:#f96,stroke:#333
+    style A fill:#faa,stroke:#333,stroke-dasharray: 5 5
+```
+
+**Problems with this approach:**
+
+- Adding new transport types requires modifying the `Logistics` class
+- Violates **Open/Closed Principle** (not open for extension, not closed for modification)
+- The class grows with each new transport type
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Truck:
+    def deliver(self):
+        print("Delivering by land in a truck")
+
+class Ship:
+    def deliver(self):
+        print("Delivering by sea in a ship")
+
+class Logistics:
+    def create_transport(self, transport_type: str):
+        # Conditional logic - violates OCP
+        if transport_type == "road":
+            return Truck()
+        elif transport_type == "sea":
+            return Ship()
+        # Adding "air" requires modifying this method!
+        else:
+            raise ValueError(f"Unknown transport: {transport_type}")
+
+    def plan_delivery(self, transport_type: str):
+        transport = self.create_transport(transport_type)
+        transport.deliver()
+```
+
+#### `C#`
+
+```csharp
+public class Truck
+{
+    public void Deliver() => Console.WriteLine("Delivering by land in a truck");
+}
+
+public class Ship
+{
+    public void Deliver() => Console.WriteLine("Delivering by sea in a ship");
+}
+
+public class Logistics
+{
+    // Conditional logic - violates OCP
+    public object CreateTransport(string transportType)
+    {
+        return transportType switch
+        {
+            "road" => new Truck(),
+            "sea" => new Ship(),
+            // Adding "air" requires modifying this method!
+            _ => throw new ArgumentException($"Unknown transport: {transportType}")
+        };
+    }
+
+    public void PlanDelivery(string transportType)
+    {
+        dynamic transport = CreateTransport(transportType);
+        transport.Deliver();
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Truck {
+  deliver(): void {
+    console.log("Delivering by land in a truck");
+  }
+}
+
+class Ship {
+  deliver(): void {
+    console.log("Delivering by sea in a ship");
+  }
+}
+
+class Logistics {
+  // Conditional logic - violates OCP
+  createTransport(transportType: string): Truck | Ship {
+    if (transportType === "road") {
+      return new Truck();
+    } else if (transportType === "sea") {
+      return new Ship();
+    }
+    // Adding "air" requires modifying this method!
+    throw new Error(`Unknown transport: ${transportType}`);
+  }
+
+  planDelivery(transportType: string): void {
+    const transport = this.createTransport(transportType);
+    transport.deliver();
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Truck {
+  void deliver() => print("Delivering by land in a truck");
+}
+
+class Ship {
+  void deliver() => print("Delivering by sea in a ship");
+}
+
+class Logistics {
+  // Conditional logic - violates OCP
+  dynamic createTransport(String transportType) {
+    switch (transportType) {
+      case "road":
+        return Truck();
+      case "sea":
+        return Ship();
+      // Adding "air" requires modifying this method!
+      default:
+        throw ArgumentError("Unknown transport: $transportType");
+    }
+  }
+
+  void planDelivery(String transportType) {
+    final transport = createTransport(transportType);
+    transport.deliver();
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+logistics = Logistics()
+logistics.plan_delivery("road")
+logistics.plan_delivery("sea")
+```
+
+#### `C#`
+
+```csharp
+var logistics = new Logistics();
+logistics.PlanDelivery("road");
+logistics.PlanDelivery("sea");
+```
+
+#### `TypeScript`
+
+```typescript
+const logistics = new Logistics();
+logistics.planDelivery("road");
+logistics.planDelivery("sea");
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final logistics = Logistics();
+  logistics.planDelivery("road");
+  logistics.planDelivery("sea");
+}
+```
+
+:::
+
+
+## Solution
+
+The Factory Method pattern solves this by:
+
+1. Defining a **Product interface** (`Transport`) that all products implement
+2. Creating an **abstract Creator** (`Logistics`) with an abstract factory method
+3. Letting **concrete Creators** (`RoadLogistics`, `SeaLogistics`) override the factory method to return specific products
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Transport {
+        <<interface>>
+        +deliver()
+    }
+
+    class Truck {
+        +deliver()
+    }
+
+    class Ship {
+        +deliver()
+    }
+
+    class Logistics {
+        <<abstract>>
+        +planDelivery()
+        +createTransport()* Transport
+    }
+
+    class RoadLogistics {
+        +createTransport() Transport
+    }
+
+    class SeaLogistics {
+        +createTransport() Transport
+    }
+
+    Transport <|.. Truck
+    Transport <|.. Ship
+    Logistics <|-- RoadLogistics
+    Logistics <|-- SeaLogistics
+    Logistics ..> Transport : creates
+    RoadLogistics ..> Truck : creates
+    SeaLogistics ..> Ship : creates
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Product interface
+class Transport(ABC):
+    @abstractmethod
+    def deliver(self) -> None:
+        pass
+
+# Concrete Products
+class Truck(Transport):
+    def deliver(self) -> None:
+        print("Delivering by land in a truck")
+
+class Ship(Transport):
+    def deliver(self) -> None:
+        print("Delivering by sea in a ship")
+
+# Creator (abstract)
+class Logistics(ABC):
+    @abstractmethod
+    def create_transport(self) -> Transport:
+        """Factory Method - subclasses override this"""
+        pass
+
+    def plan_delivery(self) -> None:
+        # Uses the factory method
+        transport = self.create_transport()
+        transport.deliver()
+
+# Concrete Creators
+class RoadLogistics(Logistics):
+    def create_transport(self) -> Transport:
+        return Truck()
+
+class SeaLogistics(Logistics):
+    def create_transport(self) -> Transport:
+        return Ship()
+```
+
+#### `C#`
+
+```csharp
+// Product interface
+public interface ITransport
+{
+    void Deliver();
+}
+
+// Concrete Products
+public class Truck : ITransport
+{
+    public void Deliver() => Console.WriteLine("Delivering by land in a truck");
+}
+
+public class Ship : ITransport
+{
+    public void Deliver() => Console.WriteLine("Delivering by sea in a ship");
+}
+
+// Creator (abstract)
+public abstract class Logistics
+{
+    // Factory Method - subclasses override this
+    public abstract ITransport CreateTransport();
+
+    public void PlanDelivery()
+    {
+        // Uses the factory method
+        ITransport transport = CreateTransport();
+        transport.Deliver();
+    }
+}
+
+// Concrete Creators
+public class RoadLogistics : Logistics
+{
+    public override ITransport CreateTransport() => new Truck();
+}
+
+public class SeaLogistics : Logistics
+{
+    public override ITransport CreateTransport() => new Ship();
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Product interface
+interface Transport {
+  deliver(): void;
+}
+
+// Concrete Products
+class Truck implements Transport {
+  deliver(): void {
+    console.log("Delivering by land in a truck");
+  }
+}
+
+class Ship implements Transport {
+  deliver(): void {
+    console.log("Delivering by sea in a ship");
+  }
+}
+
+// Creator (abstract)
+abstract class Logistics {
+  // Factory Method - subclasses override this
+  abstract createTransport(): Transport;
+
+  planDelivery(): void {
+    // Uses the factory method
+    const transport = this.createTransport();
+    transport.deliver();
+  }
+}
+
+// Concrete Creators
+class RoadLogistics extends Logistics {
+  createTransport(): Transport {
+    return new Truck();
+  }
+}
+
+class SeaLogistics extends Logistics {
+  createTransport(): Transport {
+    return new Ship();
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Product interface
+abstract class Transport {
+  void deliver();
+}
+
+// Concrete Products
+class Truck implements Transport {
+  @override
+  void deliver() => print("Delivering by land in a truck");
+}
+
+class Ship implements Transport {
+  @override
+  void deliver() => print("Delivering by sea in a ship");
+}
+
+// Creator (abstract)
+abstract class Logistics {
+  // Factory Method - subclasses override this
+  Transport createTransport();
+
+  void planDelivery() {
+    // Uses the factory method
+    final transport = createTransport();
+    transport.deliver();
+  }
+}
+
+// Concrete Creators
+class RoadLogistics extends Logistics {
+  @override
+  Transport createTransport() => Truck();
+}
+
+class SeaLogistics extends Logistics {
+  @override
+  Transport createTransport() => Ship();
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+def client_code(logistics: Logistics) -> None:
+    logistics.plan_delivery()
+
+client_code(RoadLogistics())  # Delivering by land in a truck
+client_code(SeaLogistics())   # Delivering by sea in a ship
+```
+
+#### `C#`
+
+```csharp
+void ClientCode(Logistics logistics)
+{
+    logistics.PlanDelivery();
+}
+
+ClientCode(new RoadLogistics());  // Delivering by land in a truck
+ClientCode(new SeaLogistics());   // Delivering by sea in a ship
+```
+
+#### `TypeScript`
+
+```typescript
+function clientCode(logistics: Logistics): void {
+  logistics.planDelivery();
+}
+
+clientCode(new RoadLogistics());  // Delivering by land in a truck
+clientCode(new SeaLogistics());   // Delivering by sea in a ship
+```
+
+#### `Dart`
+
+```dart
+void clientCode(Logistics logistics) {
+  logistics.planDelivery();
+}
+
+void main() {
+  clientCode(RoadLogistics());  // Delivering by land in a truck
+  clientCode(SeaLogistics());   // Delivering by sea in a ship
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Factory Method** lets a class defer instantiation to subclasses, allowing you to introduce new product types without breaking existing code.
+:::
+
+### Key Benefits
+
+- **Open/Closed Principle**: Add new products by creating new creator subclasses — no modification to existing code
+- **Single Responsibility**: Product creation logic is centralized in one place per product type
+- **Loose Coupling**: Client code works with the abstract `Creator` and `Product` interfaces, not concrete classes
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You don't know exact types of objects beforehand | You only have one product type that won't change |
+| You want to let users extend your library/framework | The creation logic is trivial (just `new`) |
+| You need to reuse existing objects instead of creating new ones | Adding inheritance would overcomplicate simple code |
+| Each product requires different initialization logic | |

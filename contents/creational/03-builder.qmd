@@ -1,0 +1,972 @@
+---
+title: "Builder"
+---
+
+The **Builder** pattern separates the construction of a complex object from its representation. It allows you to construct objects step by step, and the same construction process can create different representations.
+
+## Problem
+
+Imagine you need to create a `House` object. A house can have walls, doors, windows, a roof, a garage, a swimming pool, and more. The naive approach leads to either:
+
+1. **Telescoping constructor** — a constructor with many parameters that's hard to read
+2. **Setter chaos** — creating an empty object and setting properties in any order (roof before walls?)
+
+### Example
+
+```{mermaid}
+flowchart LR
+    subgraph "Telescoping Constructor"
+        H1["House('wood', 4, 2, 6, true, false, 'red')"]
+        Q1["What does each parameter mean?"]
+    end
+
+    subgraph "Setter Chaos"
+        H2[House]
+        H2 --> S1[setRoof]
+        H2 --> S2[setWalls]
+        H2 --> S3[setDoors]
+        Q2["No order control!"]
+    end
+
+    style Q1 fill:#faa,stroke:#333
+    style Q2 fill:#faa,stroke:#333
+```
+
+**Problems with these approaches:**
+
+- Telescoping constructors are unreadable and error-prone
+- Setters allow invalid intermediate states (roof before walls)
+- Hard to create different house configurations consistently
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class House:
+    def __init__(
+        self,
+        walls: str,
+        doors: int,
+        windows: int,
+        roof: str,
+        has_garage: bool = False,
+        has_swimming_pool: bool = False,
+        garden_size: int = 0
+    ):
+        # Telescoping constructor - hard to read!
+        self.walls = walls
+        self.doors = doors
+        self.windows = windows
+        self.roof = roof
+        self.has_garage = has_garage
+        self.has_swimming_pool = has_swimming_pool
+        self.garden_size = garden_size
+
+    def __str__(self):
+        return f"House(walls={self.walls}, doors={self.doors}, windows={self.windows})"
+```
+
+#### `C#`
+
+```csharp
+public class House
+{
+    // Telescoping constructor - hard to read!
+    public House(
+        string walls,
+        int doors,
+        int windows,
+        string roof,
+        bool hasGarage = false,
+        bool hasSwimmingPool = false,
+        int gardenSize = 0)
+    {
+        Walls = walls;
+        Doors = doors;
+        Windows = windows;
+        Roof = roof;
+        HasGarage = hasGarage;
+        HasSwimmingPool = hasSwimmingPool;
+        GardenSize = gardenSize;
+    }
+
+    public string Walls { get; set; }
+    public int Doors { get; set; }
+    public int Windows { get; set; }
+    public string Roof { get; set; }
+    public bool HasGarage { get; set; }
+    public bool HasSwimmingPool { get; set; }
+    public int GardenSize { get; set; }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class House {
+  walls: string;
+  doors: number;
+  windows: number;
+  roof: string;
+  hasGarage: boolean;
+  hasSwimmingPool: boolean;
+  gardenSize: number;
+
+  // Telescoping constructor - hard to read!
+  constructor(
+    walls: string,
+    doors: number,
+    windows: number,
+    roof: string,
+    hasGarage: boolean = false,
+    hasSwimmingPool: boolean = false,
+    gardenSize: number = 0
+  ) {
+    this.walls = walls;
+    this.doors = doors;
+    this.windows = windows;
+    this.roof = roof;
+    this.hasGarage = hasGarage;
+    this.hasSwimmingPool = hasSwimmingPool;
+    this.gardenSize = gardenSize;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class House {
+  String walls;
+  int doors;
+  int windows;
+  String roof;
+  bool hasGarage;
+  bool hasSwimmingPool;
+  int gardenSize;
+
+  // Telescoping constructor - hard to read!
+  House({
+    required this.walls,
+    required this.doors,
+    required this.windows,
+    required this.roof,
+    this.hasGarage = false,
+    this.hasSwimmingPool = false,
+    this.gardenSize = 0,
+  });
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# What do these parameters mean?
+house = House("wood", 4, 8, "shingles", True, False, 100)
+
+# Or with setters - no order control
+house = House("", 0, 0, "")
+house.roof = "tiles"      # Roof before walls?
+house.walls = "stone"     # This seems backwards...
+```
+
+#### `C#`
+
+```csharp
+// What do these parameters mean?
+var house = new House("wood", 4, 8, "shingles", true, false, 100);
+
+// Or with setters - no order control
+var house2 = new House("", 0, 0, "");
+house2.Roof = "tiles";    // Roof before walls?
+house2.Walls = "stone";   // This seems backwards...
+```
+
+#### `TypeScript`
+
+```typescript
+// What do these parameters mean?
+const house = new House("wood", 4, 8, "shingles", true, false, 100);
+
+// Or create and mutate - no order control
+const house2 = new House("", 0, 0, "");
+house2.roof = "tiles";    // Roof before walls?
+house2.walls = "stone";   // This seems backwards...
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Even with named parameters, it's verbose
+  final house = House(
+    walls: "wood",
+    doors: 4,
+    windows: 8,
+    roof: "shingles",
+    hasGarage: true,
+    hasSwimmingPool: false,
+    gardenSize: 100,
+  );
+}
+```
+
+:::
+
+
+## Solution
+
+The Builder pattern solves this by:
+
+1. Extracting construction code into a **Builder** class
+2. Organizing construction into **steps** (`buildWalls()`, `buildRoof()`, etc.)
+3. Optionally using a **Director** to orchestrate common build sequences
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class House {
+        +walls: string
+        +doors: int
+        +windows: int
+        +roof: string
+        +hasGarage: bool
+        +hasSwimmingPool: bool
+    }
+
+    class HouseBuilder {
+        <<interface>>
+        +reset()
+        +buildWalls()
+        +buildDoors(count)
+        +buildWindows(count)
+        +buildRoof()
+        +buildGarage()
+        +buildSwimmingPool()
+        +getResult() House
+    }
+
+    class WoodenHouseBuilder {
+        -house: House
+        +reset()
+        +buildWalls()
+        +buildDoors(count)
+        +buildWindows(count)
+        +buildRoof()
+        +buildGarage()
+        +buildSwimmingPool()
+        +getResult() House
+    }
+
+    class StoneHouseBuilder {
+        -house: House
+        +reset()
+        +buildWalls()
+        +buildDoors(count)
+        +buildWindows(count)
+        +buildRoof()
+        +buildGarage()
+        +buildSwimmingPool()
+        +getResult() House
+    }
+
+    class Director {
+        -builder: HouseBuilder
+        +setBuilder(builder)
+        +buildMinimalHouse()
+        +buildFullFeaturedHouse()
+    }
+
+    HouseBuilder <|.. WoodenHouseBuilder
+    HouseBuilder <|.. StoneHouseBuilder
+    Director o-- HouseBuilder
+    WoodenHouseBuilder ..> House : creates
+    StoneHouseBuilder ..> House : creates
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Product
+class House:
+    def __init__(self):
+        self.walls: str = ""
+        self.doors: int = 0
+        self.windows: int = 0
+        self.roof: str = ""
+        self.has_garage: bool = False
+        self.has_swimming_pool: bool = False
+
+    def __str__(self):
+        features = []
+        if self.has_garage:
+            features.append("garage")
+        if self.has_swimming_pool:
+            features.append("pool")
+        extras = f" with {', '.join(features)}" if features else ""
+        return f"House({self.walls} walls, {self.roof} roof{extras})"
+
+# Builder Interface
+class HouseBuilder(ABC):
+    @abstractmethod
+    def reset(self) -> None:
+        pass
+
+    @abstractmethod
+    def build_walls(self) -> None:
+        pass
+
+    @abstractmethod
+    def build_doors(self, count: int) -> None:
+        pass
+
+    @abstractmethod
+    def build_windows(self, count: int) -> None:
+        pass
+
+    @abstractmethod
+    def build_roof(self) -> None:
+        pass
+
+    @abstractmethod
+    def build_garage(self) -> None:
+        pass
+
+    @abstractmethod
+    def build_swimming_pool(self) -> None:
+        pass
+
+    @abstractmethod
+    def get_result(self) -> House:
+        pass
+
+# Concrete Builder - Wooden House
+class WoodenHouseBuilder(HouseBuilder):
+    def __init__(self):
+        self._house = House()
+
+    def reset(self) -> None:
+        self._house = House()
+
+    def build_walls(self) -> None:
+        self._house.walls = "wooden"
+
+    def build_doors(self, count: int) -> None:
+        self._house.doors = count
+
+    def build_windows(self, count: int) -> None:
+        self._house.windows = count
+
+    def build_roof(self) -> None:
+        self._house.roof = "shingle"
+
+    def build_garage(self) -> None:
+        self._house.has_garage = True
+
+    def build_swimming_pool(self) -> None:
+        self._house.has_swimming_pool = True
+
+    def get_result(self) -> House:
+        result = self._house
+        self.reset()
+        return result
+
+# Concrete Builder - Stone House
+class StoneHouseBuilder(HouseBuilder):
+    def __init__(self):
+        self._house = House()
+
+    def reset(self) -> None:
+        self._house = House()
+
+    def build_walls(self) -> None:
+        self._house.walls = "stone"
+
+    def build_doors(self, count: int) -> None:
+        self._house.doors = count
+
+    def build_windows(self, count: int) -> None:
+        self._house.windows = count
+
+    def build_roof(self) -> None:
+        self._house.roof = "concrete"
+
+    def build_garage(self) -> None:
+        self._house.has_garage = True
+
+    def build_swimming_pool(self) -> None:
+        self._house.has_swimming_pool = True
+
+    def get_result(self) -> House:
+        result = self._house
+        self.reset()
+        return result
+
+# Director (optional - orchestrates build steps)
+class Director:
+    def __init__(self):
+        self._builder: HouseBuilder | None = None
+
+    def set_builder(self, builder: HouseBuilder) -> None:
+        self._builder = builder
+
+    def build_minimal_house(self) -> None:
+        if self._builder:
+            self._builder.build_walls()
+            self._builder.build_doors(1)
+            self._builder.build_windows(2)
+            self._builder.build_roof()
+
+    def build_full_featured_house(self) -> None:
+        if self._builder:
+            self._builder.build_walls()
+            self._builder.build_doors(4)
+            self._builder.build_windows(8)
+            self._builder.build_roof()
+            self._builder.build_garage()
+            self._builder.build_swimming_pool()
+```
+
+#### `C#`
+
+```csharp
+// Product
+public class House
+{
+    public string Walls { get; set; } = "";
+    public int Doors { get; set; }
+    public int Windows { get; set; }
+    public string Roof { get; set; } = "";
+    public bool HasGarage { get; set; }
+    public bool HasSwimmingPool { get; set; }
+
+    public override string ToString()
+    {
+        var features = new List<string>();
+        if (HasGarage) features.Add("garage");
+        if (HasSwimmingPool) features.Add("pool");
+        var extras = features.Count > 0 ? $" with {string.Join(", ", features)}" : "";
+        return $"House({Walls} walls, {Roof} roof{extras})";
+    }
+}
+
+// Builder Interface
+public interface IHouseBuilder
+{
+    void Reset();
+    void BuildWalls();
+    void BuildDoors(int count);
+    void BuildWindows(int count);
+    void BuildRoof();
+    void BuildGarage();
+    void BuildSwimmingPool();
+    House GetResult();
+}
+
+// Concrete Builder - Wooden House
+public class WoodenHouseBuilder : IHouseBuilder
+{
+    private House _house = new();
+
+    public void Reset() => _house = new House();
+
+    public void BuildWalls() => _house.Walls = "wooden";
+
+    public void BuildDoors(int count) => _house.Doors = count;
+
+    public void BuildWindows(int count) => _house.Windows = count;
+
+    public void BuildRoof() => _house.Roof = "shingle";
+
+    public void BuildGarage() => _house.HasGarage = true;
+
+    public void BuildSwimmingPool() => _house.HasSwimmingPool = true;
+
+    public House GetResult()
+    {
+        var result = _house;
+        Reset();
+        return result;
+    }
+}
+
+// Concrete Builder - Stone House
+public class StoneHouseBuilder : IHouseBuilder
+{
+    private House _house = new();
+
+    public void Reset() => _house = new House();
+
+    public void BuildWalls() => _house.Walls = "stone";
+
+    public void BuildDoors(int count) => _house.Doors = count;
+
+    public void BuildWindows(int count) => _house.Windows = count;
+
+    public void BuildRoof() => _house.Roof = "concrete";
+
+    public void BuildGarage() => _house.HasGarage = true;
+
+    public void BuildSwimmingPool() => _house.HasSwimmingPool = true;
+
+    public House GetResult()
+    {
+        var result = _house;
+        Reset();
+        return result;
+    }
+}
+
+// Director
+public class Director
+{
+    private IHouseBuilder? _builder;
+
+    public void SetBuilder(IHouseBuilder builder) => _builder = builder;
+
+    public void BuildMinimalHouse()
+    {
+        _builder?.BuildWalls();
+        _builder?.BuildDoors(1);
+        _builder?.BuildWindows(2);
+        _builder?.BuildRoof();
+    }
+
+    public void BuildFullFeaturedHouse()
+    {
+        _builder?.BuildWalls();
+        _builder?.BuildDoors(4);
+        _builder?.BuildWindows(8);
+        _builder?.BuildRoof();
+        _builder?.BuildGarage();
+        _builder?.BuildSwimmingPool();
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Product
+class House {
+  walls: string = "";
+  doors: number = 0;
+  windows: number = 0;
+  roof: string = "";
+  hasGarage: boolean = false;
+  hasSwimmingPool: boolean = false;
+
+  toString(): string {
+    const features: string[] = [];
+    if (this.hasGarage) features.push("garage");
+    if (this.hasSwimmingPool) features.push("pool");
+    const extras = features.length > 0 ? ` with ${features.join(", ")}` : "";
+    return `House(${this.walls} walls, ${this.roof} roof${extras})`;
+  }
+}
+
+// Builder Interface
+interface HouseBuilder {
+  reset(): void;
+  buildWalls(): void;
+  buildDoors(count: number): void;
+  buildWindows(count: number): void;
+  buildRoof(): void;
+  buildGarage(): void;
+  buildSwimmingPool(): void;
+  getResult(): House;
+}
+
+// Concrete Builder - Wooden House
+class WoodenHouseBuilder implements HouseBuilder {
+  private house: House = new House();
+
+  reset(): void {
+    this.house = new House();
+  }
+
+  buildWalls(): void {
+    this.house.walls = "wooden";
+  }
+
+  buildDoors(count: number): void {
+    this.house.doors = count;
+  }
+
+  buildWindows(count: number): void {
+    this.house.windows = count;
+  }
+
+  buildRoof(): void {
+    this.house.roof = "shingle";
+  }
+
+  buildGarage(): void {
+    this.house.hasGarage = true;
+  }
+
+  buildSwimmingPool(): void {
+    this.house.hasSwimmingPool = true;
+  }
+
+  getResult(): House {
+    const result = this.house;
+    this.reset();
+    return result;
+  }
+}
+
+// Concrete Builder - Stone House
+class StoneHouseBuilder implements HouseBuilder {
+  private house: House = new House();
+
+  reset(): void {
+    this.house = new House();
+  }
+
+  buildWalls(): void {
+    this.house.walls = "stone";
+  }
+
+  buildDoors(count: number): void {
+    this.house.doors = count;
+  }
+
+  buildWindows(count: number): void {
+    this.house.windows = count;
+  }
+
+  buildRoof(): void {
+    this.house.roof = "concrete";
+  }
+
+  buildGarage(): void {
+    this.house.hasGarage = true;
+  }
+
+  buildSwimmingPool(): void {
+    this.house.hasSwimmingPool = true;
+  }
+
+  getResult(): House {
+    const result = this.house;
+    this.reset();
+    return result;
+  }
+}
+
+// Director
+class Director {
+  private builder?: HouseBuilder;
+
+  setBuilder(builder: HouseBuilder): void {
+    this.builder = builder;
+  }
+
+  buildMinimalHouse(): void {
+    this.builder?.buildWalls();
+    this.builder?.buildDoors(1);
+    this.builder?.buildWindows(2);
+    this.builder?.buildRoof();
+  }
+
+  buildFullFeaturedHouse(): void {
+    this.builder?.buildWalls();
+    this.builder?.buildDoors(4);
+    this.builder?.buildWindows(8);
+    this.builder?.buildRoof();
+    this.builder?.buildGarage();
+    this.builder?.buildSwimmingPool();
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Product
+class House {
+  String walls = "";
+  int doors = 0;
+  int windows = 0;
+  String roof = "";
+  bool hasGarage = false;
+  bool hasSwimmingPool = false;
+
+  @override
+  String toString() {
+    final features = <String>[];
+    if (hasGarage) features.add("garage");
+    if (hasSwimmingPool) features.add("pool");
+    final extras = features.isNotEmpty ? " with ${features.join(", ")}" : "";
+    return "House($walls walls, $roof roof$extras)";
+  }
+}
+
+// Builder Interface
+abstract class HouseBuilder {
+  void reset();
+  void buildWalls();
+  void buildDoors(int count);
+  void buildWindows(int count);
+  void buildRoof();
+  void buildGarage();
+  void buildSwimmingPool();
+  House getResult();
+}
+
+// Concrete Builder - Wooden House
+class WoodenHouseBuilder implements HouseBuilder {
+  House _house = House();
+
+  @override
+  void reset() => _house = House();
+
+  @override
+  void buildWalls() => _house.walls = "wooden";
+
+  @override
+  void buildDoors(int count) => _house.doors = count;
+
+  @override
+  void buildWindows(int count) => _house.windows = count;
+
+  @override
+  void buildRoof() => _house.roof = "shingle";
+
+  @override
+  void buildGarage() => _house.hasGarage = true;
+
+  @override
+  void buildSwimmingPool() => _house.hasSwimmingPool = true;
+
+  @override
+  House getResult() {
+    final result = _house;
+    reset();
+    return result;
+  }
+}
+
+// Concrete Builder - Stone House
+class StoneHouseBuilder implements HouseBuilder {
+  House _house = House();
+
+  @override
+  void reset() => _house = House();
+
+  @override
+  void buildWalls() => _house.walls = "stone";
+
+  @override
+  void buildDoors(int count) => _house.doors = count;
+
+  @override
+  void buildWindows(int count) => _house.windows = count;
+
+  @override
+  void buildRoof() => _house.roof = "concrete";
+
+  @override
+  void buildGarage() => _house.hasGarage = true;
+
+  @override
+  void buildSwimmingPool() => _house.hasSwimmingPool = true;
+
+  @override
+  House getResult() {
+    final result = _house;
+    reset();
+    return result;
+  }
+}
+
+// Director
+class Director {
+  HouseBuilder? _builder;
+
+  void setBuilder(HouseBuilder builder) => _builder = builder;
+
+  void buildMinimalHouse() {
+    _builder?.buildWalls();
+    _builder?.buildDoors(1);
+    _builder?.buildWindows(2);
+    _builder?.buildRoof();
+  }
+
+  void buildFullFeaturedHouse() {
+    _builder?.buildWalls();
+    _builder?.buildDoors(4);
+    _builder?.buildWindows(8);
+    _builder?.buildRoof();
+    _builder?.buildGarage();
+    _builder?.buildSwimmingPool();
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Using Director for predefined configurations
+director = Director()
+
+# Build a minimal wooden house
+wooden_builder = WoodenHouseBuilder()
+director.set_builder(wooden_builder)
+director.build_minimal_house()
+wooden_house = wooden_builder.get_result()
+print(wooden_house)  # House(wooden walls, shingle roof)
+
+# Build a full-featured stone house
+stone_builder = StoneHouseBuilder()
+director.set_builder(stone_builder)
+director.build_full_featured_house()
+stone_house = stone_builder.get_result()
+print(stone_house)  # House(stone walls, concrete roof with garage, pool)
+
+# Or use builder directly for custom configuration
+custom_builder = WoodenHouseBuilder()
+custom_builder.build_walls()
+custom_builder.build_doors(2)
+custom_builder.build_windows(4)
+custom_builder.build_roof()
+custom_builder.build_garage()  # Garage but no pool
+custom_house = custom_builder.get_result()
+print(custom_house)  # House(wooden walls, shingle roof with garage)
+```
+
+#### `C#`
+
+```csharp
+// Using Director for predefined configurations
+var director = new Director();
+
+// Build a minimal wooden house
+var woodenBuilder = new WoodenHouseBuilder();
+director.SetBuilder(woodenBuilder);
+director.BuildMinimalHouse();
+var woodenHouse = woodenBuilder.GetResult();
+Console.WriteLine(woodenHouse);  // House(wooden walls, shingle roof)
+
+// Build a full-featured stone house
+var stoneBuilder = new StoneHouseBuilder();
+director.SetBuilder(stoneBuilder);
+director.BuildFullFeaturedHouse();
+var stoneHouse = stoneBuilder.GetResult();
+Console.WriteLine(stoneHouse);  // House(stone walls, concrete roof with garage, pool)
+
+// Or use builder directly for custom configuration
+var customBuilder = new WoodenHouseBuilder();
+customBuilder.BuildWalls();
+customBuilder.BuildDoors(2);
+customBuilder.BuildWindows(4);
+customBuilder.BuildRoof();
+customBuilder.BuildGarage();  // Garage but no pool
+var customHouse = customBuilder.GetResult();
+Console.WriteLine(customHouse);  // House(wooden walls, shingle roof with garage)
+```
+
+#### `TypeScript`
+
+```typescript
+// Using Director for predefined configurations
+const director = new Director();
+
+// Build a minimal wooden house
+const woodenBuilder = new WoodenHouseBuilder();
+director.setBuilder(woodenBuilder);
+director.buildMinimalHouse();
+const woodenHouse = woodenBuilder.getResult();
+console.log(woodenHouse.toString());  // House(wooden walls, shingle roof)
+
+// Build a full-featured stone house
+const stoneBuilder = new StoneHouseBuilder();
+director.setBuilder(stoneBuilder);
+director.buildFullFeaturedHouse();
+const stoneHouse = stoneBuilder.getResult();
+console.log(stoneHouse.toString());  // House(stone walls, concrete roof with garage, pool)
+
+// Or use builder directly for custom configuration
+const customBuilder = new WoodenHouseBuilder();
+customBuilder.buildWalls();
+customBuilder.buildDoors(2);
+customBuilder.buildWindows(4);
+customBuilder.buildRoof();
+customBuilder.buildGarage();  // Garage but no pool
+const customHouse = customBuilder.getResult();
+console.log(customHouse.toString());  // House(wooden walls, shingle roof with garage)
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Using Director for predefined configurations
+  final director = Director();
+
+  // Build a minimal wooden house
+  final woodenBuilder = WoodenHouseBuilder();
+  director.setBuilder(woodenBuilder);
+  director.buildMinimalHouse();
+  final woodenHouse = woodenBuilder.getResult();
+  print(woodenHouse);  // House(wooden walls, shingle roof)
+
+  // Build a full-featured stone house
+  final stoneBuilder = StoneHouseBuilder();
+  director.setBuilder(stoneBuilder);
+  director.buildFullFeaturedHouse();
+  final stoneHouse = stoneBuilder.getResult();
+  print(stoneHouse);  // House(stone walls, concrete roof with garage, pool)
+
+  // Or use builder directly for custom configuration
+  final customBuilder = WoodenHouseBuilder();
+  customBuilder.buildWalls();
+  customBuilder.buildDoors(2);
+  customBuilder.buildWindows(4);
+  customBuilder.buildRoof();
+  customBuilder.buildGarage();  // Garage but no pool
+  final customHouse = customBuilder.getResult();
+  print(customHouse);  // House(wooden walls, shingle roof with garage)
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Builder** constructs complex objects step by step, separating construction from representation and allowing the same process to create different configurations.
+:::
+
+### Key Benefits
+
+- **Readable Construction**: Clear step-by-step building instead of cryptic parameter lists
+- **Controlled Process**: Can enforce build order (walls before roof)
+- **Reusable Build Sequences**: Director encapsulates common configurations
+- **Different Representations**: Same steps produce wooden or stone houses
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Object has many optional parameters | Object is simple with few fields |
+| Construction involves multiple steps | Construction can be done in one step |
+| You need different representations of the same product | Only one representation is needed |
+| You want to isolate complex construction logic | Simple `new` constructor is sufficient |

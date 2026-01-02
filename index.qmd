@@ -1,0 +1,5 @@
+# Preface {.unnumbered}
+
+::: {.callout-note appearance="default" collapse="false"}
+A cookbook of design patterns.
+:::

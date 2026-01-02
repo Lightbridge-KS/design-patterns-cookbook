@@ -1,0 +1,45 @@
+project:
+  type: book
+
+book:
+  title: "Design Patterns Cookbook"
+  author: "Kittipos Sirivongrungson"
+  repo-url: https://github.com/Lightbridge-KS/design-patterns-cookbook
+  site-url: https://design-patterns-cookbook-lightbridge.netlify.app
+  date: today
+  chapters:
+    - index.qmd
+    - part: OOP
+      chapters: 
+        - text: OOP Cheatsheet
+          href: "contents/oop/oop-cheatsheet.qmd"
+    - part: Overview
+      chapters: 
+        - text: Design Pattern Overview
+          href: "contents/overview/overview-of-design-pattern.qmd"
+    - part: Creational Design Patterns
+      chapters: 
+        - text: Factory Method Pattern
+          href: "contents/creational/01-factory-method.qmd"
+        - text: Abstract Factory Pattern
+          href: "contents/creational/02-abstract-factory.qmd"
+        - text: Builder Pattern
+          href: "contents/creational/03-builder.qmd"
+        - text: Prototype Pattern
+          href: "contents/creational/04-prototype.qmd"
+        - text: Singleton Pattern
+          href: "contents/creational/05-singleton.qmd"
+
+
+
+format:
+  html:
+    theme:
+      light: 
+        - cosmo
+        - brand
+      dark: 
+        - darkly
+    lightbox: true
+
+
