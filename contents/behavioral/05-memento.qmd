@@ -1,0 +1,881 @@
+---
+title: "Memento"
+---
+
+The **Memento** pattern captures and externalizes an object's internal state so it can be restored later, without violating encapsulation. It's like a game save system where you can checkpoint your progress and restore if you fail — the save file captures everything needed to restore your exact position.
+
+## Problem
+
+Imagine you're building a game with a save/load feature. The player has health, level, and position that need to be saved. The naive approach exposes all internal state, letting external code directly access and save it.
+
+This leads to:
+
+- Player's internal state is exposed (no encapsulation)
+- SaveManager must know Player's internal structure
+- If Player adds new fields, SaveManager must change
+- No guarantee the saved data is consistent
+
+### Example
+
+```{mermaid}
+flowchart LR
+    SM[SaveManager] --> P["Player<br/>health (public)<br/>level (public)<br/>x, y (public)"]
+
+    SM --> S["save = {<br/>health: player.health,<br/>level: player.level,<br/>...}"]
+
+    style P fill:#fcc,stroke:#c33
+    style S fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- SaveManager directly accesses Player's fields
+- Player has no control over what gets saved
+- Adding new player state requires changing SaveManager
+- No encapsulation — anyone can modify player state
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Player:
+    def __init__(self, name: str):
+        self.name = name
+        self.health = 100    # Public!
+        self.level = 1       # Public!
+        self.x = 0           # Public!
+        self.y = 0           # Public!
+
+    def take_damage(self, amount: int) -> None:
+        self.health -= amount
+        print(f"{self.name} took {amount} damage. Health: {self.health}")
+
+    def move(self, x: int, y: int) -> None:
+        self.x, self.y = x, y
+        print(f"{self.name} moved to ({x}, {y})")
+
+class SaveManager:
+    def __init__(self):
+        self.saves: list[dict] = []
+
+    def save_game(self, player: Player) -> None:
+        # Directly accessing player internals!
+        save = {
+            "health": player.health,
+            "level": player.level,
+            "x": player.x,
+            "y": player.y,
+        }
+        self.saves.append(save)
+
+    def load_game(self, player: Player, index: int) -> None:
+        save = self.saves[index]
+        # Directly modifying player internals!
+        player.health = save["health"]
+        player.level = save["level"]
+        player.x = save["x"]
+        player.y = save["y"]
+```
+
+#### `C#`
+
+```csharp
+public class Player
+{
+    public string Name { get; }
+    public int Health { get; set; } = 100;    // Public setter!
+    public int Level { get; set; } = 1;       // Public setter!
+    public int X { get; set; } = 0;           // Public setter!
+    public int Y { get; set; } = 0;           // Public setter!
+
+    public Player(string name) => Name = name;
+
+    public void TakeDamage(int amount)
+    {
+        Health -= amount;
+        Console.WriteLine($"{Name} took {amount} damage. Health: {Health}");
+    }
+
+    public void Move(int x, int y)
+    {
+        X = x; Y = y;
+        Console.WriteLine($"{Name} moved to ({x}, {y})");
+    }
+}
+
+public class SaveManager
+{
+    private readonly List<Dictionary<string, int>> _saves = [];
+
+    public void SaveGame(Player player)
+    {
+        // Directly accessing player internals!
+        var save = new Dictionary<string, int>
+        {
+            ["health"] = player.Health,
+            ["level"] = player.Level,
+            ["x"] = player.X,
+            ["y"] = player.Y
+        };
+        _saves.Add(save);
+    }
+
+    public void LoadGame(Player player, int index)
+    {
+        var save = _saves[index];
+        // Directly modifying player internals!
+        player.Health = save["health"];
+        player.Level = save["level"];
+        player.X = save["x"];
+        player.Y = save["y"];
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Player {
+  health: number = 100;    // Public!
+  level: number = 1;       // Public!
+  x: number = 0;           // Public!
+  y: number = 0;           // Public!
+
+  constructor(public name: string) {}
+
+  takeDamage(amount: number): void {
+    this.health -= amount;
+    console.log(`${this.name} took ${amount} damage. Health: ${this.health}`);
+  }
+
+  move(x: number, y: number): void {
+    this.x = x;
+    this.y = y;
+    console.log(`${this.name} moved to (${x}, ${y})`);
+  }
+}
+
+interface SaveData {
+  health: number;
+  level: number;
+  x: number;
+  y: number;
+}
+
+class SaveManager {
+  private saves: SaveData[] = [];
+
+  saveGame(player: Player): void {
+    // Directly accessing player internals!
+    const save: SaveData = {
+      health: player.health,
+      level: player.level,
+      x: player.x,
+      y: player.y,
+    };
+    this.saves.push(save);
+  }
+
+  loadGame(player: Player, index: number): void {
+    const save = this.saves[index];
+    // Directly modifying player internals!
+    player.health = save.health;
+    player.level = save.level;
+    player.x = save.x;
+    player.y = save.y;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Player {
+  final String name;
+  int health = 100;    // Public!
+  int level = 1;       // Public!
+  int x = 0;           // Public!
+  int y = 0;           // Public!
+
+  Player(this.name);
+
+  void takeDamage(int amount) {
+    health -= amount;
+    print("$name took $amount damage. Health: $health");
+  }
+
+  void move(int newX, int newY) {
+    x = newX;
+    y = newY;
+    print("$name moved to ($x, $y)");
+  }
+}
+
+class SaveManager {
+  final List<Map<String, int>> _saves = [];
+
+  void saveGame(Player player) {
+    // Directly accessing player internals!
+    final save = {
+      "health": player.health,
+      "level": player.level,
+      "x": player.x,
+      "y": player.y,
+    };
+    _saves.add(save);
+  }
+
+  void loadGame(Player player, int index) {
+    final save = _saves[index];
+    // Directly modifying player internals!
+    player.health = save["health"]!;
+    player.level = save["level"]!;
+    player.x = save["x"]!;
+    player.y = save["y"]!;
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+player = Player("Hero")
+save_manager = SaveManager()
+
+player.move(10, 20)
+player.take_damage(30)
+save_manager.save_game(player)  # Save checkpoint
+
+player.take_damage(80)  # Oops, nearly dead!
+print(f"Health before load: {player.health}")  # 0 or negative!
+
+save_manager.load_game(player, 0)  # Restore
+print(f"Health after load: {player.health}")   # 70
+
+# Problem: SaveManager knows too much about Player's structure
+# What if we add "mana" field? Must update SaveManager!
+```
+
+#### `C#`
+
+```csharp
+var player = new Player("Hero");
+var saveManager = new SaveManager();
+
+player.Move(10, 20);
+player.TakeDamage(30);
+saveManager.SaveGame(player);  // Save checkpoint
+
+player.TakeDamage(80);  // Oops, nearly dead!
+Console.WriteLine($"Health before load: {player.Health}");  // -10!
+
+saveManager.LoadGame(player, 0);  // Restore
+Console.WriteLine($"Health after load: {player.Health}");   // 70
+
+// Problem: SaveManager knows too much about Player's structure
+// What if we add "Mana" field? Must update SaveManager!
+```
+
+#### `TypeScript`
+
+```typescript
+const player = new Player("Hero");
+const saveManager = new SaveManager();
+
+player.move(10, 20);
+player.takeDamage(30);
+saveManager.saveGame(player);  // Save checkpoint
+
+player.takeDamage(80);  // Oops, nearly dead!
+console.log(`Health before load: ${player.health}`);  // -10!
+
+saveManager.loadGame(player, 0);  // Restore
+console.log(`Health after load: ${player.health}`);   // 70
+
+// Problem: SaveManager knows too much about Player's structure
+// What if we add "mana" field? Must update SaveManager!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final player = Player("Hero");
+  final saveManager = SaveManager();
+
+  player.move(10, 20);
+  player.takeDamage(30);
+  saveManager.saveGame(player);  // Save checkpoint
+
+  player.takeDamage(80);  // Oops, nearly dead!
+  print("Health before load: ${player.health}");  // -10!
+
+  saveManager.loadGame(player, 0);  // Restore
+  print("Health after load: ${player.health}");   // 70
+
+  // Problem: SaveManager knows too much about Player's structure
+  // What if we add "mana" field? Must update SaveManager!
+}
+```
+
+:::
+
+
+## Solution
+
+The Memento pattern solves this by:
+
+1. **Originator** (`Player`) creates mementos containing snapshots of its own state
+2. **Memento** (`GameSave`) stores the state but keeps it private/opaque
+3. **Caretaker** (`SaveManager`) stores mementos without examining their contents
+4. Only the originator knows how to create and restore from mementos
+
+The key insight: Player controls what gets saved and how it's restored. SaveManager is just a storage container.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Player {
+        -health: int
+        -level: int
+        -x: int
+        -y: int
+        +save() GameSave
+        +restore(save: GameSave)
+        +takeDamage(amount: int)
+        +move(x: int, y: int)
+        +getStatus() String
+    }
+
+    class GameSave {
+        -health: int
+        -level: int
+        -x: int
+        -y: int
+        -timestamp: DateTime
+        +getTimestamp() DateTime
+    }
+
+    class SaveManager {
+        -saves: List~GameSave~
+        +addSave(save: GameSave)
+        +getSave(index: int) GameSave
+        +listSaves()
+    }
+
+    Player ..> GameSave : creates
+    Player <.. GameSave : restores from
+    SaveManager o--> GameSave : stores
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from datetime import datetime
+
+# Memento
+class GameSave:
+    def __init__(self, health: int, level: int, x: int, y: int):
+        self._health = health
+        self._level = level
+        self._x = x
+        self._y = y
+        self._timestamp = datetime.now()
+
+    def get_timestamp(self) -> datetime:
+        return self._timestamp
+
+    # State is "private" — only accessed by Player (friend relationship)
+
+# Originator
+class Player:
+    def __init__(self, name: str):
+        self.name = name
+        self._health = 100
+        self._level = 1
+        self._x = 0
+        self._y = 0
+
+    def save(self) -> GameSave:
+        """Create a memento with current state."""
+        print(f"{self.name}: Game saved!")
+        return GameSave(self._health, self._level, self._x, self._y)
+
+    def restore(self, save: GameSave) -> None:
+        """Restore state from a memento."""
+        self._health = save._health
+        self._level = save._level
+        self._x = save._x
+        self._y = save._y
+        print(f"{self.name}: Game loaded from {save.get_timestamp()}")
+
+    def take_damage(self, amount: int) -> None:
+        self._health -= amount
+        print(f"{self.name} took {amount} damage. Health: {self._health}")
+
+    def move(self, x: int, y: int) -> None:
+        self._x, self._y = x, y
+        print(f"{self.name} moved to ({x}, {y})")
+
+    def level_up(self) -> None:
+        self._level += 1
+        self._health = 100  # Restore health on level up
+        print(f"{self.name} leveled up to {self._level}!")
+
+    def get_status(self) -> str:
+        return f"{self.name} [Lv.{self._level}] HP:{self._health} Pos:({self._x},{self._y})"
+
+# Caretaker
+class SaveManager:
+    def __init__(self):
+        self._saves: list[GameSave] = []
+
+    def add_save(self, save: GameSave) -> None:
+        self._saves.append(save)
+
+    def get_save(self, index: int) -> GameSave:
+        return self._saves[index]
+
+    def list_saves(self) -> None:
+        print("=== Save Slots ===")
+        for i, save in enumerate(self._saves):
+            print(f"  [{i}] {save.get_timestamp()}")
+```
+
+#### `C#`
+
+```csharp
+// Memento
+public class GameSave
+{
+    internal int Health { get; }
+    internal int Level { get; }
+    internal int X { get; }
+    internal int Y { get; }
+    public DateTime Timestamp { get; }
+
+    internal GameSave(int health, int level, int x, int y)
+    {
+        Health = health;
+        Level = level;
+        X = x;
+        Y = y;
+        Timestamp = DateTime.Now;
+    }
+
+    // State is internal — only accessible within the assembly
+}
+
+// Originator
+public class Player
+{
+    public string Name { get; }
+    private int _health = 100;
+    private int _level = 1;
+    private int _x = 0;
+    private int _y = 0;
+
+    public Player(string name) => Name = name;
+
+    public GameSave Save()
+    {
+        Console.WriteLine($"{Name}: Game saved!");
+        return new GameSave(_health, _level, _x, _y);
+    }
+
+    public void Restore(GameSave save)
+    {
+        _health = save.Health;
+        _level = save.Level;
+        _x = save.X;
+        _y = save.Y;
+        Console.WriteLine($"{Name}: Game loaded from {save.Timestamp}");
+    }
+
+    public void TakeDamage(int amount)
+    {
+        _health -= amount;
+        Console.WriteLine($"{Name} took {amount} damage. Health: {_health}");
+    }
+
+    public void Move(int x, int y)
+    {
+        _x = x; _y = y;
+        Console.WriteLine($"{Name} moved to ({x}, {y})");
+    }
+
+    public void LevelUp()
+    {
+        _level++;
+        _health = 100;
+        Console.WriteLine($"{Name} leveled up to {_level}!");
+    }
+
+    public string GetStatus() => $"{Name} [Lv.{_level}] HP:{_health} Pos:({_x},{_y})";
+}
+
+// Caretaker
+public class SaveManager
+{
+    private readonly List<GameSave> _saves = [];
+
+    public void AddSave(GameSave save) => _saves.Add(save);
+
+    public GameSave GetSave(int index) => _saves[index];
+
+    public void ListSaves()
+    {
+        Console.WriteLine("=== Save Slots ===");
+        for (int i = 0; i < _saves.Count; i++)
+            Console.WriteLine($"  [{i}] {_saves[i].Timestamp}");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Memento
+class GameSave {
+  private readonly health: number;
+  private readonly level: number;
+  private readonly x: number;
+  private readonly y: number;
+  private readonly timestamp: Date;
+
+  constructor(health: number, level: number, x: number, y: number) {
+    this.health = health;
+    this.level = level;
+    this.x = x;
+    this.y = y;
+    this.timestamp = new Date();
+  }
+
+  getTimestamp(): Date {
+    return this.timestamp;
+  }
+
+  // Expose state only to Player (via package/friend access in real scenario)
+  getState(): { health: number; level: number; x: number; y: number } {
+    return { health: this.health, level: this.level, x: this.x, y: this.y };
+  }
+}
+
+// Originator
+class Player {
+  private health: number = 100;
+  private level: number = 1;
+  private x: number = 0;
+  private y: number = 0;
+
+  constructor(public readonly name: string) {}
+
+  save(): GameSave {
+    console.log(`${this.name}: Game saved!`);
+    return new GameSave(this.health, this.level, this.x, this.y);
+  }
+
+  restore(save: GameSave): void {
+    const state = save.getState();
+    this.health = state.health;
+    this.level = state.level;
+    this.x = state.x;
+    this.y = state.y;
+    console.log(`${this.name}: Game loaded from ${save.getTimestamp()}`);
+  }
+
+  takeDamage(amount: number): void {
+    this.health -= amount;
+    console.log(`${this.name} took ${amount} damage. Health: ${this.health}`);
+  }
+
+  move(x: number, y: number): void {
+    this.x = x;
+    this.y = y;
+    console.log(`${this.name} moved to (${x}, ${y})`);
+  }
+
+  levelUp(): void {
+    this.level++;
+    this.health = 100;
+    console.log(`${this.name} leveled up to ${this.level}!`);
+  }
+
+  getStatus(): string {
+    return `${this.name} [Lv.${this.level}] HP:${this.health} Pos:(${this.x},${this.y})`;
+  }
+}
+
+// Caretaker
+class SaveManager {
+  private saves: GameSave[] = [];
+
+  addSave(save: GameSave): void {
+    this.saves.push(save);
+  }
+
+  getSave(index: number): GameSave {
+    return this.saves[index];
+  }
+
+  listSaves(): void {
+    console.log("=== Save Slots ===");
+    this.saves.forEach((save, i) => {
+      console.log(`  [${i}] ${save.getTimestamp()}`);
+    });
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Memento
+class GameSave {
+  final int _health;
+  final int _level;
+  final int _x;
+  final int _y;
+  final DateTime _timestamp;
+
+  GameSave(this._health, this._level, this._x, this._y)
+      : _timestamp = DateTime.now();
+
+  DateTime get timestamp => _timestamp;
+
+  // State accessed by Player (Dart doesn't have true private across files)
+  int get health => _health;
+  int get level => _level;
+  int get x => _x;
+  int get y => _y;
+}
+
+// Originator
+class Player {
+  final String name;
+  int _health = 100;
+  int _level = 1;
+  int _x = 0;
+  int _y = 0;
+
+  Player(this.name);
+
+  GameSave save() {
+    print("$name: Game saved!");
+    return GameSave(_health, _level, _x, _y);
+  }
+
+  void restore(GameSave save) {
+    _health = save.health;
+    _level = save.level;
+    _x = save.x;
+    _y = save.y;
+    print("$name: Game loaded from ${save.timestamp}");
+  }
+
+  void takeDamage(int amount) {
+    _health -= amount;
+    print("$name took $amount damage. Health: $_health");
+  }
+
+  void move(int x, int y) {
+    _x = x;
+    _y = y;
+    print("$name moved to ($x, $y)");
+  }
+
+  void levelUp() {
+    _level++;
+    _health = 100;
+    print("$name leveled up to $_level!");
+  }
+
+  String getStatus() => "$name [Lv.$_level] HP:$_health Pos:($_x,$_y)";
+}
+
+// Caretaker
+class SaveManager {
+  final List<GameSave> _saves = [];
+
+  void addSave(GameSave save) => _saves.add(save);
+
+  GameSave getSave(int index) => _saves[index];
+
+  void listSaves() {
+    print("=== Save Slots ===");
+    for (int i = 0; i < _saves.length; i++) {
+      print("  [$i] ${_saves[i].timestamp}");
+    }
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+player = Player("Hero")
+save_manager = SaveManager()
+
+# Play the game
+player.move(10, 20)
+player.take_damage(30)
+print(player.get_status())
+# Hero [Lv.1] HP:70 Pos:(10,20)
+
+# Create a save point
+save_manager.add_save(player.save())
+
+# Continue playing...
+player.move(50, 50)
+player.take_damage(80)  # Almost dead!
+print(player.get_status())
+# Hero [Lv.1] HP:-10 Pos:(50,50)
+
+# Restore from save
+save_manager.list_saves()
+player.restore(save_manager.get_save(0))
+print(player.get_status())
+# Hero [Lv.1] HP:70 Pos:(10,20)
+
+# Player now back to saved state!
+```
+
+#### `C#`
+
+```csharp
+var player = new Player("Hero");
+var saveManager = new SaveManager();
+
+// Play the game
+player.Move(10, 20);
+player.TakeDamage(30);
+Console.WriteLine(player.GetStatus());
+// Hero [Lv.1] HP:70 Pos:(10,20)
+
+// Create a save point
+saveManager.AddSave(player.Save());
+
+// Continue playing...
+player.Move(50, 50);
+player.TakeDamage(80);  // Almost dead!
+Console.WriteLine(player.GetStatus());
+// Hero [Lv.1] HP:-10 Pos:(50,50)
+
+// Restore from save
+saveManager.ListSaves();
+player.Restore(saveManager.GetSave(0));
+Console.WriteLine(player.GetStatus());
+// Hero [Lv.1] HP:70 Pos:(10,20)
+
+// Player now back to saved state!
+```
+
+#### `TypeScript`
+
+```typescript
+const player = new Player("Hero");
+const saveManager = new SaveManager();
+
+// Play the game
+player.move(10, 20);
+player.takeDamage(30);
+console.log(player.getStatus());
+// Hero [Lv.1] HP:70 Pos:(10,20)
+
+// Create a save point
+saveManager.addSave(player.save());
+
+// Continue playing...
+player.move(50, 50);
+player.takeDamage(80);  // Almost dead!
+console.log(player.getStatus());
+// Hero [Lv.1] HP:-10 Pos:(50,50)
+
+// Restore from save
+saveManager.listSaves();
+player.restore(saveManager.getSave(0));
+console.log(player.getStatus());
+// Hero [Lv.1] HP:70 Pos:(10,20)
+
+// Player now back to saved state!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final player = Player("Hero");
+  final saveManager = SaveManager();
+
+  // Play the game
+  player.move(10, 20);
+  player.takeDamage(30);
+  print(player.getStatus());
+  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+  // Create a save point
+  saveManager.addSave(player.save());
+
+  // Continue playing...
+  player.move(50, 50);
+  player.takeDamage(80);  // Almost dead!
+  print(player.getStatus());
+  // Hero [Lv.1] HP:-10 Pos:(50,50)
+
+  // Restore from save
+  saveManager.listSaves();
+  player.restore(saveManager.getSave(0));
+  print(player.getStatus());
+  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+  // Player now back to saved state!
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Memento** captures an object's internal state in a snapshot that can be restored later, without exposing the object's internal structure.
+:::
+
+### Key Benefits
+
+- **Encapsulation Preserved**: Internal state stays private; only the originator knows the structure
+- **Clean Separation**: Caretaker stores mementos without knowing their contents
+- **Unlimited Snapshots**: Can save multiple checkpoints, restore any of them
+- **Simplified Undo**: Perfect for implementing undo/rollback functionality
+- **Consistent State**: Originator ensures memento captures a valid, complete snapshot
+
+### Memento vs Command Pattern
+
+| Aspect | Memento | Command |
+|--------|---------|---------|
+| **Focus** | Snapshot of complete state | Individual operations |
+| **Undo** | Restore entire state | Reverse the operation |
+| **Storage** | Stores full snapshots | Stores operation + delta |
+| **Use Case** | Checkpoints, save games | Operation history, transactions |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need to save/restore an object's complete state | State is simple enough to copy directly |
+| You want to implement checkpoints or save games | Mementos would consume too much memory |
+| You need to preserve encapsulation while saving state | The originator's state changes frequently |
+| You want undo functionality without exposing internals | You only need to undo specific operations (use Command) |

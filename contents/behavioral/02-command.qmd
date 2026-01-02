@@ -1,0 +1,832 @@
+---
+title: "Command"
+---
+
+The **Command** pattern turns a request into a stand-alone object containing all information about the request. This transformation lets you pass requests as method arguments, delay execution, queue requests, and support undoable operations — like Ctrl+Z in a text editor.
+
+## Problem
+
+Imagine you're building a text editor. Users can type text and delete characters. The naive approach directly modifies the document with no way to undo changes.
+
+This leads to:
+
+- No command history — operations are immediately applied and forgotten
+- No way to implement undo/redo functionality
+- Can't queue, log, or replay operations
+- Hard to implement features like macros or transaction rollback
+
+### Example
+
+```{mermaid}
+flowchart LR
+    U[User] --> E["Editor<br/>type()<br/>delete()"]
+    E --> D["Document<br/>(modified directly)"]
+
+    style E fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Operations modify state directly with no history
+- Once text is deleted, it's gone — no undo
+- Can't replay a sequence of operations (macros)
+- Testing requires checking final state, not individual operations
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Document:
+    def __init__(self):
+        self.content = ""
+
+class Editor:
+    def __init__(self):
+        self.document = Document()
+
+    def type_text(self, text: str) -> None:
+        self.document.content += text  # No history!
+
+    def delete(self, count: int) -> None:
+        # Deleted text is lost forever!
+        self.document.content = self.document.content[:-count]
+
+    def get_content(self) -> str:
+        return self.document.content
+```
+
+#### `C#`
+
+```csharp
+public class Document
+{
+    public string Content { get; set; } = "";
+}
+
+public class Editor
+{
+    private readonly Document _document = new();
+
+    public void TypeText(string text)
+    {
+        _document.Content += text;  // No history!
+    }
+
+    public void Delete(int count)
+    {
+        // Deleted text is lost forever!
+        _document.Content = _document.Content[..^count];
+    }
+
+    public string GetContent() => _document.Content;
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Document {
+  content: string = "";
+}
+
+class Editor {
+  private document = new Document();
+
+  typeText(text: string): void {
+    this.document.content += text;  // No history!
+  }
+
+  delete(count: number): void {
+    // Deleted text is lost forever!
+    this.document.content = this.document.content.slice(0, -count);
+  }
+
+  getContent(): string {
+    return this.document.content;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Document {
+  String content = "";
+}
+
+class Editor {
+  final _document = Document();
+
+  void typeText(String text) {
+    _document.content += text;  // No history!
+  }
+
+  void delete(int count) {
+    // Deleted text is lost forever!
+    _document.content = _document.content.substring(
+      0, _document.content.length - count
+    );
+  }
+
+  String getContent() => _document.content;
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+editor = Editor()
+editor.type_text("Hello")
+editor.type_text(" World")
+print(editor.get_content())  # "Hello World"
+
+editor.delete(6)  # Delete " World"
+print(editor.get_content())  # "Hello"
+
+# Oops! User wants to undo... but we can't!
+# The deleted text " World" is gone forever
+```
+
+#### `C#`
+
+```csharp
+var editor = new Editor();
+editor.TypeText("Hello");
+editor.TypeText(" World");
+Console.WriteLine(editor.GetContent());  // "Hello World"
+
+editor.Delete(6);  // Delete " World"
+Console.WriteLine(editor.GetContent());  // "Hello"
+
+// Oops! User wants to undo... but we can't!
+// The deleted text " World" is gone forever
+```
+
+#### `TypeScript`
+
+```typescript
+const editor = new Editor();
+editor.typeText("Hello");
+editor.typeText(" World");
+console.log(editor.getContent());  // "Hello World"
+
+editor.delete(6);  // Delete " World"
+console.log(editor.getContent());  // "Hello"
+
+// Oops! User wants to undo... but we can't!
+// The deleted text " World" is gone forever
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final editor = Editor();
+  editor.typeText("Hello");
+  editor.typeText(" World");
+  print(editor.getContent());  // "Hello World"
+
+  editor.delete(6);  // Delete " World"
+  print(editor.getContent());  // "Hello"
+
+  // Oops! User wants to undo... but we can't!
+  // The deleted text " World" is gone forever
+}
+```
+
+:::
+
+
+## Solution
+
+The Command pattern solves this by:
+
+1. Defining a **command interface** with `execute()` and `undo()` methods
+2. Each operation becomes a **concrete command** object (TypeCommand, DeleteCommand)
+3. Commands store all information needed to execute AND reverse themselves
+4. The **invoker** (Editor) maintains a history stack of executed commands
+
+When the user presses undo, we pop the last command and call `undo()`. The command knows exactly how to reverse itself.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Command {
+        <<interface>>
+        +execute()
+        +undo()
+    }
+
+    class TypeCommand {
+        -document: Document
+        -text: String
+        -position: int
+        +execute()
+        +undo()
+    }
+
+    class DeleteCommand {
+        -document: Document
+        -position: int
+        -deletedText: String
+        +execute()
+        +undo()
+    }
+
+    class Document {
+        -content: String
+        +insert(position: int, text: String)
+        +delete(position: int, length: int) String
+        +getContent() String
+    }
+
+    class Editor {
+        -document: Document
+        -history: Stack~Command~
+        -redoStack: Stack~Command~
+        +executeCommand(cmd: Command)
+        +undo()
+        +redo()
+    }
+
+    Command <|.. TypeCommand
+    Command <|.. DeleteCommand
+    TypeCommand --> Document : modifies
+    DeleteCommand --> Document : modifies
+    Editor --> Document : owns
+    Editor --> Command : executes
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Receiver
+class Document:
+    def __init__(self):
+        self._content = ""
+
+    def insert(self, position: int, text: str) -> None:
+        self._content = self._content[:position] + text + self._content[position:]
+
+    def delete(self, position: int, length: int) -> str:
+        deleted = self._content[position:position + length]
+        self._content = self._content[:position] + self._content[position + length:]
+        return deleted
+
+    def get_content(self) -> str:
+        return self._content
+
+# Command interface
+class Command(ABC):
+    @abstractmethod
+    def execute(self) -> None:
+        pass
+
+    @abstractmethod
+    def undo(self) -> None:
+        pass
+
+# Concrete Commands
+class TypeCommand(Command):
+    def __init__(self, document: Document, text: str, position: int):
+        self._document = document
+        self._text = text
+        self._position = position
+
+    def execute(self) -> None:
+        self._document.insert(self._position, self._text)
+
+    def undo(self) -> None:
+        self._document.delete(self._position, len(self._text))
+
+class DeleteCommand(Command):
+    def __init__(self, document: Document, position: int, length: int):
+        self._document = document
+        self._position = position
+        self._length = length
+        self._deleted_text = ""  # Stored for undo!
+
+    def execute(self) -> None:
+        self._deleted_text = self._document.delete(self._position, self._length)
+
+    def undo(self) -> None:
+        self._document.insert(self._position, self._deleted_text)
+
+# Invoker
+class Editor:
+    def __init__(self):
+        self.document = Document()
+        self._history: list[Command] = []
+        self._redo_stack: list[Command] = []
+
+    def execute_command(self, command: Command) -> None:
+        command.execute()
+        self._history.append(command)
+        self._redo_stack.clear()  # Clear redo after new command
+
+    def undo(self) -> None:
+        if not self._history:
+            print("Nothing to undo")
+            return
+        command = self._history.pop()
+        command.undo()
+        self._redo_stack.append(command)
+
+    def redo(self) -> None:
+        if not self._redo_stack:
+            print("Nothing to redo")
+            return
+        command = self._redo_stack.pop()
+        command.execute()
+        self._history.append(command)
+
+    def get_content(self) -> str:
+        return self.document.get_content()
+```
+
+#### `C#`
+
+```csharp
+// Receiver
+public class Document
+{
+    private string _content = "";
+
+    public void Insert(int position, string text)
+    {
+        _content = _content.Insert(position, text);
+    }
+
+    public string Delete(int position, int length)
+    {
+        var deleted = _content.Substring(position, length);
+        _content = _content.Remove(position, length);
+        return deleted;
+    }
+
+    public string GetContent() => _content;
+}
+
+// Command interface
+public interface ICommand
+{
+    void Execute();
+    void Undo();
+}
+
+// Concrete Commands
+public class TypeCommand : ICommand
+{
+    private readonly Document _document;
+    private readonly string _text;
+    private readonly int _position;
+
+    public TypeCommand(Document document, string text, int position)
+    {
+        _document = document;
+        _text = text;
+        _position = position;
+    }
+
+    public void Execute() => _document.Insert(_position, _text);
+
+    public void Undo() => _document.Delete(_position, _text.Length);
+}
+
+public class DeleteCommand : ICommand
+{
+    private readonly Document _document;
+    private readonly int _position;
+    private readonly int _length;
+    private string _deletedText = "";  // Stored for undo!
+
+    public DeleteCommand(Document document, int position, int length)
+    {
+        _document = document;
+        _position = position;
+        _length = length;
+    }
+
+    public void Execute()
+    {
+        _deletedText = _document.Delete(_position, _length);
+    }
+
+    public void Undo()
+    {
+        _document.Insert(_position, _deletedText);
+    }
+}
+
+// Invoker
+public class Editor
+{
+    public Document Document { get; } = new();
+    private readonly Stack<ICommand> _history = new();
+    private readonly Stack<ICommand> _redoStack = new();
+
+    public void ExecuteCommand(ICommand command)
+    {
+        command.Execute();
+        _history.Push(command);
+        _redoStack.Clear();  // Clear redo after new command
+    }
+
+    public void Undo()
+    {
+        if (_history.Count == 0)
+        {
+            Console.WriteLine("Nothing to undo");
+            return;
+        }
+        var command = _history.Pop();
+        command.Undo();
+        _redoStack.Push(command);
+    }
+
+    public void Redo()
+    {
+        if (_redoStack.Count == 0)
+        {
+            Console.WriteLine("Nothing to redo");
+            return;
+        }
+        var command = _redoStack.Pop();
+        command.Execute();
+        _history.Push(command);
+    }
+
+    public string GetContent() => Document.GetContent();
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Receiver
+class Document {
+  private content: string = "";
+
+  insert(position: number, text: string): void {
+    this.content =
+      this.content.slice(0, position) + text + this.content.slice(position);
+  }
+
+  delete(position: number, length: number): string {
+    const deleted = this.content.slice(position, position + length);
+    this.content =
+      this.content.slice(0, position) + this.content.slice(position + length);
+    return deleted;
+  }
+
+  getContent(): string {
+    return this.content;
+  }
+}
+
+// Command interface
+interface Command {
+  execute(): void;
+  undo(): void;
+}
+
+// Concrete Commands
+class TypeCommand implements Command {
+  constructor(
+    private document: Document,
+    private text: string,
+    private position: number
+  ) {}
+
+  execute(): void {
+    this.document.insert(this.position, this.text);
+  }
+
+  undo(): void {
+    this.document.delete(this.position, this.text.length);
+  }
+}
+
+class DeleteCommand implements Command {
+  private deletedText: string = "";  // Stored for undo!
+
+  constructor(
+    private document: Document,
+    private position: number,
+    private length: number
+  ) {}
+
+  execute(): void {
+    this.deletedText = this.document.delete(this.position, this.length);
+  }
+
+  undo(): void {
+    this.document.insert(this.position, this.deletedText);
+  }
+}
+
+// Invoker
+class Editor {
+  readonly document = new Document();
+  private history: Command[] = [];
+  private redoStack: Command[] = [];
+
+  executeCommand(command: Command): void {
+    command.execute();
+    this.history.push(command);
+    this.redoStack = [];  // Clear redo after new command
+  }
+
+  undo(): void {
+    const command = this.history.pop();
+    if (!command) {
+      console.log("Nothing to undo");
+      return;
+    }
+    command.undo();
+    this.redoStack.push(command);
+  }
+
+  redo(): void {
+    const command = this.redoStack.pop();
+    if (!command) {
+      console.log("Nothing to redo");
+      return;
+    }
+    command.execute();
+    this.history.push(command);
+  }
+
+  getContent(): string {
+    return this.document.getContent();
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Receiver
+class Document {
+  String _content = "";
+
+  void insert(int position, String text) {
+    _content = _content.substring(0, position) +
+        text +
+        _content.substring(position);
+  }
+
+  String delete(int position, int length) {
+    final deleted = _content.substring(position, position + length);
+    _content = _content.substring(0, position) +
+        _content.substring(position + length);
+    return deleted;
+  }
+
+  String getContent() => _content;
+}
+
+// Command interface
+abstract class Command {
+  void execute();
+  void undo();
+}
+
+// Concrete Commands
+class TypeCommand implements Command {
+  final Document _document;
+  final String _text;
+  final int _position;
+
+  TypeCommand(this._document, this._text, this._position);
+
+  @override
+  void execute() => _document.insert(_position, _text);
+
+  @override
+  void undo() => _document.delete(_position, _text.length);
+}
+
+class DeleteCommand implements Command {
+  final Document _document;
+  final int _position;
+  final int _length;
+  String _deletedText = "";  // Stored for undo!
+
+  DeleteCommand(this._document, this._position, this._length);
+
+  @override
+  void execute() {
+    _deletedText = _document.delete(_position, _length);
+  }
+
+  @override
+  void undo() {
+    _document.insert(_position, _deletedText);
+  }
+}
+
+// Invoker
+class Editor {
+  final document = Document();
+  final List<Command> _history = [];
+  final List<Command> _redoStack = [];
+
+  void executeCommand(Command command) {
+    command.execute();
+    _history.add(command);
+    _redoStack.clear();  // Clear redo after new command
+  }
+
+  void undo() {
+    if (_history.isEmpty) {
+      print("Nothing to undo");
+      return;
+    }
+    final command = _history.removeLast();
+    command.undo();
+    _redoStack.add(command);
+  }
+
+  void redo() {
+    if (_redoStack.isEmpty) {
+      print("Nothing to redo");
+      return;
+    }
+    final command = _redoStack.removeLast();
+    command.execute();
+    _history.add(command);
+  }
+
+  String getContent() => document.getContent();
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+editor = Editor()
+
+# Type "Hello World"
+editor.execute_command(TypeCommand(editor.document, "Hello", 0))
+editor.execute_command(TypeCommand(editor.document, " World", 5))
+print(f"Content: '{editor.get_content()}'")
+# Content: 'Hello World'
+
+# Delete " World" (position 5, length 6)
+editor.execute_command(DeleteCommand(editor.document, 5, 6))
+print(f"After delete: '{editor.get_content()}'")
+# After delete: 'Hello'
+
+# Undo the delete — " World" comes back!
+editor.undo()
+print(f"After undo: '{editor.get_content()}'")
+# After undo: 'Hello World'
+
+# Redo the delete
+editor.redo()
+print(f"After redo: '{editor.get_content()}'")
+# After redo: 'Hello'
+
+# Undo twice to get back to "Hello World" then ""
+editor.undo()  # Restore " World"
+editor.undo()  # Restore "" (remove "Hello")
+editor.undo()  # Restore "" (remove " World" — wait, we're at "Hello" now)
+print(f"After 2 undos: '{editor.get_content()}'")
+# After 2 undos: 'Hello'
+```
+
+#### `C#`
+
+```csharp
+var editor = new Editor();
+
+// Type "Hello World"
+editor.ExecuteCommand(new TypeCommand(editor.Document, "Hello", 0));
+editor.ExecuteCommand(new TypeCommand(editor.Document, " World", 5));
+Console.WriteLine($"Content: '{editor.GetContent()}'");
+// Content: 'Hello World'
+
+// Delete " World" (position 5, length 6)
+editor.ExecuteCommand(new DeleteCommand(editor.Document, 5, 6));
+Console.WriteLine($"After delete: '{editor.GetContent()}'");
+// After delete: 'Hello'
+
+// Undo the delete — " World" comes back!
+editor.Undo();
+Console.WriteLine($"After undo: '{editor.GetContent()}'");
+// After undo: 'Hello World'
+
+// Redo the delete
+editor.Redo();
+Console.WriteLine($"After redo: '{editor.GetContent()}'");
+// After redo: 'Hello'
+```
+
+#### `TypeScript`
+
+```typescript
+const editor = new Editor();
+
+// Type "Hello World"
+editor.executeCommand(new TypeCommand(editor.document, "Hello", 0));
+editor.executeCommand(new TypeCommand(editor.document, " World", 5));
+console.log(`Content: '${editor.getContent()}'`);
+// Content: 'Hello World'
+
+// Delete " World" (position 5, length 6)
+editor.executeCommand(new DeleteCommand(editor.document, 5, 6));
+console.log(`After delete: '${editor.getContent()}'`);
+// After delete: 'Hello'
+
+// Undo the delete — " World" comes back!
+editor.undo();
+console.log(`After undo: '${editor.getContent()}'`);
+// After undo: 'Hello World'
+
+// Redo the delete
+editor.redo();
+console.log(`After redo: '${editor.getContent()}'`);
+// After redo: 'Hello'
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final editor = Editor();
+
+  // Type "Hello World"
+  editor.executeCommand(TypeCommand(editor.document, "Hello", 0));
+  editor.executeCommand(TypeCommand(editor.document, " World", 5));
+  print("Content: '${editor.getContent()}'");
+  // Content: 'Hello World'
+
+  // Delete " World" (position 5, length 6)
+  editor.executeCommand(DeleteCommand(editor.document, 5, 6));
+  print("After delete: '${editor.getContent()}'");
+  // After delete: 'Hello'
+
+  // Undo the delete — " World" comes back!
+  editor.undo();
+  print("After undo: '${editor.getContent()}'");
+  // After undo: 'Hello World'
+
+  // Redo the delete
+  editor.redo();
+  print("After redo: '${editor.getContent()}'");
+  // After redo: 'Hello'
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Command** encapsulates a request as an object, enabling undo/redo, queuing, logging, and decoupling the invoker from the receiver.
+:::
+
+### Key Benefits
+
+- **Undo/Redo**: Commands store state needed to reverse themselves
+- **Queuing**: Commands can be stored and executed later (or in batch)
+- **Logging**: Command history provides an audit trail
+- **Macros**: Record and replay sequences of commands
+- **Decoupling**: Invoker doesn't need to know how commands work
+
+### Real-World Examples
+
+| Application | Commands |
+|-------------|----------|
+| **Text Editors** | Type, Delete, Cut, Copy, Paste |
+| **Photoshop** | Brush stroke, Filter, Transform |
+| **Git** | Commit (with revert), Rebase |
+| **Database** | Transactions with rollback |
+| **Game** | Player actions (for replay/undo) |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need undo/redo functionality | Operations are simple and don't need reversal |
+| You want to queue or schedule operations | There's only one way to perform an action |
+| You need to log operations for audit/replay | Adding command objects creates unnecessary complexity |
+| You want to decouple invoker from receiver | The system is simple with direct method calls |
+| You're implementing transactional behavior | |

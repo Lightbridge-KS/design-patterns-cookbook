@@ -1,0 +1,731 @@
+---
+title: "Chain of Responsibility"
+---
+
+The **Chain of Responsibility** pattern lets you pass requests along a chain of handlers. Each handler decides either to process the request or pass it to the next handler — like HTTP middleware in web frameworks where requests flow through authentication, logging, and rate limiting before reaching the final handler.
+
+## Problem
+
+Imagine you're building a web server that needs to process incoming HTTP requests. Each request must go through several checks: authentication, logging, and rate limiting. The naive approach puts all this logic in one monolithic function.
+
+This leads to:
+
+- All middleware logic crammed into one place
+- Hard to add, remove, or reorder processing steps
+- Individual handlers can't be reused or tested independently
+- Violates Single Responsibility and Open/Closed Principles
+
+### Example
+
+```{mermaid}
+flowchart LR
+    R[Request] --> F["processRequest()<br/>if auth...<br/>if log...<br/>if rate limit...<br/>handle()"]
+
+    style F fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Single function handles ALL middleware concerns
+- Adding new middleware requires modifying existing code
+- Can't easily change the order of middleware
+- Testing individual middleware logic is difficult
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Request:
+    def __init__(self, path: str, headers: dict[str, str], user: str):
+        self.path = path
+        self.headers = headers
+        self.user = user
+
+# Rate limit tracking (simplified)
+request_counts: dict[str, int] = {}
+
+def process_request(request: Request) -> str:
+    # Authentication check
+    if "Authorization" not in request.headers:
+        return "401 Unauthorized"
+
+    # Logging
+    print(f"[LOG] {request.user} accessing {request.path}")
+
+    # Rate limiting
+    request_counts[request.user] = request_counts.get(request.user, 0) + 1
+    if request_counts[request.user] > 5:
+        return "429 Too Many Requests"
+
+    # Finally handle the request
+    return f"200 OK: Handled {request.path}"
+```
+
+#### `C#`
+
+```csharp
+public class Request
+{
+    public string Path { get; }
+    public Dictionary<string, string> Headers { get; }
+    public string User { get; }
+
+    public Request(string path, Dictionary<string, string> headers, string user)
+    {
+        Path = path;
+        Headers = headers;
+        User = user;
+    }
+}
+
+public static class RequestProcessor
+{
+    // Rate limit tracking (simplified)
+    private static readonly Dictionary<string, int> RequestCounts = new();
+
+    public static string ProcessRequest(Request request)
+    {
+        // Authentication check
+        if (!request.Headers.ContainsKey("Authorization"))
+            return "401 Unauthorized";
+
+        // Logging
+        Console.WriteLine($"[LOG] {request.User} accessing {request.Path}");
+
+        // Rate limiting
+        RequestCounts.TryGetValue(request.User, out int count);
+        RequestCounts[request.User] = count + 1;
+        if (RequestCounts[request.User] > 5)
+            return "429 Too Many Requests";
+
+        // Finally handle the request
+        return $"200 OK: Handled {request.Path}";
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Request {
+  constructor(
+    public path: string,
+    public headers: Map<string, string>,
+    public user: string
+  ) {}
+}
+
+// Rate limit tracking (simplified)
+const requestCounts = new Map<string, number>();
+
+function processRequest(request: Request): string {
+  // Authentication check
+  if (!request.headers.has("Authorization")) {
+    return "401 Unauthorized";
+  }
+
+  // Logging
+  console.log(`[LOG] ${request.user} accessing ${request.path}`);
+
+  // Rate limiting
+  const count = requestCounts.get(request.user) ?? 0;
+  requestCounts.set(request.user, count + 1);
+  if (requestCounts.get(request.user)! > 5) {
+    return "429 Too Many Requests";
+  }
+
+  // Finally handle the request
+  return `200 OK: Handled ${request.path}`;
+}
+```
+
+#### `Dart`
+
+```dart
+class Request {
+  final String path;
+  final Map<String, String> headers;
+  final String user;
+
+  Request(this.path, this.headers, this.user);
+}
+
+// Rate limit tracking (simplified)
+final Map<String, int> requestCounts = {};
+
+String processRequest(Request request) {
+  // Authentication check
+  if (!request.headers.containsKey("Authorization")) {
+    return "401 Unauthorized";
+  }
+
+  // Logging
+  print("[LOG] ${request.user} accessing ${request.path}");
+
+  // Rate limiting
+  requestCounts[request.user] = (requestCounts[request.user] ?? 0) + 1;
+  if (requestCounts[request.user]! > 5) {
+    return "429 Too Many Requests";
+  }
+
+  // Finally handle the request
+  return "200 OK: Handled ${request.path}";
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# All middleware logic is in one function
+request = Request("/api/data", {"Authorization": "Bearer token"}, "alice")
+result = process_request(request)
+print(result)
+
+# What if we need to:
+# - Add caching middleware? Modify the function
+# - Remove rate limiting for admins? More if-else
+# - Reorder middleware? Restructure the entire function
+```
+
+#### `C#`
+
+```csharp
+// All middleware logic is in one function
+var request = new Request("/api/data",
+    new Dictionary<string, string> { ["Authorization"] = "Bearer token" },
+    "alice");
+var result = RequestProcessor.ProcessRequest(request);
+Console.WriteLine(result);
+
+// What if we need to:
+// - Add caching middleware? Modify the function
+// - Remove rate limiting for admins? More if-else
+// - Reorder middleware? Restructure the entire function
+```
+
+#### `TypeScript`
+
+```typescript
+// All middleware logic is in one function
+const request = new Request(
+  "/api/data",
+  new Map([["Authorization", "Bearer token"]]),
+  "alice"
+);
+const result = processRequest(request);
+console.log(result);
+
+// What if we need to:
+// - Add caching middleware? Modify the function
+// - Remove rate limiting for admins? More if-else
+// - Reorder middleware? Restructure the entire function
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // All middleware logic is in one function
+  final request = Request("/api/data", {"Authorization": "Bearer token"}, "alice");
+  final result = processRequest(request);
+  print(result);
+
+  // What if we need to:
+  // - Add caching middleware? Modify the function
+  // - Remove rate limiting for admins? More if-else
+  // - Reorder middleware? Restructure the entire function
+}
+```
+
+:::
+
+
+## Solution
+
+The Chain of Responsibility pattern solves this by:
+
+1. Defining a **handler interface** (`Middleware`) with `handle()` and `setNext()` methods
+2. Each **concrete handler** (Auth, Logging, RateLimit) implements the interface
+3. Handlers are **linked in a chain** — each stores a reference to the next
+4. Each handler either processes the request or passes it along
+
+The client builds the chain once, then sends requests to the first handler.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Middleware {
+        <<abstract>>
+        #next: Middleware
+        +setNext(handler: Middleware) Middleware
+        +handle(request: Request) String
+    }
+
+    class AuthMiddleware {
+        +handle(request: Request) String
+    }
+
+    class LoggingMiddleware {
+        +handle(request: Request) String
+    }
+
+    class RateLimitMiddleware {
+        -requestCounts: Map
+        -limit: int
+        +handle(request: Request) String
+    }
+
+    class Request {
+        +path: String
+        +headers: Map
+        +user: String
+    }
+
+    Middleware <|-- AuthMiddleware
+    Middleware <|-- LoggingMiddleware
+    Middleware <|-- RateLimitMiddleware
+    Middleware --> Middleware : next
+    Middleware ..> Request : uses
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+class Request:
+    def __init__(self, path: str, headers: dict[str, str], user: str):
+        self.path = path
+        self.headers = headers
+        self.user = user
+
+# Abstract Handler
+class Middleware(ABC):
+    _next: "Middleware | None" = None
+
+    def set_next(self, handler: "Middleware") -> "Middleware":
+        self._next = handler
+        return handler  # Enable chaining: a.set_next(b).set_next(c)
+
+    @abstractmethod
+    def handle(self, request: Request) -> str:
+        pass
+
+    def handle_next(self, request: Request) -> str:
+        if self._next:
+            return self._next.handle(request)
+        return f"200 OK: Handled {request.path}"
+
+# Concrete Handlers
+class AuthMiddleware(Middleware):
+    def handle(self, request: Request) -> str:
+        if "Authorization" not in request.headers:
+            return "401 Unauthorized"
+        print(f"[Auth] {request.user} authenticated")
+        return self.handle_next(request)
+
+class LoggingMiddleware(Middleware):
+    def handle(self, request: Request) -> str:
+        print(f"[Log] {request.user} -> {request.path}")
+        return self.handle_next(request)
+
+class RateLimitMiddleware(Middleware):
+    def __init__(self, limit: int = 5):
+        self._limit = limit
+        self._request_counts: dict[str, int] = {}
+
+    def handle(self, request: Request) -> str:
+        self._request_counts[request.user] = self._request_counts.get(request.user, 0) + 1
+        if self._request_counts[request.user] > self._limit:
+            return "429 Too Many Requests"
+        print(f"[RateLimit] {request.user}: {self._request_counts[request.user]}/{self._limit}")
+        return self.handle_next(request)
+```
+
+#### `C#`
+
+```csharp
+public class Request
+{
+    public string Path { get; }
+    public Dictionary<string, string> Headers { get; }
+    public string User { get; }
+
+    public Request(string path, Dictionary<string, string> headers, string user)
+    {
+        Path = path;
+        Headers = headers;
+        User = user;
+    }
+}
+
+// Abstract Handler
+public abstract class Middleware
+{
+    private Middleware? _next;
+
+    public Middleware SetNext(Middleware handler)
+    {
+        _next = handler;
+        return handler;  // Enable chaining: a.SetNext(b).SetNext(c)
+    }
+
+    public abstract string Handle(Request request);
+
+    protected string HandleNext(Request request)
+    {
+        return _next?.Handle(request) ?? $"200 OK: Handled {request.Path}";
+    }
+}
+
+// Concrete Handlers
+public class AuthMiddleware : Middleware
+{
+    public override string Handle(Request request)
+    {
+        if (!request.Headers.ContainsKey("Authorization"))
+            return "401 Unauthorized";
+        Console.WriteLine($"[Auth] {request.User} authenticated");
+        return HandleNext(request);
+    }
+}
+
+public class LoggingMiddleware : Middleware
+{
+    public override string Handle(Request request)
+    {
+        Console.WriteLine($"[Log] {request.User} -> {request.Path}");
+        return HandleNext(request);
+    }
+}
+
+public class RateLimitMiddleware : Middleware
+{
+    private readonly int _limit;
+    private readonly Dictionary<string, int> _requestCounts = new();
+
+    public RateLimitMiddleware(int limit = 5) => _limit = limit;
+
+    public override string Handle(Request request)
+    {
+        _requestCounts.TryGetValue(request.User, out int count);
+        _requestCounts[request.User] = count + 1;
+
+        if (_requestCounts[request.User] > _limit)
+            return "429 Too Many Requests";
+
+        Console.WriteLine($"[RateLimit] {request.User}: {_requestCounts[request.User]}/{_limit}");
+        return HandleNext(request);
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Request {
+  constructor(
+    public path: string,
+    public headers: Map<string, string>,
+    public user: string
+  ) {}
+}
+
+// Abstract Handler
+abstract class Middleware {
+  private next: Middleware | null = null;
+
+  setNext(handler: Middleware): Middleware {
+    this.next = handler;
+    return handler;  // Enable chaining: a.setNext(b).setNext(c)
+  }
+
+  abstract handle(request: Request): string;
+
+  protected handleNext(request: Request): string {
+    if (this.next) {
+      return this.next.handle(request);
+    }
+    return `200 OK: Handled ${request.path}`;
+  }
+}
+
+// Concrete Handlers
+class AuthMiddleware extends Middleware {
+  handle(request: Request): string {
+    if (!request.headers.has("Authorization")) {
+      return "401 Unauthorized";
+    }
+    console.log(`[Auth] ${request.user} authenticated`);
+    return this.handleNext(request);
+  }
+}
+
+class LoggingMiddleware extends Middleware {
+  handle(request: Request): string {
+    console.log(`[Log] ${request.user} -> ${request.path}`);
+    return this.handleNext(request);
+  }
+}
+
+class RateLimitMiddleware extends Middleware {
+  private requestCounts = new Map<string, number>();
+  private limit: number;
+
+  constructor(limit: number = 5) {
+    super();
+    this.limit = limit;
+  }
+
+  handle(request: Request): string {
+    const count = (this.requestCounts.get(request.user) ?? 0) + 1;
+    this.requestCounts.set(request.user, count);
+
+    if (count > this.limit) {
+      return "429 Too Many Requests";
+    }
+    console.log(`[RateLimit] ${request.user}: ${count}/${this.limit}`);
+    return this.handleNext(request);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Request {
+  final String path;
+  final Map<String, String> headers;
+  final String user;
+
+  Request(this.path, this.headers, this.user);
+}
+
+// Abstract Handler
+abstract class Middleware {
+  Middleware? _next;
+
+  Middleware setNext(Middleware handler) {
+    _next = handler;
+    return handler;  // Enable chaining: a.setNext(b).setNext(c)
+  }
+
+  String handle(Request request);
+
+  String handleNext(Request request) {
+    return _next?.handle(request) ?? "200 OK: Handled ${request.path}";
+  }
+}
+
+// Concrete Handlers
+class AuthMiddleware extends Middleware {
+  @override
+  String handle(Request request) {
+    if (!request.headers.containsKey("Authorization")) {
+      return "401 Unauthorized";
+    }
+    print("[Auth] ${request.user} authenticated");
+    return handleNext(request);
+  }
+}
+
+class LoggingMiddleware extends Middleware {
+  @override
+  String handle(Request request) {
+    print("[Log] ${request.user} -> ${request.path}");
+    return handleNext(request);
+  }
+}
+
+class RateLimitMiddleware extends Middleware {
+  final int _limit;
+  final Map<String, int> _requestCounts = {};
+
+  RateLimitMiddleware([this._limit = 5]);
+
+  @override
+  String handle(Request request) {
+    _requestCounts[request.user] = (_requestCounts[request.user] ?? 0) + 1;
+
+    if (_requestCounts[request.user]! > _limit) {
+      return "429 Too Many Requests";
+    }
+    print("[RateLimit] ${request.user}: ${_requestCounts[request.user]}/$_limit");
+    return handleNext(request);
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Build the middleware chain
+auth = AuthMiddleware()
+logging = LoggingMiddleware()
+rate_limit = RateLimitMiddleware(limit=3)
+
+auth.set_next(logging).set_next(rate_limit)
+
+# Test with authenticated request
+request = Request("/api/data", {"Authorization": "Bearer token"}, "alice")
+print(auth.handle(request))
+# [Auth] alice authenticated
+# [Log] alice -> /api/data
+# [RateLimit] alice: 1/3
+# 200 OK: Handled /api/data
+
+# Test without auth token
+bad_request = Request("/api/secret", {}, "bob")
+print(auth.handle(bad_request))
+# 401 Unauthorized
+
+# Easy to reorder: logging first
+logging2 = LoggingMiddleware()
+auth2 = AuthMiddleware()
+logging2.set_next(auth2)  # Different order!
+```
+
+#### `C#`
+
+```csharp
+// Build the middleware chain
+var auth = new AuthMiddleware();
+var logging = new LoggingMiddleware();
+var rateLimit = new RateLimitMiddleware(limit: 3);
+
+auth.SetNext(logging).SetNext(rateLimit);
+
+// Test with authenticated request
+var request = new Request("/api/data",
+    new Dictionary<string, string> { ["Authorization"] = "Bearer token" },
+    "alice");
+Console.WriteLine(auth.Handle(request));
+// [Auth] alice authenticated
+// [Log] alice -> /api/data
+// [RateLimit] alice: 1/3
+// 200 OK: Handled /api/data
+
+// Test without auth token
+var badRequest = new Request("/api/secret",
+    new Dictionary<string, string>(),
+    "bob");
+Console.WriteLine(auth.Handle(badRequest));
+// 401 Unauthorized
+
+// Easy to reorder: logging first
+var logging2 = new LoggingMiddleware();
+var auth2 = new AuthMiddleware();
+logging2.SetNext(auth2);  // Different order!
+```
+
+#### `TypeScript`
+
+```typescript
+// Build the middleware chain
+const auth = new AuthMiddleware();
+const logging = new LoggingMiddleware();
+const rateLimit = new RateLimitMiddleware(3);
+
+auth.setNext(logging).setNext(rateLimit);
+
+// Test with authenticated request
+const request = new Request(
+  "/api/data",
+  new Map([["Authorization", "Bearer token"]]),
+  "alice"
+);
+console.log(auth.handle(request));
+// [Auth] alice authenticated
+// [Log] alice -> /api/data
+// [RateLimit] alice: 1/3
+// 200 OK: Handled /api/data
+
+// Test without auth token
+const badRequest = new Request("/api/secret", new Map(), "bob");
+console.log(auth.handle(badRequest));
+// 401 Unauthorized
+
+// Easy to reorder: logging first
+const logging2 = new LoggingMiddleware();
+const auth2 = new AuthMiddleware();
+logging2.setNext(auth2);  // Different order!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Build the middleware chain
+  final auth = AuthMiddleware();
+  final logging = LoggingMiddleware();
+  final rateLimit = RateLimitMiddleware(3);
+
+  auth.setNext(logging).setNext(rateLimit);
+
+  // Test with authenticated request
+  final request = Request("/api/data", {"Authorization": "Bearer token"}, "alice");
+  print(auth.handle(request));
+  // [Auth] alice authenticated
+  // [Log] alice -> /api/data
+  // [RateLimit] alice: 1/3
+  // 200 OK: Handled /api/data
+
+  // Test without auth token
+  final badRequest = Request("/api/secret", {}, "bob");
+  print(auth.handle(badRequest));
+  // 401 Unauthorized
+
+  // Easy to reorder: logging first
+  final logging2 = LoggingMiddleware();
+  final auth2 = AuthMiddleware();
+  logging2.setNext(auth2);  // Different order!
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Chain of Responsibility** passes requests along a chain of handlers, where each handler decides to process it or pass it along — enabling flexible, reorderable processing pipelines.
+:::
+
+### Key Benefits
+
+- **Single Responsibility**: Each handler focuses on one concern (auth, logging, etc.)
+- **Open/Closed**: Add new handlers without modifying existing ones
+- **Flexible Ordering**: Easily reorder handlers by changing the chain setup
+- **Decoupling**: Sender doesn't know which handler will process the request
+- **Testability**: Each handler can be unit tested in isolation
+
+### Real-World Examples
+
+| Framework | Implementation |
+|-----------|----------------|
+| **Express.js** | `app.use(middleware)` — middleware chain |
+| **ASP.NET Core** | `app.UseAuthentication().UseAuthorization()` |
+| **Django** | Middleware classes in `MIDDLEWARE` setting |
+| **Java Servlet** | Filter chain via `FilterChain.doFilter()` |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need to process requests through multiple handlers | There's only one handler needed |
+| The set of handlers should be configurable at runtime | The processing order is fixed and simple |
+| You want to decouple request senders from handlers | Every request must be handled (no passing along) |
+| Handlers should be reusable across different chains | You need guaranteed handling by a specific handler |

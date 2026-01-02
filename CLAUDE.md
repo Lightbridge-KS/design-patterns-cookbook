@@ -10,7 +10,7 @@ This is an educational design pattern cookbook that show various design pattern 
 
 - **Code example theme:** 
   - Use a simple general "classic" real-world or fictional example for code example (e.g., class name, methods, etc.). Emphasis on the design architecture over specific implementation (you can simply print stuff out for that matter).
-  - Please brainstorm the example problem or theme and ask me to choose.
+  - Please brainstorm the example theme and ask me to choose. You can suggest.
 
 ## Table of Contents
 
@@ -38,12 +38,12 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
   - Flyweight → Text Editor (Character Styles)
   - Proxy → Document Access (Protection Proxy)
 
-- **Behavioral Design Patterns**
-  - Chain of Responsibility
-  - Command
-  - Iterator
-  - Mediator
-  - Memento
+- **Behavioral Design Patterns** (5/10 done)
+  - Chain of Responsibility → HTTP Middleware Pipeline
+  - Command → Text Editor (Undo/Redo)
+  - Iterator → Playlist (Sequential/Reverse)
+  - Mediator → Smart Home Hub
+  - Memento → Game Save System
   - Observer
   - State
   - Strategy

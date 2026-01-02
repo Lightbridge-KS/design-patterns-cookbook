@@ -1,0 +1,759 @@
+---
+title: "Iterator"
+---
+
+The **Iterator** pattern provides a way to access elements of a collection sequentially without exposing its underlying representation. It's like pressing "Next" and "Previous" on a music player — you don't need to know if songs are stored in an array, linked list, or database.
+
+## Problem
+
+Imagine you're building a music player with playlists. The naive approach exposes the internal list structure, forcing clients to know how songs are stored.
+
+This leads to:
+
+- Client code tightly coupled to the collection's internal structure
+- If you change from array to linked list, all client code breaks
+- No easy way to provide different traversal strategies (forward, reverse, shuffle)
+- Multiple traversals can't maintain independent state
+
+### Example
+
+```{mermaid}
+flowchart LR
+    C[Client] --> P["Playlist<br/>songs: List (exposed!)"]
+    C --> L["for i in range(len(songs)):<br/>print(songs[i])"]
+
+    style P fill:#fcc,stroke:#c33
+    style L fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Internal `songs` list is exposed directly
+- Client uses index-based access — coupled to list implementation
+- Can't easily switch to different traversal modes
+- No encapsulation of iteration logic
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Song:
+    def __init__(self, title: str, artist: str):
+        self.title = title
+        self.artist = artist
+
+class Playlist:
+    def __init__(self, name: str):
+        self.name = name
+        self.songs: list[Song] = []  # Internal structure exposed!
+
+    def add_song(self, song: Song) -> None:
+        self.songs.append(song)
+
+# Client must know it's a list and use index access
+playlist = Playlist("My Favorites")
+playlist.add_song(Song("Bohemian Rhapsody", "Queen"))
+playlist.add_song(Song("Stairway to Heaven", "Led Zeppelin"))
+playlist.add_song(Song("Hotel California", "Eagles"))
+
+# Tightly coupled to list implementation
+for i in range(len(playlist.songs)):
+    song = playlist.songs[i]
+    print(f"{song.title} by {song.artist}")
+```
+
+#### `C#`
+
+```csharp
+public class Song(string title, string artist)
+{
+    public string Title { get; } = title;
+    public string Artist { get; } = artist;
+}
+
+public class Playlist
+{
+    public string Name { get; }
+    public List<Song> Songs { get; } = [];  // Internal structure exposed!
+
+    public Playlist(string name) => Name = name;
+
+    public void AddSong(Song song) => Songs.Add(song);
+}
+
+// Client must know it's a List and use index access
+var playlist = new Playlist("My Favorites");
+playlist.AddSong(new Song("Bohemian Rhapsody", "Queen"));
+playlist.AddSong(new Song("Stairway to Heaven", "Led Zeppelin"));
+playlist.AddSong(new Song("Hotel California", "Eagles"));
+
+// Tightly coupled to List implementation
+for (int i = 0; i < playlist.Songs.Count; i++)
+{
+    var song = playlist.Songs[i];
+    Console.WriteLine($"{song.Title} by {song.Artist}");
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Song {
+  constructor(
+    public title: string,
+    public artist: string
+  ) {}
+}
+
+class Playlist {
+  songs: Song[] = [];  // Internal structure exposed!
+
+  constructor(public name: string) {}
+
+  addSong(song: Song): void {
+    this.songs.push(song);
+  }
+}
+
+// Client must know it's an array and use index access
+const playlist = new Playlist("My Favorites");
+playlist.addSong(new Song("Bohemian Rhapsody", "Queen"));
+playlist.addSong(new Song("Stairway to Heaven", "Led Zeppelin"));
+playlist.addSong(new Song("Hotel California", "Eagles"));
+
+// Tightly coupled to array implementation
+for (let i = 0; i < playlist.songs.length; i++) {
+  const song = playlist.songs[i];
+  console.log(`${song.title} by ${song.artist}`);
+}
+```
+
+#### `Dart`
+
+```dart
+class Song {
+  final String title;
+  final String artist;
+
+  Song(this.title, this.artist);
+}
+
+class Playlist {
+  final String name;
+  final List<Song> songs = [];  // Internal structure exposed!
+
+  Playlist(this.name);
+
+  void addSong(Song song) => songs.add(song);
+}
+
+void main() {
+  // Client must know it's a List and use index access
+  final playlist = Playlist("My Favorites");
+  playlist.addSong(Song("Bohemian Rhapsody", "Queen"));
+  playlist.addSong(Song("Stairway to Heaven", "Led Zeppelin"));
+  playlist.addSong(Song("Hotel California", "Eagles"));
+
+  // Tightly coupled to List implementation
+  for (int i = 0; i < playlist.songs.length; i++) {
+    final song = playlist.songs[i];
+    print("${song.title} by ${song.artist}");
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Client is coupled to list internals
+for i in range(len(playlist.songs)):
+    print(playlist.songs[i].title)
+
+# Want reverse? Client must implement it
+for i in range(len(playlist.songs) - 1, -1, -1):
+    print(playlist.songs[i].title)
+
+# What if playlist changes to use a database or linked list?
+# All this code breaks!
+```
+
+#### `C#`
+
+```csharp
+// Client is coupled to List internals
+for (int i = 0; i < playlist.Songs.Count; i++)
+    Console.WriteLine(playlist.Songs[i].Title);
+
+// Want reverse? Client must implement it
+for (int i = playlist.Songs.Count - 1; i >= 0; i--)
+    Console.WriteLine(playlist.Songs[i].Title);
+
+// What if playlist changes to use a database or linked list?
+// All this code breaks!
+```
+
+#### `TypeScript`
+
+```typescript
+// Client is coupled to array internals
+for (let i = 0; i < playlist.songs.length; i++) {
+  console.log(playlist.songs[i].title);
+}
+
+// Want reverse? Client must implement it
+for (let i = playlist.songs.length - 1; i >= 0; i--) {
+  console.log(playlist.songs[i].title);
+}
+
+// What if playlist changes to use a database or linked list?
+// All this code breaks!
+```
+
+#### `Dart`
+
+```dart
+// Client is coupled to List internals
+for (int i = 0; i < playlist.songs.length; i++) {
+  print(playlist.songs[i].title);
+}
+
+// Want reverse? Client must implement it
+for (int i = playlist.songs.length - 1; i >= 0; i--) {
+  print(playlist.songs[i].title);
+}
+
+// What if playlist changes to use a database or linked list?
+// All this code breaks!
+```
+
+:::
+
+
+## Solution
+
+The Iterator pattern solves this by:
+
+1. Defining an **iterator interface** with `hasNext()` and `next()` methods
+2. Each **concrete iterator** encapsulates a specific traversal strategy
+3. The **collection** provides factory methods to create iterators
+4. Iterators maintain their own traversal state — multiple can run simultaneously
+
+The client uses the uniform iterator interface without knowing the collection's internal structure.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class SongIterator {
+        <<interface>>
+        +hasNext() bool
+        +next() Song
+    }
+
+    class SequentialIterator {
+        -playlist: Playlist
+        -currentIndex: int
+        +hasNext() bool
+        +next() Song
+    }
+
+    class ReverseIterator {
+        -playlist: Playlist
+        -currentIndex: int
+        +hasNext() bool
+        +next() Song
+    }
+
+    class Song {
+        +title: String
+        +artist: String
+    }
+
+    class Playlist {
+        -name: String
+        -songs: List~Song~
+        +addSong(song: Song)
+        +createSequentialIterator() SongIterator
+        +createReverseIterator() SongIterator
+    }
+
+    SongIterator <|.. SequentialIterator
+    SongIterator <|.. ReverseIterator
+    SequentialIterator --> Playlist : traverses
+    ReverseIterator --> Playlist : traverses
+    Playlist --> Song : contains
+    Playlist ..> SongIterator : creates
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+class Song:
+    def __init__(self, title: str, artist: str):
+        self.title = title
+        self.artist = artist
+
+# Iterator interface
+class SongIterator(ABC):
+    @abstractmethod
+    def has_next(self) -> bool:
+        pass
+
+    @abstractmethod
+    def next(self) -> Song:
+        pass
+
+# Concrete Iterators
+class SequentialIterator(SongIterator):
+    def __init__(self, playlist: "Playlist"):
+        self._playlist = playlist
+        self._index = 0
+
+    def has_next(self) -> bool:
+        return self._index < len(self._playlist._songs)
+
+    def next(self) -> Song:
+        song = self._playlist._songs[self._index]
+        self._index += 1
+        return song
+
+class ReverseIterator(SongIterator):
+    def __init__(self, playlist: "Playlist"):
+        self._playlist = playlist
+        self._index = len(playlist._songs) - 1
+
+    def has_next(self) -> bool:
+        return self._index >= 0
+
+    def next(self) -> Song:
+        song = self._playlist._songs[self._index]
+        self._index -= 1
+        return song
+
+# Aggregate
+class Playlist:
+    def __init__(self, name: str):
+        self.name = name
+        self._songs: list[Song] = []  # Now private!
+
+    def add_song(self, song: Song) -> None:
+        self._songs.append(song)
+
+    def create_sequential_iterator(self) -> SongIterator:
+        return SequentialIterator(self)
+
+    def create_reverse_iterator(self) -> SongIterator:
+        return ReverseIterator(self)
+```
+
+#### `C#`
+
+```csharp
+public class Song(string title, string artist)
+{
+    public string Title { get; } = title;
+    public string Artist { get; } = artist;
+}
+
+// Iterator interface
+public interface ISongIterator
+{
+    bool HasNext();
+    Song Next();
+}
+
+// Concrete Iterators
+public class SequentialIterator : ISongIterator
+{
+    private readonly Playlist _playlist;
+    private int _index = 0;
+
+    public SequentialIterator(Playlist playlist) => _playlist = playlist;
+
+    public bool HasNext() => _index < _playlist.Count;
+
+    public Song Next() => _playlist.GetSongAt(_index++);
+}
+
+public class ReverseIterator : ISongIterator
+{
+    private readonly Playlist _playlist;
+    private int _index;
+
+    public ReverseIterator(Playlist playlist)
+    {
+        _playlist = playlist;
+        _index = playlist.Count - 1;
+    }
+
+    public bool HasNext() => _index >= 0;
+
+    public Song Next() => _playlist.GetSongAt(_index--);
+}
+
+// Aggregate
+public class Playlist
+{
+    private readonly List<Song> _songs = [];  // Now private!
+
+    public string Name { get; }
+    public int Count => _songs.Count;
+
+    public Playlist(string name) => Name = name;
+
+    public void AddSong(Song song) => _songs.Add(song);
+
+    internal Song GetSongAt(int index) => _songs[index];
+
+    public ISongIterator CreateSequentialIterator() => new SequentialIterator(this);
+
+    public ISongIterator CreateReverseIterator() => new ReverseIterator(this);
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Song {
+  constructor(
+    public title: string,
+    public artist: string
+  ) {}
+}
+
+// Iterator interface
+interface SongIterator {
+  hasNext(): boolean;
+  next(): Song;
+}
+
+// Concrete Iterators
+class SequentialIterator implements SongIterator {
+  private index: number = 0;
+
+  constructor(private playlist: Playlist) {}
+
+  hasNext(): boolean {
+    return this.index < this.playlist.count;
+  }
+
+  next(): Song {
+    return this.playlist.getSongAt(this.index++);
+  }
+}
+
+class ReverseIterator implements SongIterator {
+  private index: number;
+
+  constructor(private playlist: Playlist) {
+    this.index = playlist.count - 1;
+  }
+
+  hasNext(): boolean {
+    return this.index >= 0;
+  }
+
+  next(): Song {
+    return this.playlist.getSongAt(this.index--);
+  }
+}
+
+// Aggregate
+class Playlist {
+  private songs: Song[] = [];  // Now private!
+
+  constructor(public name: string) {}
+
+  get count(): number {
+    return this.songs.length;
+  }
+
+  addSong(song: Song): void {
+    this.songs.push(song);
+  }
+
+  getSongAt(index: number): Song {
+    return this.songs[index];
+  }
+
+  createSequentialIterator(): SongIterator {
+    return new SequentialIterator(this);
+  }
+
+  createReverseIterator(): SongIterator {
+    return new ReverseIterator(this);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Song {
+  final String title;
+  final String artist;
+
+  Song(this.title, this.artist);
+}
+
+// Iterator interface
+abstract class SongIterator {
+  bool hasNext();
+  Song next();
+}
+
+// Concrete Iterators
+class SequentialIterator implements SongIterator {
+  final Playlist _playlist;
+  int _index = 0;
+
+  SequentialIterator(this._playlist);
+
+  @override
+  bool hasNext() => _index < _playlist.count;
+
+  @override
+  Song next() => _playlist.getSongAt(_index++);
+}
+
+class ReverseIterator implements SongIterator {
+  final Playlist _playlist;
+  int _index;
+
+  ReverseIterator(this._playlist) : _index = _playlist.count - 1;
+
+  @override
+  bool hasNext() => _index >= 0;
+
+  @override
+  Song next() => _playlist.getSongAt(_index--);
+}
+
+// Aggregate
+class Playlist {
+  final String name;
+  final List<Song> _songs = [];  // Now private!
+
+  Playlist(this.name);
+
+  int get count => _songs.length;
+
+  void addSong(Song song) => _songs.add(song);
+
+  Song getSongAt(int index) => _songs[index];
+
+  SongIterator createSequentialIterator() => SequentialIterator(this);
+
+  SongIterator createReverseIterator() => ReverseIterator(this);
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Create playlist
+playlist = Playlist("Rock Classics")
+playlist.add_song(Song("Bohemian Rhapsody", "Queen"))
+playlist.add_song(Song("Stairway to Heaven", "Led Zeppelin"))
+playlist.add_song(Song("Hotel California", "Eagles"))
+
+# Sequential iteration
+print("Playing in order:")
+iterator = playlist.create_sequential_iterator()
+while iterator.has_next():
+    song = iterator.next()
+    print(f"  ♪ {song.title} - {song.artist}")
+
+# Playing in order:
+#   ♪ Bohemian Rhapsody - Queen
+#   ♪ Stairway to Heaven - Led Zeppelin
+#   ♪ Hotel California - Eagles
+
+# Reverse iteration — same interface!
+print("\nPlaying in reverse:")
+reverse_iter = playlist.create_reverse_iterator()
+while reverse_iter.has_next():
+    song = reverse_iter.next()
+    print(f"  ♪ {song.title} - {song.artist}")
+
+# Playing in reverse:
+#   ♪ Hotel California - Eagles
+#   ♪ Stairway to Heaven - Led Zeppelin
+#   ♪ Bohemian Rhapsody - Queen
+
+# Multiple iterators can run simultaneously
+iter1 = playlist.create_sequential_iterator()
+iter2 = playlist.create_sequential_iterator()
+print(f"\nIter1: {iter1.next().title}")  # Bohemian Rhapsody
+print(f"Iter1: {iter1.next().title}")    # Stairway to Heaven
+print(f"Iter2: {iter2.next().title}")    # Bohemian Rhapsody (independent!)
+```
+
+#### `C#`
+
+```csharp
+// Create playlist
+var playlist = new Playlist("Rock Classics");
+playlist.AddSong(new Song("Bohemian Rhapsody", "Queen"));
+playlist.AddSong(new Song("Stairway to Heaven", "Led Zeppelin"));
+playlist.AddSong(new Song("Hotel California", "Eagles"));
+
+// Sequential iteration
+Console.WriteLine("Playing in order:");
+var iterator = playlist.CreateSequentialIterator();
+while (iterator.HasNext())
+{
+    var song = iterator.Next();
+    Console.WriteLine($"  ♪ {song.Title} - {song.Artist}");
+}
+
+// Playing in order:
+//   ♪ Bohemian Rhapsody - Queen
+//   ♪ Stairway to Heaven - Led Zeppelin
+//   ♪ Hotel California - Eagles
+
+// Reverse iteration — same interface!
+Console.WriteLine("\nPlaying in reverse:");
+var reverseIter = playlist.CreateReverseIterator();
+while (reverseIter.HasNext())
+{
+    var song = reverseIter.Next();
+    Console.WriteLine($"  ♪ {song.Title} - {song.Artist}");
+}
+
+// Multiple iterators can run simultaneously
+var iter1 = playlist.CreateSequentialIterator();
+var iter2 = playlist.CreateSequentialIterator();
+Console.WriteLine($"\nIter1: {iter1.Next().Title}");  // Bohemian Rhapsody
+Console.WriteLine($"Iter1: {iter1.Next().Title}");    // Stairway to Heaven
+Console.WriteLine($"Iter2: {iter2.Next().Title}");    // Bohemian Rhapsody (independent!)
+```
+
+#### `TypeScript`
+
+```typescript
+// Create playlist
+const playlist = new Playlist("Rock Classics");
+playlist.addSong(new Song("Bohemian Rhapsody", "Queen"));
+playlist.addSong(new Song("Stairway to Heaven", "Led Zeppelin"));
+playlist.addSong(new Song("Hotel California", "Eagles"));
+
+// Sequential iteration
+console.log("Playing in order:");
+const iterator = playlist.createSequentialIterator();
+while (iterator.hasNext()) {
+  const song = iterator.next();
+  console.log(`  ♪ ${song.title} - ${song.artist}`);
+}
+
+// Playing in order:
+//   ♪ Bohemian Rhapsody - Queen
+//   ♪ Stairway to Heaven - Led Zeppelin
+//   ♪ Hotel California - Eagles
+
+// Reverse iteration — same interface!
+console.log("\nPlaying in reverse:");
+const reverseIter = playlist.createReverseIterator();
+while (reverseIter.hasNext()) {
+  const song = reverseIter.next();
+  console.log(`  ♪ ${song.title} - ${song.artist}`);
+}
+
+// Multiple iterators can run simultaneously
+const iter1 = playlist.createSequentialIterator();
+const iter2 = playlist.createSequentialIterator();
+console.log(`\nIter1: ${iter1.next().title}`);  // Bohemian Rhapsody
+console.log(`Iter1: ${iter1.next().title}`);    // Stairway to Heaven
+console.log(`Iter2: ${iter2.next().title}`);    // Bohemian Rhapsody (independent!)
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Create playlist
+  final playlist = Playlist("Rock Classics");
+  playlist.addSong(Song("Bohemian Rhapsody", "Queen"));
+  playlist.addSong(Song("Stairway to Heaven", "Led Zeppelin"));
+  playlist.addSong(Song("Hotel California", "Eagles"));
+
+  // Sequential iteration
+  print("Playing in order:");
+  final iterator = playlist.createSequentialIterator();
+  while (iterator.hasNext()) {
+    final song = iterator.next();
+    print("  ♪ ${song.title} - ${song.artist}");
+  }
+
+  // Playing in order:
+  //   ♪ Bohemian Rhapsody - Queen
+  //   ♪ Stairway to Heaven - Led Zeppelin
+  //   ♪ Hotel California - Eagles
+
+  // Reverse iteration — same interface!
+  print("\nPlaying in reverse:");
+  final reverseIter = playlist.createReverseIterator();
+  while (reverseIter.hasNext()) {
+    final song = reverseIter.next();
+    print("  ♪ ${song.title} - ${song.artist}");
+  }
+
+  // Multiple iterators can run simultaneously
+  final iter1 = playlist.createSequentialIterator();
+  final iter2 = playlist.createSequentialIterator();
+  print("\nIter1: ${iter1.next().title}");  // Bohemian Rhapsody
+  print("Iter1: ${iter1.next().title}");    // Stairway to Heaven
+  print("Iter2: ${iter2.next().title}");    // Bohemian Rhapsody (independent!)
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Iterator** provides sequential access to a collection's elements without exposing its underlying structure, enabling multiple traversal strategies through a uniform interface.
+:::
+
+### Key Benefits
+
+- **Encapsulation**: Collection's internal structure is hidden from clients
+- **Single Responsibility**: Traversal logic separated from collection
+- **Multiple Traversals**: Different iterators for different strategies (forward, reverse, filtered)
+- **Independent State**: Multiple iterators can traverse simultaneously
+- **Uniform Interface**: Same `hasNext()`/`next()` pattern regardless of collection type
+
+### Language Built-in Iterators
+
+Most languages provide built-in iterator support:
+
+| Language | Iterator Protocol |
+|----------|-------------------|
+| **Python** | `__iter__()`, `__next__()` — enables `for item in collection` |
+| **C#** | `IEnumerable<T>`, `IEnumerator<T>` — enables `foreach` |
+| **TypeScript/JS** | `Symbol.iterator`, `next()` — enables `for...of` |
+| **Dart** | `Iterable<T>`, `Iterator<T>` — enables `for (var item in collection)` |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need to traverse a collection without exposing internals | The collection structure is simple and unlikely to change |
+| You need multiple traversal strategies (forward, reverse, filtered) | Only one traversal mode is ever needed |
+| Multiple traversals should run independently | Built-in language iterators already meet your needs |
+| You want to provide a uniform iteration interface | Adding iterator infrastructure creates unnecessary complexity |

@@ -1,0 +1,882 @@
+---
+title: "Mediator"
+---
+
+The **Mediator** pattern defines an object that encapsulates how a set of objects interact. Instead of objects communicating directly (creating a tangled web of dependencies), they communicate through a central mediator — like a smart home hub where devices only know the hub, not each other.
+
+## Problem
+
+Imagine you're building a smart home system. You have lights, thermostats, and motion sensors. The naive approach has each device directly reference and control other devices.
+
+This leads to:
+
+- Devices tightly coupled to each other
+- Adding a new device requires modifying existing devices
+- Complex N-to-N dependencies (every device potentially knows every other)
+- Difficult to reuse devices in different configurations
+
+### Example
+
+```{mermaid}
+flowchart LR
+    L[Light] <--> T[Thermostat]
+    L <--> M[MotionSensor]
+    T <--> M
+
+    style L fill:#fcc,stroke:#c33
+    style T fill:#fcc,stroke:#c33
+    style M fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Every device must know about every other device
+- Light needs references to MotionSensor and Thermostat
+- Adding a new device (e.g., SecurityCamera) means modifying all existing devices
+- Testing any device requires mocking all its dependencies
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Light:
+    def __init__(self, name: str):
+        self.name = name
+        self.is_on = False
+        self.motion_sensor: "MotionSensor | None" = None  # Direct coupling!
+        self.thermostat: "Thermostat | None" = None       # More coupling!
+
+    def turn_on(self) -> None:
+        self.is_on = True
+        print(f"{self.name}: Light turned ON")
+        # Directly manipulates thermostat when light turns on
+        if self.thermostat:
+            self.thermostat.adjust_for_occupancy()
+
+    def turn_off(self) -> None:
+        self.is_on = False
+        print(f"{self.name}: Light turned OFF")
+
+class MotionSensor:
+    def __init__(self, name: str):
+        self.name = name
+        self.light: "Light | None" = None  # Direct coupling!
+
+    def detect_motion(self) -> None:
+        print(f"{self.name}: Motion detected!")
+        # Directly controls the light
+        if self.light:
+            self.light.turn_on()
+
+class Thermostat:
+    def __init__(self, name: str):
+        self.name = name
+        self.temperature = 20
+
+    def adjust_for_occupancy(self) -> None:
+        self.temperature = 22
+        print(f"{self.name}: Adjusted to {self.temperature}°C for occupancy")
+```
+
+#### `C#`
+
+```csharp
+public class Light
+{
+    public string Name { get; }
+    public bool IsOn { get; private set; }
+    public MotionSensor? MotionSensor { get; set; }  // Direct coupling!
+    public Thermostat? Thermostat { get; set; }       // More coupling!
+
+    public Light(string name) => Name = name;
+
+    public void TurnOn()
+    {
+        IsOn = true;
+        Console.WriteLine($"{Name}: Light turned ON");
+        // Directly manipulates thermostat when light turns on
+        Thermostat?.AdjustForOccupancy();
+    }
+
+    public void TurnOff()
+    {
+        IsOn = false;
+        Console.WriteLine($"{Name}: Light turned OFF");
+    }
+}
+
+public class MotionSensor
+{
+    public string Name { get; }
+    public Light? Light { get; set; }  // Direct coupling!
+
+    public MotionSensor(string name) => Name = name;
+
+    public void DetectMotion()
+    {
+        Console.WriteLine($"{Name}: Motion detected!");
+        // Directly controls the light
+        Light?.TurnOn();
+    }
+}
+
+public class Thermostat
+{
+    public string Name { get; }
+    public int Temperature { get; private set; } = 20;
+
+    public Thermostat(string name) => Name = name;
+
+    public void AdjustForOccupancy()
+    {
+        Temperature = 22;
+        Console.WriteLine($"{Name}: Adjusted to {Temperature}°C for occupancy");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Light {
+  isOn: boolean = false;
+  motionSensor: MotionSensor | null = null;  // Direct coupling!
+  thermostat: Thermostat | null = null;       // More coupling!
+
+  constructor(public name: string) {}
+
+  turnOn(): void {
+    this.isOn = true;
+    console.log(`${this.name}: Light turned ON`);
+    // Directly manipulates thermostat when light turns on
+    this.thermostat?.adjustForOccupancy();
+  }
+
+  turnOff(): void {
+    this.isOn = false;
+    console.log(`${this.name}: Light turned OFF`);
+  }
+}
+
+class MotionSensor {
+  light: Light | null = null;  // Direct coupling!
+
+  constructor(public name: string) {}
+
+  detectMotion(): void {
+    console.log(`${this.name}: Motion detected!`);
+    // Directly controls the light
+    this.light?.turnOn();
+  }
+}
+
+class Thermostat {
+  temperature: number = 20;
+
+  constructor(public name: string) {}
+
+  adjustForOccupancy(): void {
+    this.temperature = 22;
+    console.log(`${this.name}: Adjusted to ${this.temperature}°C for occupancy`);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Light {
+  final String name;
+  bool isOn = false;
+  MotionSensor? motionSensor;  // Direct coupling!
+  Thermostat? thermostat;       // More coupling!
+
+  Light(this.name);
+
+  void turnOn() {
+    isOn = true;
+    print("$name: Light turned ON");
+    // Directly manipulates thermostat when light turns on
+    thermostat?.adjustForOccupancy();
+  }
+
+  void turnOff() {
+    isOn = false;
+    print("$name: Light turned OFF");
+  }
+}
+
+class MotionSensor {
+  final String name;
+  Light? light;  // Direct coupling!
+
+  MotionSensor(this.name);
+
+  void detectMotion() {
+    print("$name: Motion detected!");
+    // Directly controls the light
+    light?.turnOn();
+  }
+}
+
+class Thermostat {
+  final String name;
+  int temperature = 20;
+
+  Thermostat(this.name);
+
+  void adjustForOccupancy() {
+    temperature = 22;
+    print("$name: Adjusted to $temperature°C for occupancy");
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Must wire up all the connections manually
+light = Light("Living Room Light")
+sensor = MotionSensor("Entry Sensor")
+thermostat = Thermostat("Main Thermostat")
+
+# Every device must know about every other device!
+sensor.light = light
+light.thermostat = thermostat
+
+sensor.detect_motion()
+# Entry Sensor: Motion detected!
+# Living Room Light: Light turned ON
+# Main Thermostat: Adjusted to 22°C for occupancy
+
+# What if we add a SecurityCamera? Must modify Light, Sensor, etc.!
+```
+
+#### `C#`
+
+```csharp
+// Must wire up all the connections manually
+var light = new Light("Living Room Light");
+var sensor = new MotionSensor("Entry Sensor");
+var thermostat = new Thermostat("Main Thermostat");
+
+// Every device must know about every other device!
+sensor.Light = light;
+light.Thermostat = thermostat;
+
+sensor.DetectMotion();
+// Entry Sensor: Motion detected!
+// Living Room Light: Light turned ON
+// Main Thermostat: Adjusted to 22°C for occupancy
+
+// What if we add a SecurityCamera? Must modify Light, Sensor, etc.!
+```
+
+#### `TypeScript`
+
+```typescript
+// Must wire up all the connections manually
+const light = new Light("Living Room Light");
+const sensor = new MotionSensor("Entry Sensor");
+const thermostat = new Thermostat("Main Thermostat");
+
+// Every device must know about every other device!
+sensor.light = light;
+light.thermostat = thermostat;
+
+sensor.detectMotion();
+// Entry Sensor: Motion detected!
+// Living Room Light: Light turned ON
+// Main Thermostat: Adjusted to 22°C for occupancy
+
+// What if we add a SecurityCamera? Must modify Light, Sensor, etc.!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Must wire up all the connections manually
+  final light = Light("Living Room Light");
+  final sensor = MotionSensor("Entry Sensor");
+  final thermostat = Thermostat("Main Thermostat");
+
+  // Every device must know about every other device!
+  sensor.light = light;
+  light.thermostat = thermostat;
+
+  sensor.detectMotion();
+  // Entry Sensor: Motion detected!
+  // Living Room Light: Light turned ON
+  // Main Thermostat: Adjusted to 22°C for occupancy
+
+  // What if we add a SecurityCamera? Must modify Light, Sensor, etc.!
+}
+```
+
+:::
+
+
+## Solution
+
+The Mediator pattern solves this by:
+
+1. Introducing a **mediator** (`SmartHomeHub`) that coordinates device interactions
+2. Each **colleague** (`SmartDevice`) only knows the mediator, not other devices
+3. When something happens, devices notify the hub, which orchestrates the response
+4. All coordination logic is centralized in the mediator
+
+The result: N-to-N relationships become N-to-1, and devices are completely decoupled.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class SmartHomeHub {
+        -devices: List~SmartDevice~
+        +register(device: SmartDevice)
+        +notify(sender: SmartDevice, event: String)
+    }
+
+    class SmartDevice {
+        <<abstract>>
+        #hub: SmartHomeHub
+        #name: String
+        +notifyHub(event: String)
+    }
+
+    class Light {
+        -isOn: bool
+        +turnOn()
+        +turnOff()
+    }
+
+    class Thermostat {
+        -temperature: int
+        +setTemperature(temp: int)
+    }
+
+    class MotionSensor {
+        +detectMotion()
+    }
+
+    SmartDevice <|-- Light
+    SmartDevice <|-- Thermostat
+    SmartDevice <|-- MotionSensor
+    SmartDevice --> SmartHomeHub : notifies
+    SmartHomeHub --> SmartDevice : coordinates
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC
+
+# Mediator
+class SmartHomeHub:
+    def __init__(self):
+        self._devices: dict[str, "SmartDevice"] = {}
+
+    def register(self, device: "SmartDevice") -> None:
+        self._devices[device.name] = device
+        device._hub = self
+        print(f"Hub: Registered {device.name}")
+
+    def notify(self, sender: "SmartDevice", event: str) -> None:
+        print(f"Hub: Received '{event}' from {sender.name}")
+
+        # Coordination logic centralized here!
+        if event == "motion_detected":
+            # Turn on lights when motion detected
+            for device in self._devices.values():
+                if isinstance(device, Light):
+                    device.turn_on()
+
+        elif event == "light_on":
+            # Adjust thermostat when light turns on (room occupied)
+            for device in self._devices.values():
+                if isinstance(device, Thermostat):
+                    device.set_temperature(22)
+
+# Abstract Colleague
+class SmartDevice(ABC):
+    def __init__(self, name: str):
+        self.name = name
+        self._hub: SmartHomeHub | None = None
+
+    def notify_hub(self, event: str) -> None:
+        if self._hub:
+            self._hub.notify(self, event)
+
+# Concrete Colleagues
+class Light(SmartDevice):
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.is_on = False
+
+    def turn_on(self) -> None:
+        self.is_on = True
+        print(f"{self.name}: Light turned ON")
+        self.notify_hub("light_on")
+
+    def turn_off(self) -> None:
+        self.is_on = False
+        print(f"{self.name}: Light turned OFF")
+        self.notify_hub("light_off")
+
+class Thermostat(SmartDevice):
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.temperature = 20
+
+    def set_temperature(self, temp: int) -> None:
+        self.temperature = temp
+        print(f"{self.name}: Temperature set to {temp}°C")
+
+class MotionSensor(SmartDevice):
+    def detect_motion(self) -> None:
+        print(f"{self.name}: Motion detected!")
+        self.notify_hub("motion_detected")
+```
+
+#### `C#`
+
+```csharp
+// Mediator
+public class SmartHomeHub
+{
+    private readonly Dictionary<string, SmartDevice> _devices = new();
+
+    public void Register(SmartDevice device)
+    {
+        _devices[device.Name] = device;
+        device.Hub = this;
+        Console.WriteLine($"Hub: Registered {device.Name}");
+    }
+
+    public void Notify(SmartDevice sender, string eventType)
+    {
+        Console.WriteLine($"Hub: Received '{eventType}' from {sender.Name}");
+
+        // Coordination logic centralized here!
+        if (eventType == "motion_detected")
+        {
+            // Turn on lights when motion detected
+            foreach (var device in _devices.Values)
+            {
+                if (device is Light light)
+                    light.TurnOn();
+            }
+        }
+        else if (eventType == "light_on")
+        {
+            // Adjust thermostat when light turns on (room occupied)
+            foreach (var device in _devices.Values)
+            {
+                if (device is Thermostat thermostat)
+                    thermostat.SetTemperature(22);
+            }
+        }
+    }
+}
+
+// Abstract Colleague
+public abstract class SmartDevice
+{
+    public string Name { get; }
+    public SmartHomeHub? Hub { get; set; }
+
+    protected SmartDevice(string name) => Name = name;
+
+    protected void NotifyHub(string eventType) => Hub?.Notify(this, eventType);
+}
+
+// Concrete Colleagues
+public class Light : SmartDevice
+{
+    public bool IsOn { get; private set; }
+
+    public Light(string name) : base(name) { }
+
+    public void TurnOn()
+    {
+        IsOn = true;
+        Console.WriteLine($"{Name}: Light turned ON");
+        NotifyHub("light_on");
+    }
+
+    public void TurnOff()
+    {
+        IsOn = false;
+        Console.WriteLine($"{Name}: Light turned OFF");
+        NotifyHub("light_off");
+    }
+}
+
+public class Thermostat : SmartDevice
+{
+    public int Temperature { get; private set; } = 20;
+
+    public Thermostat(string name) : base(name) { }
+
+    public void SetTemperature(int temp)
+    {
+        Temperature = temp;
+        Console.WriteLine($"{Name}: Temperature set to {temp}°C");
+    }
+}
+
+public class MotionSensor : SmartDevice
+{
+    public MotionSensor(string name) : base(name) { }
+
+    public void DetectMotion()
+    {
+        Console.WriteLine($"{Name}: Motion detected!");
+        NotifyHub("motion_detected");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Mediator
+class SmartHomeHub {
+  private devices = new Map<string, SmartDevice>();
+
+  register(device: SmartDevice): void {
+    this.devices.set(device.name, device);
+    device.hub = this;
+    console.log(`Hub: Registered ${device.name}`);
+  }
+
+  notify(sender: SmartDevice, event: string): void {
+    console.log(`Hub: Received '${event}' from ${sender.name}`);
+
+    // Coordination logic centralized here!
+    if (event === "motion_detected") {
+      // Turn on lights when motion detected
+      for (const device of this.devices.values()) {
+        if (device instanceof Light) {
+          device.turnOn();
+        }
+      }
+    } else if (event === "light_on") {
+      // Adjust thermostat when light turns on (room occupied)
+      for (const device of this.devices.values()) {
+        if (device instanceof Thermostat) {
+          device.setTemperature(22);
+        }
+      }
+    }
+  }
+}
+
+// Abstract Colleague
+abstract class SmartDevice {
+  hub: SmartHomeHub | null = null;
+
+  constructor(public name: string) {}
+
+  protected notifyHub(event: string): void {
+    this.hub?.notify(this, event);
+  }
+}
+
+// Concrete Colleagues
+class Light extends SmartDevice {
+  isOn: boolean = false;
+
+  turnOn(): void {
+    this.isOn = true;
+    console.log(`${this.name}: Light turned ON`);
+    this.notifyHub("light_on");
+  }
+
+  turnOff(): void {
+    this.isOn = false;
+    console.log(`${this.name}: Light turned OFF`);
+    this.notifyHub("light_off");
+  }
+}
+
+class Thermostat extends SmartDevice {
+  temperature: number = 20;
+
+  setTemperature(temp: number): void {
+    this.temperature = temp;
+    console.log(`${this.name}: Temperature set to ${temp}°C`);
+  }
+}
+
+class MotionSensor extends SmartDevice {
+  detectMotion(): void {
+    console.log(`${this.name}: Motion detected!`);
+    this.notifyHub("motion_detected");
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Mediator
+class SmartHomeHub {
+  final Map<String, SmartDevice> _devices = {};
+
+  void register(SmartDevice device) {
+    _devices[device.name] = device;
+    device._hub = this;
+    print("Hub: Registered ${device.name}");
+  }
+
+  void notify(SmartDevice sender, String event) {
+    print("Hub: Received '$event' from ${sender.name}");
+
+    // Coordination logic centralized here!
+    if (event == "motion_detected") {
+      // Turn on lights when motion detected
+      for (final device in _devices.values) {
+        if (device is Light) {
+          device.turnOn();
+        }
+      }
+    } else if (event == "light_on") {
+      // Adjust thermostat when light turns on (room occupied)
+      for (final device in _devices.values) {
+        if (device is Thermostat) {
+          device.setTemperature(22);
+        }
+      }
+    }
+  }
+}
+
+// Abstract Colleague
+abstract class SmartDevice {
+  final String name;
+  SmartHomeHub? _hub;
+
+  SmartDevice(this.name);
+
+  void notifyHub(String event) => _hub?.notify(this, event);
+}
+
+// Concrete Colleagues
+class Light extends SmartDevice {
+  bool isOn = false;
+
+  Light(super.name);
+
+  void turnOn() {
+    isOn = true;
+    print("$name: Light turned ON");
+    notifyHub("light_on");
+  }
+
+  void turnOff() {
+    isOn = false;
+    print("$name: Light turned OFF");
+    notifyHub("light_off");
+  }
+}
+
+class Thermostat extends SmartDevice {
+  int temperature = 20;
+
+  Thermostat(super.name);
+
+  void setTemperature(int temp) {
+    temperature = temp;
+    print("$name: Temperature set to $temp°C");
+  }
+}
+
+class MotionSensor extends SmartDevice {
+  MotionSensor(super.name);
+
+  void detectMotion() {
+    print("$name: Motion detected!");
+    notifyHub("motion_detected");
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Create the hub (mediator)
+hub = SmartHomeHub()
+
+# Create devices — they don't know about each other!
+light = Light("Living Room Light")
+thermostat = Thermostat("Main Thermostat")
+sensor = MotionSensor("Entry Sensor")
+
+# Register all devices with the hub
+hub.register(light)
+hub.register(thermostat)
+hub.register(sensor)
+
+# Hub: Registered Living Room Light
+# Hub: Registered Main Thermostat
+# Hub: Registered Entry Sensor
+
+print("\n--- Motion Detected ---")
+sensor.detect_motion()
+
+# Entry Sensor: Motion detected!
+# Hub: Received 'motion_detected' from Entry Sensor
+# Living Room Light: Light turned ON
+# Hub: Received 'light_on' from Living Room Light
+# Main Thermostat: Temperature set to 22°C
+
+# Adding new devices? Just register with hub — no changes to existing devices!
+```
+
+#### `C#`
+
+```csharp
+// Create the hub (mediator)
+var hub = new SmartHomeHub();
+
+// Create devices — they don't know about each other!
+var light = new Light("Living Room Light");
+var thermostat = new Thermostat("Main Thermostat");
+var sensor = new MotionSensor("Entry Sensor");
+
+// Register all devices with the hub
+hub.Register(light);
+hub.Register(thermostat);
+hub.Register(sensor);
+
+// Hub: Registered Living Room Light
+// Hub: Registered Main Thermostat
+// Hub: Registered Entry Sensor
+
+Console.WriteLine("\n--- Motion Detected ---");
+sensor.DetectMotion();
+
+// Entry Sensor: Motion detected!
+// Hub: Received 'motion_detected' from Entry Sensor
+// Living Room Light: Light turned ON
+// Hub: Received 'light_on' from Living Room Light
+// Main Thermostat: Temperature set to 22°C
+
+// Adding new devices? Just register with hub — no changes to existing devices!
+```
+
+#### `TypeScript`
+
+```typescript
+// Create the hub (mediator)
+const hub = new SmartHomeHub();
+
+// Create devices — they don't know about each other!
+const light = new Light("Living Room Light");
+const thermostat = new Thermostat("Main Thermostat");
+const sensor = new MotionSensor("Entry Sensor");
+
+// Register all devices with the hub
+hub.register(light);
+hub.register(thermostat);
+hub.register(sensor);
+
+// Hub: Registered Living Room Light
+// Hub: Registered Main Thermostat
+// Hub: Registered Entry Sensor
+
+console.log("\n--- Motion Detected ---");
+sensor.detectMotion();
+
+// Entry Sensor: Motion detected!
+// Hub: Received 'motion_detected' from Entry Sensor
+// Living Room Light: Light turned ON
+// Hub: Received 'light_on' from Living Room Light
+// Main Thermostat: Temperature set to 22°C
+
+// Adding new devices? Just register with hub — no changes to existing devices!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Create the hub (mediator)
+  final hub = SmartHomeHub();
+
+  // Create devices — they don't know about each other!
+  final light = Light("Living Room Light");
+  final thermostat = Thermostat("Main Thermostat");
+  final sensor = MotionSensor("Entry Sensor");
+
+  // Register all devices with the hub
+  hub.register(light);
+  hub.register(thermostat);
+  hub.register(sensor);
+
+  // Hub: Registered Living Room Light
+  // Hub: Registered Main Thermostat
+  // Hub: Registered Entry Sensor
+
+  print("\n--- Motion Detected ---");
+  sensor.detectMotion();
+
+  // Entry Sensor: Motion detected!
+  // Hub: Received 'motion_detected' from Entry Sensor
+  // Living Room Light: Light turned ON
+  // Hub: Received 'light_on' from Living Room Light
+  // Main Thermostat: Temperature set to 22°C
+
+  // Adding new devices? Just register with hub — no changes to existing devices!
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Mediator** centralizes complex communication between objects, replacing N-to-N dependencies with N-to-1 relationships through a coordinating hub.
+:::
+
+### Key Benefits
+
+- **Loose Coupling**: Objects only know the mediator, not each other
+- **Centralized Logic**: All coordination rules in one place
+- **Easy Extension**: Add new colleagues without modifying existing ones
+- **Simplified Objects**: Colleagues focus on their own behavior, not coordination
+- **Reusability**: Colleagues can be reused in different configurations
+
+### Real-World Examples
+
+| Application | Mediator |
+|-------------|----------|
+| **Smart Home** | Hub coordinates devices |
+| **Air Traffic Control** | Tower coordinates aircraft |
+| **Chat Applications** | Chat room/server routes messages |
+| **UI Frameworks** | Dialog/Form coordinates components |
+| **Message Brokers** | Kafka/RabbitMQ coordinate services |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| Multiple objects communicate in complex ways | Communication between objects is simple |
+| Objects have many direct dependencies on each other | There are only 2-3 objects interacting |
+| You want to customize interaction behavior in one place | The mediator would become a "god object" with too much logic |
+| You need to reuse objects across different coordination rules | Direct coupling is acceptable and simpler |

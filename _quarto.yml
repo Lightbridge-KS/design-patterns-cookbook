@@ -45,6 +45,18 @@ book:
           href: "contents/structural/06-flyweight.qmd"
         - text: Proxy Pattern
           href: "contents/structural/07-proxy.qmd"
+    - part: Behavioral Design Patterns
+      chapters:
+        - text: Chain of Responsibility Pattern
+          href: "contents/behavioral/01-chain-of-responsibility.qmd"
+        - text: Command Pattern
+          href: "contents/behavioral/02-command.qmd"
+        - text: Iterator Pattern
+          href: "contents/behavioral/03-iterator.qmd"
+        - text: Mediator Pattern
+          href: "contents/behavioral/04-mediator.qmd"
+        - text: Memento Pattern
+          href: "contents/behavioral/05-memento.qmd"
 
 format:
   html:
