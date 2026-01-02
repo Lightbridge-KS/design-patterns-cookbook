@@ -14,9 +14,11 @@ book:
         - text: OOP Cheatsheet
           href: "contents/oop/oop-cheatsheet.qmd"
     - part: Overview
-      chapters: 
+      chapters:
         - text: Design Pattern Overview
           href: "contents/overview/overview-of-design-pattern.qmd"
+        - text: Dependency Injection
+          href: "contents/di/dependency-injection.qmd"
     - part: Creational Design Patterns
       chapters: 
         - text: Factory Method Pattern

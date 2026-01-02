@@ -1,0 +1,2117 @@
+# Dependency Injection
+
+**Dependency Injection (DI)** is a design technique where an object receives its dependencies from external sources rather than creating them internally. This simple concept is foundational to writing loosely coupled, testable, and maintainable code.
+
+::: {.callout-note appearance="simple"}
+This chapter is inspired by the book *"Dependency Injection: Principles, Practices, Patterns"* by Steven van Deursen and Mark Seemann.
+:::
+
+## Why Dependency Injection?
+
+Consider this tightly coupled code:
+
+```{mermaid}
+flowchart LR
+    subgraph "Tightly Coupled"
+        O[OrderProcessor] -->|"creates internally"| E[EmailNotifier]
+        O -->|"hard dependency"| E
+    end
+
+    style E fill:#faa,stroke:#333
+```
+
+The `OrderProcessor` creates its own `EmailNotifier`, making it impossible to:
+
+- **Test in isolation** - You can't replace `EmailNotifier` with a mock
+- **Change behavior** - Switching to SMS requires modifying `OrderProcessor`
+- **Reuse** - The class is locked to one notification strategy
+
+DI solves this by **inverting the control** of dependency creation:
+
+```{mermaid}
+flowchart LR
+    subgraph "Loosely Coupled (DI)"
+        O2[OrderProcessor] -->|"depends on"| I[INotifier]
+        E2[EmailNotifier] -.->|implements| I
+        S2[SMSNotifier] -.->|implements| I
+        M2[MockNotifier] -.->|implements| I
+        C[Composition Root] -->|"injects"| O2
+        T[Unit Test] -->|"injects mock"| O2
+    end
+
+    style I fill:#afa,stroke:#333
+    style M2 fill:#aaf,stroke:#333
+    style T fill:#aaf,stroke:#333
+```
+
+Now you can inject `MockNotifier` during tests to verify behavior without sending real emails!
+
+## Volatile vs Stable Dependencies
+
+Not all dependencies need injection. The key distinction is between **volatile** and **stable** dependencies.
+
+### Volatile Dependencies
+
+Volatile dependencies should be injected because they:
+
+- Require runtime environment (database, file system, network)
+- Don't yet exist or are still in development
+- Contain nondeterministic behavior (random, time-based)
+- Need to be replaced for testing
+
+**Examples**: Database repositories, email services, payment gateways, loggers
+
+### Stable Dependencies
+
+Stable dependencies can be used directly (no injection needed):
+
+- Part of the standard library
+- Deterministic behavior
+- Never need to be replaced
+
+**Examples**: `String`, `List`, `Math`, standard collections
+
+::: {.callout-tip appearance="simple"}
+**Rule of thumb**: If you might need to mock it in tests, inject it.
+:::
+
+## Composition Root
+
+> **Where should we compose object graphs?**
+>
+> As close as possible to the application's entry point.
+
+### Definition
+
+A **Composition Root** is a single, logical location in an application where modules are composed together. It's typically located at or near the application's entry point (`Main`, `Program.cs`, `app.py`, etc.).
+
+```{mermaid}
+flowchart TB
+    subgraph "Application Entry Point"
+        M[Main / Entry Point]
+        CR[Composition Root]
+    end
+
+    subgraph "Application Core"
+        S[Services]
+        R[Repositories]
+        C[Controllers]
+    end
+
+    M --> CR
+    CR -->|"composes"| S
+    CR -->|"composes"| R
+    CR -->|"composes"| C
+
+    style CR fill:#afa,stroke:#333
+```
+
+### Example Composition Root
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# main.py - Composition Root
+def main():
+    # Compose the object graph
+    logger = FileLogger("app.log")
+    notifier = EmailNotifier(smtp_server="mail.example.com")
+    repository = PostgresOrderRepository(connection_string="...")
+
+    # Inject dependencies
+    order_processor = OrderProcessor(
+        notifier=notifier,
+        repository=repository,
+        logger=logger
+    )
+
+    # Run the application
+    order_processor.process_order("ORD-001")
+
+if __name__ == "__main__":
+    main()
+```
+
+#### `C#`
+
+```csharp
+// Program.cs - Composition Root
+class Program
+{
+    static void Main(string[] args)
+    {
+        // Compose the object graph
+        var logger = new FileLogger("app.log");
+        var notifier = new EmailNotifier("mail.example.com");
+        var repository = new PostgresOrderRepository("...");
+
+        // Inject dependencies
+        var orderProcessor = new OrderProcessor(
+            notifier: notifier,
+            repository: repository,
+            logger: logger
+        );
+
+        // Run the application
+        orderProcessor.ProcessOrder("ORD-001");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// main.ts - Composition Root
+function main(): void {
+    // Compose the object graph
+    const logger = new FileLogger("app.log");
+    const notifier = new EmailNotifier("mail.example.com");
+    const repository = new PostgresOrderRepository("...");
+
+    // Inject dependencies
+    const orderProcessor = new OrderProcessor(
+        notifier,
+        repository,
+        logger
+    );
+
+    // Run the application
+    orderProcessor.processOrder("ORD-001");
+}
+
+main();
+```
+
+#### `Dart`
+
+```dart
+// main.dart - Composition Root
+void main() {
+    // Compose the object graph
+    final logger = FileLogger('app.log');
+    final notifier = EmailNotifier('mail.example.com');
+    final repository = PostgresOrderRepository('...');
+
+    // Inject dependencies
+    final orderProcessor = OrderProcessor(
+        notifier: notifier,
+        repository: repository,
+        logger: logger,
+    );
+
+    // Run the application
+    orderProcessor.processOrder('ORD-001');
+}
+```
+
+:::
+
+::: {.callout-warning appearance="simple"}
+**Anti-pattern Alert**: Using a DI Container outside the Composition Root leads to the **Service Locator** anti-pattern. The container should only be referenced at the entry point.
+:::
+
+---
+
+## Injection Patterns
+
+There are three main patterns for injecting dependencies, each suited for different scenarios.
+
+## Constructor Injection
+
+> **How do we guarantee that a required dependency is always available?**
+>
+> By specifying it as a parameter to the class's constructor.
+
+### Definition
+
+**Constructor Injection** is the act of statically defining the list of required dependencies by specifying them as parameters to the class's constructor.
+
+### When to Use
+
+Constructor Injection should be your **default choice** for DI. Use it when:
+
+- The dependency is **required** for the class to function
+- The dependency remains constant for the object's lifetime
+- No reasonable default implementation exists
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class INotifier {
+        <<interface>>
+        +send(message: string, recipient: string)
+    }
+
+    class EmailNotifier {
+        +send(message: string, recipient: string)
+    }
+
+    class SMSNotifier {
+        +send(message: string, recipient: string)
+    }
+
+    class OrderProcessor {
+        -notifier: INotifier
+        +OrderProcessor(notifier: INotifier)
+        +processOrder(orderId: string)
+    }
+
+    INotifier <|.. EmailNotifier
+    INotifier <|.. SMSNotifier
+    OrderProcessor o--> INotifier : "injected via constructor"
+```
+
+### Implementation
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+
+# Interface (Protocol)
+class Notifier(ABC):
+    @abstractmethod
+    def send(self, message: str, recipient: str) -> None:
+        pass
+
+
+# Concrete implementations
+class EmailNotifier(Notifier):
+    def __init__(self, smtp_server: str):
+        self._smtp_server = smtp_server
+
+    def send(self, message: str, recipient: str) -> None:
+        print(f"[Email via {self._smtp_server}] To: {recipient} - {message}")
+
+
+class SMSNotifier(Notifier):
+    def __init__(self, api_key: str):
+        self._api_key = api_key
+
+    def send(self, message: str, recipient: str) -> None:
+        print(f"[SMS] To: {recipient} - {message}")
+
+
+# Consumer with Constructor Injection
+class OrderProcessor:
+    def __init__(self, notifier: Notifier):  # Dependency injected here!
+        self._notifier = notifier
+
+    def process_order(self, order_id: str) -> None:
+        # Process order logic...
+        self._notifier.send(
+            f"Order {order_id} has been processed!",
+            "customer@example.com"
+        )
+```
+
+#### `C#`
+
+```csharp
+// Interface
+public interface INotifier
+{
+    void Send(string message, string recipient);
+}
+
+// Concrete implementations
+public class EmailNotifier : INotifier
+{
+    private readonly string _smtpServer;
+
+    public EmailNotifier(string smtpServer)
+    {
+        _smtpServer = smtpServer;
+    }
+
+    public void Send(string message, string recipient)
+    {
+        Console.WriteLine($"[Email via {_smtpServer}] To: {recipient} - {message}");
+    }
+}
+
+public class SMSNotifier : INotifier
+{
+    private readonly string _apiKey;
+
+    public SMSNotifier(string apiKey)
+    {
+        _apiKey = apiKey;
+    }
+
+    public void Send(string message, string recipient)
+    {
+        Console.WriteLine($"[SMS] To: {recipient} - {message}");
+    }
+}
+
+// Consumer with Constructor Injection
+public class OrderProcessor
+{
+    private readonly INotifier _notifier;
+
+    public OrderProcessor(INotifier notifier)  // Dependency injected here!
+    {
+        _notifier = notifier;
+    }
+
+    public void ProcessOrder(string orderId)
+    {
+        // Process order logic...
+        _notifier.Send(
+            $"Order {orderId} has been processed!",
+            "customer@example.com"
+        );
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Interface
+interface Notifier {
+    send(message: string, recipient: string): void;
+}
+
+// Concrete implementations
+class EmailNotifier implements Notifier {
+    constructor(private smtpServer: string) {}
+
+    send(message: string, recipient: string): void {
+        console.log(`[Email via ${this.smtpServer}] To: ${recipient} - ${message}`);
+    }
+}
+
+class SMSNotifier implements Notifier {
+    constructor(private apiKey: string) {}
+
+    send(message: string, recipient: string): void {
+        console.log(`[SMS] To: ${recipient} - ${message}`);
+    }
+}
+
+// Consumer with Constructor Injection
+class OrderProcessor {
+    private notifier: Notifier;
+
+    constructor(notifier: Notifier) {  // Dependency injected here!
+        this.notifier = notifier;
+    }
+
+    processOrder(orderId: string): void {
+        // Process order logic...
+        this.notifier.send(
+            `Order ${orderId} has been processed!`,
+            "customer@example.com"
+        );
+    }
+}
+```
+
+#### `Dart`
+
+```dart
+// Interface
+abstract class Notifier {
+    void send(String message, String recipient);
+}
+
+// Concrete implementations
+class EmailNotifier implements Notifier {
+    final String _smtpServer;
+
+    EmailNotifier(this._smtpServer);
+
+    @override
+    void send(String message, String recipient) {
+        print('[Email via $_smtpServer] To: $recipient - $message');
+    }
+}
+
+class SMSNotifier implements Notifier {
+    final String _apiKey;
+
+    SMSNotifier(this._apiKey);
+
+    @override
+    void send(String message, String recipient) {
+        print('[SMS] To: $recipient - $message');
+    }
+}
+
+// Consumer with Constructor Injection
+class OrderProcessor {
+    final Notifier _notifier;
+
+    OrderProcessor(this._notifier);  // Dependency injected here!
+
+    void processOrder(String orderId) {
+        // Process order logic...
+        _notifier.send(
+            'Order $orderId has been processed!',
+            'customer@example.com',
+        );
+    }
+}
+```
+
+:::
+
+### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Production: inject email notifier
+email_notifier = EmailNotifier(smtp_server="smtp.example.com")
+processor = OrderProcessor(email_notifier)
+processor.process_order("ORD-001")
+
+# Testing: inject mock notifier
+class MockNotifier(Notifier):
+    def __init__(self):
+        self.sent_messages: list[tuple[str, str]] = []
+
+    def send(self, message: str, recipient: str) -> None:
+        self.sent_messages.append((message, recipient))
+
+mock = MockNotifier()
+test_processor = OrderProcessor(mock)
+test_processor.process_order("ORD-TEST")
+assert len(mock.sent_messages) == 1
+```
+
+#### `C#`
+
+```csharp
+// Production: inject email notifier
+var emailNotifier = new EmailNotifier("smtp.example.com");
+var processor = new OrderProcessor(emailNotifier);
+processor.ProcessOrder("ORD-001");
+
+// Testing: inject mock notifier (using Moq)
+var mockNotifier = new Mock<INotifier>();
+var testProcessor = new OrderProcessor(mockNotifier.Object);
+testProcessor.ProcessOrder("ORD-TEST");
+mockNotifier.Verify(n => n.Send(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+```
+
+#### `TypeScript`
+
+```typescript
+// Production: inject email notifier
+const emailNotifier = new EmailNotifier("smtp.example.com");
+const processor = new OrderProcessor(emailNotifier);
+processor.processOrder("ORD-001");
+
+// Testing: inject mock notifier
+class MockNotifier implements Notifier {
+    sentMessages: Array<[string, string]> = [];
+
+    send(message: string, recipient: string): void {
+        this.sentMessages.push([message, recipient]);
+    }
+}
+
+const mock = new MockNotifier();
+const testProcessor = new OrderProcessor(mock);
+testProcessor.processOrder("ORD-TEST");
+console.assert(mock.sentMessages.length === 1);
+```
+
+#### `Dart`
+
+```dart
+// Production: inject email notifier
+final emailNotifier = EmailNotifier('smtp.example.com');
+final processor = OrderProcessor(emailNotifier);
+processor.processOrder('ORD-001');
+
+// Testing: inject mock notifier
+class MockNotifier implements Notifier {
+    final List<(String, String)> sentMessages = [];
+
+    @override
+    void send(String message, String recipient) {
+        sentMessages.add((message, recipient));
+    }
+}
+
+final mock = MockNotifier();
+final testProcessor = OrderProcessor(mock);
+testProcessor.processOrder('ORD-TEST');
+assert(mock.sentMessages.length == 1);
+```
+
+:::
+
+---
+
+## Test Doubles
+
+One of the greatest benefits of Dependency Injection is **testability**. When dependencies are injected, you can replace real implementations with **test doubles** - objects that simulate the behavior of real dependencies in controlled ways.
+
+### Types of Test Doubles
+
+| Type | Purpose | Behavior |
+|------|---------|----------|
+| **Stub** | Provide canned responses | Returns pre-configured values, no verification |
+| **Mock** | Verify interactions | Records calls, allows asserting that methods were called |
+| **Fake** | Simplified working implementation | Has real logic but is simpler than production |
+
+```{mermaid}
+flowchart TB
+    subgraph "Production"
+        P[OrderProcessor] --> R[EmailNotifier]
+        R -->|"sends"| E[Real Email Server]
+    end
+
+    subgraph "Testing"
+        T[OrderProcessor] --> I[INotifier]
+        I -.-> S[StubNotifier]
+        I -.-> M[MockNotifier]
+        I -.-> F[FakeNotifier]
+    end
+
+    style E fill:#faa,stroke:#333
+    style S fill:#aaf,stroke:#333
+    style M fill:#aaf,stroke:#333
+    style F fill:#aaf,stroke:#333
+```
+
+### Stub
+
+A **Stub** provides predetermined responses. Use stubs when you need to control what the dependency returns, but don't care about verifying calls.
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class StubNotifier(Notifier):
+    """Always succeeds without sending anything."""
+    def __init__(self, should_succeed: bool = True):
+        self._should_succeed = should_succeed
+
+    def send(self, message: str, recipient: str) -> bool:
+        return self._should_succeed  # Predetermined response
+
+
+# Usage in test
+def test_order_succeeds_when_notification_works():
+    stub = StubNotifier(should_succeed=True)
+    processor = OrderProcessor(stub)
+
+    result = processor.process_order("ORD-123")
+
+    assert result.success is True
+
+
+def test_order_handles_notification_failure():
+    stub = StubNotifier(should_succeed=False)
+    processor = OrderProcessor(stub)
+
+    result = processor.process_order("ORD-123")
+
+    assert result.success is False
+```
+
+#### `C#`
+
+```csharp
+public class StubNotifier : INotifier
+{
+    private readonly bool _shouldSucceed;
+
+    public StubNotifier(bool shouldSucceed = true)
+    {
+        _shouldSucceed = shouldSucceed;
+    }
+
+    public bool Send(string message, string recipient)
+    {
+        return _shouldSucceed;  // Predetermined response
+    }
+}
+
+// Usage in test
+[Fact]
+public void Order_Succeeds_When_Notification_Works()
+{
+    var stub = new StubNotifier(shouldSucceed: true);
+    var processor = new OrderProcessor(stub);
+
+    var result = processor.ProcessOrder("ORD-123");
+
+    Assert.True(result.Success);
+}
+
+[Fact]
+public void Order_Handles_Notification_Failure()
+{
+    var stub = new StubNotifier(shouldSucceed: false);
+    var processor = new OrderProcessor(stub);
+
+    var result = processor.ProcessOrder("ORD-123");
+
+    Assert.False(result.Success);
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class StubNotifier implements Notifier {
+    constructor(private shouldSucceed: boolean = true) {}
+
+    send(message: string, recipient: string): boolean {
+        return this.shouldSucceed;  // Predetermined response
+    }
+}
+
+// Usage in test
+test("order succeeds when notification works", () => {
+    const stub = new StubNotifier(true);
+    const processor = new OrderProcessor(stub);
+
+    const result = processor.processOrder("ORD-123");
+
+    expect(result.success).toBe(true);
+});
+
+test("order handles notification failure", () => {
+    const stub = new StubNotifier(false);
+    const processor = new OrderProcessor(stub);
+
+    const result = processor.processOrder("ORD-123");
+
+    expect(result.success).toBe(false);
+});
+```
+
+#### `Dart`
+
+```dart
+class StubNotifier implements Notifier {
+    final bool shouldSucceed;
+
+    StubNotifier({this.shouldSucceed = true});
+
+    @override
+    bool send(String message, String recipient) {
+        return shouldSucceed;  // Predetermined response
+    }
+}
+
+// Usage in test
+void main() {
+    test('order succeeds when notification works', () {
+        final stub = StubNotifier(shouldSucceed: true);
+        final processor = OrderProcessor(stub);
+
+        final result = processor.processOrder('ORD-123');
+
+        expect(result.success, isTrue);
+    });
+
+    test('order handles notification failure', () {
+        final stub = StubNotifier(shouldSucceed: false);
+        final processor = OrderProcessor(stub);
+
+        final result = processor.processOrder('ORD-123');
+
+        expect(result.success, isFalse);
+    });
+}
+```
+
+:::
+
+### Mock
+
+A **Mock** records interactions so you can verify that methods were called with expected arguments. Use mocks to test that your code interacts correctly with its dependencies.
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class MockNotifier(Notifier):
+    """Records all calls for later verification."""
+    def __init__(self):
+        self.calls: list[tuple[str, str]] = []
+
+    def send(self, message: str, recipient: str) -> None:
+        self.calls.append((message, recipient))
+
+    def verify_called_once(self) -> bool:
+        return len(self.calls) == 1
+
+    def verify_called_with(self, message: str, recipient: str) -> bool:
+        return (message, recipient) in self.calls
+
+
+# Usage in test
+def test_order_processor_sends_correct_notification():
+    mock = MockNotifier()
+    processor = OrderProcessor(mock)
+
+    processor.process_order("ORD-123")
+
+    assert mock.verify_called_once()
+    assert mock.verify_called_with(
+        "Order ORD-123 has been processed!",
+        "customer@example.com"
+    )
+```
+
+#### `C#`
+
+```csharp
+public class MockNotifier : INotifier
+{
+    public List<(string Message, string Recipient)> Calls { get; } = new();
+
+    public void Send(string message, string recipient)
+    {
+        Calls.Add((message, recipient));
+    }
+
+    public bool VerifyCalledOnce() => Calls.Count == 1;
+
+    public bool VerifyCalledWith(string message, string recipient)
+        => Calls.Contains((message, recipient));
+}
+
+// Usage in test
+[Fact]
+public void OrderProcessor_Sends_Correct_Notification()
+{
+    var mock = new MockNotifier();
+    var processor = new OrderProcessor(mock);
+
+    processor.ProcessOrder("ORD-123");
+
+    Assert.True(mock.VerifyCalledOnce());
+    Assert.True(mock.VerifyCalledWith(
+        "Order ORD-123 has been processed!",
+        "customer@example.com"
+    ));
+}
+
+// Or using Moq library
+[Fact]
+public void OrderProcessor_Sends_Correct_Notification_WithMoq()
+{
+    var mock = new Mock<INotifier>();
+    var processor = new OrderProcessor(mock.Object);
+
+    processor.ProcessOrder("ORD-123");
+
+    mock.Verify(n => n.Send(
+        "Order ORD-123 has been processed!",
+        "customer@example.com"
+    ), Times.Once);
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class MockNotifier implements Notifier {
+    calls: Array<[string, string]> = [];
+
+    send(message: string, recipient: string): void {
+        this.calls.push([message, recipient]);
+    }
+
+    verifyCalledOnce(): boolean {
+        return this.calls.length === 1;
+    }
+
+    verifyCalledWith(message: string, recipient: string): boolean {
+        return this.calls.some(
+            ([m, r]) => m === message && r === recipient
+        );
+    }
+}
+
+// Usage in test
+test("order processor sends correct notification", () => {
+    const mock = new MockNotifier();
+    const processor = new OrderProcessor(mock);
+
+    processor.processOrder("ORD-123");
+
+    expect(mock.verifyCalledOnce()).toBe(true);
+    expect(mock.verifyCalledWith(
+        "Order ORD-123 has been processed!",
+        "customer@example.com"
+    )).toBe(true);
+});
+
+// Or using Jest mocks
+test("order processor sends correct notification (Jest)", () => {
+    const mock: Notifier = { send: jest.fn() };
+    const processor = new OrderProcessor(mock);
+
+    processor.processOrder("ORD-123");
+
+    expect(mock.send).toHaveBeenCalledWith(
+        "Order ORD-123 has been processed!",
+        "customer@example.com"
+    );
+});
+```
+
+#### `Dart`
+
+```dart
+class MockNotifier implements Notifier {
+    final List<(String, String)> calls = [];
+
+    @override
+    void send(String message, String recipient) {
+        calls.add((message, recipient));
+    }
+
+    bool verifyCalledOnce() => calls.length == 1;
+
+    bool verifyCalledWith(String message, String recipient) {
+        return calls.contains((message, recipient));
+    }
+}
+
+// Usage in test
+void main() {
+    test('order processor sends correct notification', () {
+        final mock = MockNotifier();
+        final processor = OrderProcessor(mock);
+
+        processor.processOrder('ORD-123');
+
+        expect(mock.verifyCalledOnce(), isTrue);
+        expect(mock.verifyCalledWith(
+            'Order ORD-123 has been processed!',
+            'customer@example.com',
+        ), isTrue);
+    });
+}
+
+// Or using Mockito package
+// import 'package:mockito/mockito.dart';
+// class MockNotifier extends Mock implements Notifier {}
+```
+
+:::
+
+### Fake
+
+A **Fake** is a working implementation with simplified logic. Use fakes when you need real behavior but want to avoid external systems (like databases or file systems).
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class FakeNotifier(Notifier):
+    """In-memory notification store - simulates real behavior."""
+    def __init__(self):
+        self.sent_messages: list[dict[str, str]] = []
+
+    def send(self, message: str, recipient: str) -> None:
+        # Actually "sends" to in-memory store
+        self.sent_messages.append({
+            "message": message,
+            "recipient": recipient,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    def get_messages_for(self, recipient: str) -> list[str]:
+        return [
+            m["message"]
+            for m in self.sent_messages
+            if m["recipient"] == recipient
+        ]
+
+    def clear(self) -> None:
+        self.sent_messages.clear()
+
+
+# Usage in test - testing actual notification behavior
+def test_multiple_orders_send_multiple_notifications():
+    fake = FakeNotifier()
+    processor = OrderProcessor(fake)
+
+    processor.process_order("ORD-001")
+    processor.process_order("ORD-002")
+    processor.process_order("ORD-003")
+
+    messages = fake.get_messages_for("customer@example.com")
+    assert len(messages) == 3
+    assert "ORD-001" in messages[0]
+    assert "ORD-002" in messages[1]
+    assert "ORD-003" in messages[2]
+```
+
+#### `C#`
+
+```csharp
+public class FakeNotifier : INotifier
+{
+    public List<NotificationRecord> SentMessages { get; } = new();
+
+    public void Send(string message, string recipient)
+    {
+        // Actually "sends" to in-memory store
+        SentMessages.Add(new NotificationRecord(
+            message,
+            recipient,
+            DateTime.Now
+        ));
+    }
+
+    public IEnumerable<string> GetMessagesFor(string recipient)
+    {
+        return SentMessages
+            .Where(m => m.Recipient == recipient)
+            .Select(m => m.Message);
+    }
+
+    public void Clear() => SentMessages.Clear();
+
+    public record NotificationRecord(
+        string Message,
+        string Recipient,
+        DateTime Timestamp
+    );
+}
+
+// Usage in test
+[Fact]
+public void Multiple_Orders_Send_Multiple_Notifications()
+{
+    var fake = new FakeNotifier();
+    var processor = new OrderProcessor(fake);
+
+    processor.ProcessOrder("ORD-001");
+    processor.ProcessOrder("ORD-002");
+    processor.ProcessOrder("ORD-003");
+
+    var messages = fake.GetMessagesFor("customer@example.com").ToList();
+    Assert.Equal(3, messages.Count);
+    Assert.Contains("ORD-001", messages[0]);
+    Assert.Contains("ORD-002", messages[1]);
+    Assert.Contains("ORD-003", messages[2]);
+}
+```
+
+#### `TypeScript`
+
+```typescript
+interface NotificationRecord {
+    message: string;
+    recipient: string;
+    timestamp: Date;
+}
+
+class FakeNotifier implements Notifier {
+    sentMessages: NotificationRecord[] = [];
+
+    send(message: string, recipient: string): void {
+        // Actually "sends" to in-memory store
+        this.sentMessages.push({
+            message,
+            recipient,
+            timestamp: new Date()
+        });
+    }
+
+    getMessagesFor(recipient: string): string[] {
+        return this.sentMessages
+            .filter(m => m.recipient === recipient)
+            .map(m => m.message);
+    }
+
+    clear(): void {
+        this.sentMessages = [];
+    }
+}
+
+// Usage in test
+test("multiple orders send multiple notifications", () => {
+    const fake = new FakeNotifier();
+    const processor = new OrderProcessor(fake);
+
+    processor.processOrder("ORD-001");
+    processor.processOrder("ORD-002");
+    processor.processOrder("ORD-003");
+
+    const messages = fake.getMessagesFor("customer@example.com");
+    expect(messages.length).toBe(3);
+    expect(messages[0]).toContain("ORD-001");
+    expect(messages[1]).toContain("ORD-002");
+    expect(messages[2]).toContain("ORD-003");
+});
+```
+
+#### `Dart`
+
+```dart
+class NotificationRecord {
+    final String message;
+    final String recipient;
+    final DateTime timestamp;
+
+    NotificationRecord(this.message, this.recipient, this.timestamp);
+}
+
+class FakeNotifier implements Notifier {
+    final List<NotificationRecord> sentMessages = [];
+
+    @override
+    void send(String message, String recipient) {
+        // Actually "sends" to in-memory store
+        sentMessages.add(NotificationRecord(
+            message,
+            recipient,
+            DateTime.now(),
+        ));
+    }
+
+    List<String> getMessagesFor(String recipient) {
+        return sentMessages
+            .where((m) => m.recipient == recipient)
+            .map((m) => m.message)
+            .toList();
+    }
+
+    void clear() => sentMessages.clear();
+}
+
+// Usage in test
+void main() {
+    test('multiple orders send multiple notifications', () {
+        final fake = FakeNotifier();
+        final processor = OrderProcessor(fake);
+
+        processor.processOrder('ORD-001');
+        processor.processOrder('ORD-002');
+        processor.processOrder('ORD-003');
+
+        final messages = fake.getMessagesFor('customer@example.com');
+        expect(messages.length, equals(3));
+        expect(messages[0], contains('ORD-001'));
+        expect(messages[1], contains('ORD-002'));
+        expect(messages[2], contains('ORD-003'));
+    });
+}
+```
+
+:::
+
+### When to Use Each
+
+| Scenario | Use |
+|----------|-----|
+| Need to control return values to test different paths | **Stub** |
+| Need to verify method was called with specific arguments | **Mock** |
+| Need realistic behavior without external systems | **Fake** |
+| Testing error handling (e.g., network failure) | **Stub** that throws exceptions |
+| Testing integration between multiple components | **Fake** |
+
+::: {.callout-tip appearance="simple"}
+**Remember**: Without DI, you cannot easily replace dependencies with test doubles. This is why DI is essential for writing testable code.
+:::
+
+---
+
+## Method Injection
+
+> **How can we inject a dependency when it's different for each operation?**
+>
+> By supplying it as a method parameter.
+
+### Definition
+
+**Method Injection** supplies a consumer with a dependency by passing it as a method argument. Unlike Constructor Injection, the dependency can vary per invocation.
+
+### When to Use
+
+Use Method Injection when:
+
+- The dependency varies **per operation**, not per instance
+- The caller provides operation-specific context
+- The dependency is determined at runtime by the caller
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class INotifier {
+        <<interface>>
+        +send(message: string, recipient: string)
+    }
+
+    class NotificationService {
+        +notify(notifier: INotifier, message: string, recipient: string)
+    }
+
+    class EmailNotifier {
+        +send(message: string, recipient: string)
+    }
+
+    class SMSNotifier {
+        +send(message: string, recipient: string)
+    }
+
+    INotifier <|.. EmailNotifier
+    INotifier <|.. SMSNotifier
+    NotificationService ..> INotifier : "receives per method call"
+```
+
+### Implementation
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+
+class Notifier(ABC):
+    @abstractmethod
+    def send(self, message: str, recipient: str) -> None:
+        pass
+
+
+class EmailNotifier(Notifier):
+    def send(self, message: str, recipient: str) -> None:
+        print(f"[Email] To: {recipient} - {message}")
+
+
+class SMSNotifier(Notifier):
+    def send(self, message: str, recipient: str) -> None:
+        print(f"[SMS] To: {recipient} - {message}")
+
+
+class PushNotifier(Notifier):
+    def send(self, message: str, recipient: str) -> None:
+        print(f"[Push] To: {recipient} - {message}")
+
+
+# Method Injection: notifier passed per operation
+class NotificationService:
+    def notify(
+        self,
+        notifier: Notifier,  # Injected per method call!
+        message: str,
+        recipient: str
+    ) -> None:
+        notifier.send(message, recipient)
+```
+
+#### `C#`
+
+```csharp
+public interface INotifier
+{
+    void Send(string message, string recipient);
+}
+
+public class EmailNotifier : INotifier
+{
+    public void Send(string message, string recipient)
+    {
+        Console.WriteLine($"[Email] To: {recipient} - {message}");
+    }
+}
+
+public class SMSNotifier : INotifier
+{
+    public void Send(string message, string recipient)
+    {
+        Console.WriteLine($"[SMS] To: {recipient} - {message}");
+    }
+}
+
+public class PushNotifier : INotifier
+{
+    public void Send(string message, string recipient)
+    {
+        Console.WriteLine($"[Push] To: {recipient} - {message}");
+    }
+}
+
+// Method Injection: notifier passed per operation
+public class NotificationService
+{
+    public void Notify(
+        INotifier notifier,  // Injected per method call!
+        string message,
+        string recipient)
+    {
+        notifier.Send(message, recipient);
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+interface Notifier {
+    send(message: string, recipient: string): void;
+}
+
+class EmailNotifier implements Notifier {
+    send(message: string, recipient: string): void {
+        console.log(`[Email] To: ${recipient} - ${message}`);
+    }
+}
+
+class SMSNotifier implements Notifier {
+    send(message: string, recipient: string): void {
+        console.log(`[SMS] To: ${recipient} - ${message}`);
+    }
+}
+
+class PushNotifier implements Notifier {
+    send(message: string, recipient: string): void {
+        console.log(`[Push] To: ${recipient} - ${message}`);
+    }
+}
+
+// Method Injection: notifier passed per operation
+class NotificationService {
+    notify(
+        notifier: Notifier,  // Injected per method call!
+        message: string,
+        recipient: string
+    ): void {
+        notifier.send(message, recipient);
+    }
+}
+```
+
+#### `Dart`
+
+```dart
+abstract class Notifier {
+    void send(String message, String recipient);
+}
+
+class EmailNotifier implements Notifier {
+    @override
+    void send(String message, String recipient) {
+        print('[Email] To: $recipient - $message');
+    }
+}
+
+class SMSNotifier implements Notifier {
+    @override
+    void send(String message, String recipient) {
+        print('[SMS] To: $recipient - $message');
+    }
+}
+
+class PushNotifier implements Notifier {
+    @override
+    void send(String message, String recipient) {
+        print('[Push] To: $recipient - $message');
+    }
+}
+
+// Method Injection: notifier passed per operation
+class NotificationService {
+    void notify(
+        Notifier notifier,  // Injected per method call!
+        String message,
+        String recipient,
+    ) {
+        notifier.send(message, recipient);
+    }
+}
+```
+
+:::
+
+### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+service = NotificationService()
+
+# Different notifier for each call
+service.notify(EmailNotifier(), "Welcome!", "user@example.com")
+service.notify(SMSNotifier(), "Your code: 1234", "+1234567890")
+service.notify(PushNotifier(), "New message!", "device_token_123")
+```
+
+**Output:**
+```
+[Email] To: user@example.com - Welcome!
+[SMS] To: +1234567890 - Your code: 1234
+[Push] To: device_token_123 - New message!
+```
+
+#### `C#`
+
+```csharp
+var service = new NotificationService();
+
+// Different notifier for each call
+service.Notify(new EmailNotifier(), "Welcome!", "user@example.com");
+service.Notify(new SMSNotifier(), "Your code: 1234", "+1234567890");
+service.Notify(new PushNotifier(), "New message!", "device_token_123");
+```
+
+**Output:**
+```
+[Email] To: user@example.com - Welcome!
+[SMS] To: +1234567890 - Your code: 1234
+[Push] To: device_token_123 - New message!
+```
+
+#### `TypeScript`
+
+```typescript
+const service = new NotificationService();
+
+// Different notifier for each call
+service.notify(new EmailNotifier(), "Welcome!", "user@example.com");
+service.notify(new SMSNotifier(), "Your code: 1234", "+1234567890");
+service.notify(new PushNotifier(), "New message!", "device_token_123");
+```
+
+**Output:**
+```
+[Email] To: user@example.com - Welcome!
+[SMS] To: +1234567890 - Your code: 1234
+[Push] To: device_token_123 - New message!
+```
+
+#### `Dart`
+
+```dart
+final service = NotificationService();
+
+// Different notifier for each call
+service.notify(EmailNotifier(), 'Welcome!', 'user@example.com');
+service.notify(SMSNotifier(), 'Your code: 1234', '+1234567890');
+service.notify(PushNotifier(), 'New message!', 'device_token_123');
+```
+
+**Output:**
+```
+[Email] To: user@example.com - Welcome!
+[SMS] To: +1234567890 - Your code: 1234
+[Push] To: device_token_123 - New message!
+```
+
+:::
+
+---
+
+## Property Injection
+
+> **How do we enable DI as an option when we have a good default?**
+>
+> By exposing a writable property that lets callers override the default.
+
+### Definition
+
+**Property Injection** (also known as **Setter Injection**) allows a Local Default to be replaced via a public settable property.
+
+::: {.callout-note appearance="simple"}
+**Local Default**: A default implementation of a Dependency that originates in the same module or layer.
+:::
+
+### When to Use
+
+Use Property Injection **only** when:
+
+- The class has a **good Local Default** implementation
+- The dependency is truly **optional** (class works without it)
+- You want to allow callers to **override** the default behavior
+
+::: {.callout-warning appearance="simple"}
+**Prefer Constructor Injection** for required dependencies. Property Injection should be the exception, not the rule. Optional dependencies complicate code with null checks.
+:::
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class ILogger {
+        <<interface>>
+        +log(message: string)
+    }
+
+    class ConsoleLogger {
+        +log(message: string)
+    }
+
+    class FileLogger {
+        +log(message: string)
+    }
+
+    class OrderProcessor {
+        -logger: ILogger = ConsoleLogger
+        +logger: ILogger
+        +processOrder(orderId: string)
+    }
+
+    ILogger <|.. ConsoleLogger
+    ILogger <|.. FileLogger
+    OrderProcessor o--> ILogger : "has default, can be overridden"
+```
+
+### Implementation
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+
+class Logger(ABC):
+    @abstractmethod
+    def log(self, message: str) -> None:
+        pass
+
+
+# Local Default - simple console logging
+class ConsoleLogger(Logger):
+    def log(self, message: str) -> None:
+        print(f"[LOG] {message}")
+
+
+# Alternative implementation
+class FileLogger(Logger):
+    def __init__(self, filename: str):
+        self._filename = filename
+
+    def log(self, message: str) -> None:
+        print(f"[FILE:{self._filename}] {message}")
+
+
+# Property Injection with Local Default
+class OrderProcessor:
+    def __init__(self):
+        self._logger: Logger = ConsoleLogger()  # Local Default
+
+    @property
+    def logger(self) -> Logger:
+        return self._logger
+
+    @logger.setter
+    def logger(self, value: Logger) -> None:  # Property Injection!
+        self._logger = value
+
+    def process_order(self, order_id: str) -> None:
+        self._logger.log(f"Processing order: {order_id}")
+        # Process order logic...
+        self._logger.log(f"Order {order_id} completed")
+```
+
+#### `C#`
+
+```csharp
+public interface ILogger
+{
+    void Log(string message);
+}
+
+// Local Default - simple console logging
+public class ConsoleLogger : ILogger
+{
+    public void Log(string message)
+    {
+        Console.WriteLine($"[LOG] {message}");
+    }
+}
+
+// Alternative implementation
+public class FileLogger : ILogger
+{
+    private readonly string _filename;
+
+    public FileLogger(string filename)
+    {
+        _filename = filename;
+    }
+
+    public void Log(string message)
+    {
+        Console.WriteLine($"[FILE:{_filename}] {message}");
+    }
+}
+
+// Property Injection with Local Default
+public class OrderProcessor
+{
+    public ILogger Logger { get; set; } = new ConsoleLogger();  // Local Default + Property Injection!
+
+    public void ProcessOrder(string orderId)
+    {
+        Logger.Log($"Processing order: {orderId}");
+        // Process order logic...
+        Logger.Log($"Order {orderId} completed");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+interface Logger {
+    log(message: string): void;
+}
+
+// Local Default - simple console logging
+class ConsoleLogger implements Logger {
+    log(message: string): void {
+        console.log(`[LOG] ${message}`);
+    }
+}
+
+// Alternative implementation
+class FileLogger implements Logger {
+    constructor(private filename: string) {}
+
+    log(message: string): void {
+        console.log(`[FILE:${this.filename}] ${message}`);
+    }
+}
+
+// Property Injection with Local Default
+class OrderProcessor {
+    private _logger: Logger = new ConsoleLogger();  // Local Default
+
+    get logger(): Logger {
+        return this._logger;
+    }
+
+    set logger(value: Logger) {  // Property Injection!
+        this._logger = value;
+    }
+
+    processOrder(orderId: string): void {
+        this._logger.log(`Processing order: ${orderId}`);
+        // Process order logic...
+        this._logger.log(`Order ${orderId} completed`);
+    }
+}
+```
+
+#### `Dart`
+
+```dart
+abstract class Logger {
+    void log(String message);
+}
+
+// Local Default - simple console logging
+class ConsoleLogger implements Logger {
+    @override
+    void log(String message) {
+        print('[LOG] $message');
+    }
+}
+
+// Alternative implementation
+class FileLogger implements Logger {
+    final String _filename;
+
+    FileLogger(this._filename);
+
+    @override
+    void log(String message) {
+        print('[FILE:$_filename] $message');
+    }
+}
+
+// Property Injection with Local Default
+class OrderProcessor {
+    Logger _logger = ConsoleLogger();  // Local Default
+
+    Logger get logger => _logger;
+    set logger(Logger value) => _logger = value;  // Property Injection!
+
+    void processOrder(String orderId) {
+        _logger.log('Processing order: $orderId');
+        // Process order logic...
+        _logger.log('Order $orderId completed');
+    }
+}
+```
+
+:::
+
+### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Use with default logger
+processor = OrderProcessor()
+processor.process_order("ORD-001")
+
+print("---")
+
+# Override with file logger
+processor.logger = FileLogger("orders.log")
+processor.process_order("ORD-002")
+```
+
+**Output:**
+```
+[LOG] Processing order: ORD-001
+[LOG] Order ORD-001 completed
+---
+[FILE:orders.log] Processing order: ORD-002
+[FILE:orders.log] Order ORD-002 completed
+```
+
+#### `C#`
+
+```csharp
+// Use with default logger
+var processor = new OrderProcessor();
+processor.ProcessOrder("ORD-001");
+
+Console.WriteLine("---");
+
+// Override with file logger
+processor.Logger = new FileLogger("orders.log");
+processor.ProcessOrder("ORD-002");
+```
+
+**Output:**
+```
+[LOG] Processing order: ORD-001
+[LOG] Order ORD-001 completed
+---
+[FILE:orders.log] Processing order: ORD-002
+[FILE:orders.log] Order ORD-002 completed
+```
+
+#### `TypeScript`
+
+```typescript
+// Use with default logger
+const processor = new OrderProcessor();
+processor.processOrder("ORD-001");
+
+console.log("---");
+
+// Override with file logger
+processor.logger = new FileLogger("orders.log");
+processor.processOrder("ORD-002");
+```
+
+**Output:**
+```
+[LOG] Processing order: ORD-001
+[LOG] Order ORD-001 completed
+---
+[FILE:orders.log] Processing order: ORD-002
+[FILE:orders.log] Order ORD-002 completed
+```
+
+#### `Dart`
+
+```dart
+// Use with default logger
+final processor = OrderProcessor();
+processor.processOrder('ORD-001');
+
+print('---');
+
+// Override with file logger
+processor.logger = FileLogger('orders.log');
+processor.processOrder('ORD-002');
+```
+
+**Output:**
+```
+[LOG] Processing order: ORD-001
+[LOG] Order ORD-001 completed
+---
+[FILE:orders.log] Processing order: ORD-002
+[FILE:orders.log] Order ORD-002 completed
+```
+
+:::
+
+---
+
+## DI Containers
+
+A **DI Container** (also called an IoC Container) is a software library that automates object graph composition. Instead of manually wiring dependencies, you register types with the container, and it resolves dependencies automatically.
+
+### Concept
+
+```{mermaid}
+flowchart LR
+    subgraph "Manual Composition"
+        M1[Create Logger] --> M2[Create Repository]
+        M2 --> M3[Create Service]
+        M3 --> M4[Inject All]
+    end
+
+    subgraph "DI Container"
+        R[Register Types] --> C[Container]
+        C -->|"Resolve"| S[Complete Object Graph]
+    end
+
+    style C fill:#afa,stroke:#333
+```
+
+### Basic Container Examples
+
+::: {.panel-tabset}
+#### `Python`
+
+Using the `dependency-injector` library:
+
+```python
+# pip install dependency-injector
+from dependency_injector import containers, providers
+from abc import ABC, abstractmethod
+
+
+# Interfaces and implementations
+class Notifier(ABC):
+    @abstractmethod
+    def send(self, message: str, recipient: str) -> None:
+        pass
+
+
+class EmailNotifier(Notifier):
+    def __init__(self, smtp_server: str):
+        self._smtp_server = smtp_server
+
+    def send(self, message: str, recipient: str) -> None:
+        print(f"[Email via {self._smtp_server}] To: {recipient} - {message}")
+
+
+class OrderProcessor:
+    def __init__(self, notifier: Notifier):
+        self._notifier = notifier
+
+    def process_order(self, order_id: str) -> None:
+        self._notifier.send(f"Order {order_id} processed", "customer@example.com")
+
+
+# DI Container
+class Container(containers.DeclarativeContainer):
+    config = providers.Configuration()
+
+    # Register as Singleton (one instance shared)
+    notifier = providers.Singleton(
+        EmailNotifier,
+        smtp_server=config.smtp_server
+    )
+
+    # Register as Factory (new instance each time)
+    order_processor = providers.Factory(
+        OrderProcessor,
+        notifier=notifier
+    )
+
+
+# Usage - Composition Root
+def main():
+    container = Container()
+    container.config.smtp_server.from_value("smtp.example.com")
+
+    # Container resolves dependencies automatically
+    processor = container.order_processor()
+    processor.process_order("ORD-001")
+
+    # Same notifier instance (Singleton)
+    processor2 = container.order_processor()
+    print(processor._notifier is processor2._notifier)  # True
+
+
+if __name__ == "__main__":
+    main()
+```
+
+#### `C#`
+
+Using built-in `Microsoft.Extensions.DependencyInjection`:
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+
+// Interfaces and implementations
+public interface INotifier
+{
+    void Send(string message, string recipient);
+}
+
+public class EmailNotifier : INotifier
+{
+    private readonly string _smtpServer;
+
+    public EmailNotifier(string smtpServer)
+    {
+        _smtpServer = smtpServer;
+    }
+
+    public void Send(string message, string recipient)
+    {
+        Console.WriteLine($"[Email via {_smtpServer}] To: {recipient} - {message}");
+    }
+}
+
+public class OrderProcessor
+{
+    private readonly INotifier _notifier;
+
+    public OrderProcessor(INotifier notifier)
+    {
+        _notifier = notifier;
+    }
+
+    public void ProcessOrder(string orderId)
+    {
+        _notifier.Send($"Order {orderId} processed", "customer@example.com");
+    }
+}
+
+// Usage - Composition Root
+class Program
+{
+    static void Main(string[] args)
+    {
+        // Configure DI Container
+        var services = new ServiceCollection();
+
+        // Register as Singleton (one instance shared)
+        services.AddSingleton<INotifier>(
+            sp => new EmailNotifier("smtp.example.com")
+        );
+
+        // Register as Transient (new instance each time)
+        services.AddTransient<OrderProcessor>();
+
+        // Build the container
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Container resolves dependencies automatically
+        var processor = serviceProvider.GetRequiredService<OrderProcessor>();
+        processor.ProcessOrder("ORD-001");
+
+        // Same notifier instance (Singleton)
+        var processor2 = serviceProvider.GetRequiredService<OrderProcessor>();
+        Console.WriteLine(ReferenceEquals(
+            GetNotifier(processor),
+            GetNotifier(processor2)
+        )); // True
+    }
+}
+```
+
+#### `TypeScript`
+
+Using `tsyringe` library:
+
+```typescript
+// npm install tsyringe reflect-metadata
+import "reflect-metadata";
+import { container, injectable, singleton } from "tsyringe";
+
+// Interfaces and implementations
+interface Notifier {
+    send(message: string, recipient: string): void;
+}
+
+@singleton()  // Register as Singleton
+class EmailNotifier implements Notifier {
+    constructor() {
+        console.log("EmailNotifier created");
+    }
+
+    send(message: string, recipient: string): void {
+        console.log(`[Email] To: ${recipient} - ${message}`);
+    }
+}
+
+@injectable()
+class OrderProcessor {
+    constructor(private notifier: EmailNotifier) {}
+
+    processOrder(orderId: string): void {
+        this.notifier.send(`Order ${orderId} processed`, "customer@example.com");
+    }
+}
+
+// Usage - Composition Root
+function main(): void {
+    // Container resolves dependencies automatically
+    const processor = container.resolve(OrderProcessor);
+    processor.processOrder("ORD-001");
+
+    // Same notifier instance (Singleton)
+    const processor2 = container.resolve(OrderProcessor);
+    // Only one "EmailNotifier created" message printed
+}
+
+main();
+```
+
+#### `Dart`
+
+Using `get_it` package:
+
+```dart
+// pubspec.yaml: get_it: ^7.6.0
+import 'package:get_it/get_it.dart';
+
+final getIt = GetIt.instance;
+
+// Interfaces and implementations
+abstract class Notifier {
+    void send(String message, String recipient);
+}
+
+class EmailNotifier implements Notifier {
+    final String smtpServer;
+
+    EmailNotifier(this.smtpServer) {
+        print('EmailNotifier created');
+    }
+
+    @override
+    void send(String message, String recipient) {
+        print('[Email via $smtpServer] To: $recipient - $message');
+    }
+}
+
+class OrderProcessor {
+    final Notifier _notifier;
+
+    OrderProcessor(this._notifier);
+
+    void processOrder(String orderId) {
+        _notifier.send('Order $orderId processed', 'customer@example.com');
+    }
+}
+
+// Setup - Composition Root
+void setupDependencies() {
+    // Register as Singleton
+    getIt.registerSingleton<Notifier>(
+        EmailNotifier('smtp.example.com'),
+    );
+
+    // Register as Factory (new instance each time)
+    getIt.registerFactory<OrderProcessor>(
+        () => OrderProcessor(getIt<Notifier>()),
+    );
+}
+
+// Usage
+void main() {
+    setupDependencies();
+
+    // Container resolves dependencies automatically
+    final processor = getIt<OrderProcessor>();
+    processor.processOrder('ORD-001');
+
+    // Same notifier instance (Singleton)
+    final processor2 = getIt<OrderProcessor>();
+    // Only one "EmailNotifier created" message printed
+}
+```
+
+:::
+
+### Lifetime Management
+
+DI Containers typically support different lifetimes:
+
+| Lifetime | Description | Use Case |
+|----------|-------------|----------|
+| **Singleton** | One instance for the entire application | Loggers, configuration, caches |
+| **Transient** | New instance every time requested | Stateless services, handlers |
+| **Scoped** | One instance per scope (e.g., HTTP request) | Database contexts, per-request services |
+
+---
+
+## DI in Design Patterns
+
+Many design patterns leverage Dependency Injection to achieve loose coupling. Here's how DI appears throughout the patterns in this cookbook:
+
+| Pattern | DI Type | How DI is Used | Chapter |
+|---------|---------|----------------|---------|
+| [Singleton](../creational/05-singleton.qmd#alternative-dependency-injection) | Alternative | DI replaces Singleton for testable code | Creational |
+| [Bridge](../structural/02-bridge.qmd) | Constructor | Implementation interface injected into abstraction | Structural |
+| [Decorator](../structural/04-decorator.qmd) | Constructor | Wrapped component injected into decorator | Structural |
+| [Proxy](../structural/07-proxy.qmd) | Constructor | Real subject injected into proxy | Structural |
+| [Adapter](../structural/01-adapter.qmd) | Parameter | Adapter passed to client functions | Structural |
+| [Strategy](../behavioral/08-strategy.qmd) | Setter | Strategy injected at runtime | Behavioral |
+| [State](../behavioral/07-state.qmd) | Setter | State objects injected into context | Behavioral |
+| [Observer](../behavioral/06-observer.qmd) | Setter | Observers registered with subject | Behavioral |
+| [Command](../behavioral/02-command.qmd) | Constructor | Receiver injected into command | Behavioral |
+| [Mediator](../behavioral/04-mediator.qmd) | Setter | Colleagues registered with mediator | Behavioral |
+| [Iterator](../behavioral/03-iterator.qmd) | Constructor | Collection injected into iterator | Behavioral |
+| [Visitor](../behavioral/10-visitor.qmd) | Parameter | Visitor passed to `accept()` method | Behavioral |
+
+### Pattern Categories by DI Type
+
+**Constructor Injection** (most common):
+
+- Bridge, Decorator, Proxy, Command, Iterator
+
+**Setter/Property Injection**:
+
+- Strategy, State, Observer, Mediator
+
+**Method/Parameter Injection**:
+
+- Adapter, Visitor
+
+---
+
+## Summary
+
+::: {.callout-tip appearance="simple"}
+Dependency Injection inverts the responsibility of creating dependencies - instead of classes creating their own dependencies, they receive them from an external source, enabling loose coupling and testability.
+:::
+
+### Key Benefits
+
+- **Testability**: Replace real dependencies with mocks/stubs
+- **Loose Coupling**: Classes depend on abstractions, not concrete implementations
+- **Flexibility**: Swap implementations without modifying consumers
+- **Single Responsibility**: Classes focus on their core logic, not dependency creation
+- **Configurability**: Wire different implementations for different environments
+
+### When to Use
+
+| Use When | Avoid When |
+|----------|------------|
+| Dependency is volatile (database, network, file system) | Dependency is stable (standard library types) |
+| You need to mock the dependency in tests | Class has no external dependencies |
+| Multiple implementations may exist | Only one implementation will ever exist |
+| Dependency may change over the object's lifetime | Creating dependency is trivial and deterministic |
+| Following SOLID principles is important | Simple scripts or throwaway code |
+
+### Injection Pattern Quick Reference
+
+| Pattern | When to Use | Default Choice? |
+|---------|-------------|-----------------|
+| **Constructor** | Required dependencies, constant for lifetime | **Yes** |
+| **Method** | Varies per operation, caller provides context | No |
+| **Property** | Optional, has good Local Default | No |

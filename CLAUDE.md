@@ -21,6 +21,7 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
 
 - **Overview:**
   - Overview of Design Pattern
+  - Dependency Injection → Notification Service (Constructor/Method/Property Injection, Test Doubles)
 
 - **Creational Design Patterns:** ✅ DONE
   - Factory Method Pattern → Logistics/Transport theme
