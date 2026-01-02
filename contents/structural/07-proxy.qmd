@@ -1,0 +1,697 @@
+---
+title: "Proxy"
+---
+
+The **Proxy** pattern provides a surrogate or placeholder for another object to control access to it. The proxy implements the same interface as the real object, allowing it to intercept operations and add behavior transparently — like a security guard who checks credentials before granting access.
+
+## Problem
+
+Imagine you're building a document management system with sensitive documents. Different users have different access levels: admins can read and save, regular users can only read, and guests have no access.
+
+The naive approach embeds permission checks directly in the document class:
+
+- Permission logic mixed with business logic
+- Every method must include access control code
+- Changes to permission rules require modifying the document class
+- Violates Single Responsibility Principle
+
+### Example
+
+```{mermaid}
+flowchart LR
+    U[User] --> D[SecretDocument]
+
+    D --> R["read()<br/>if role check...<br/>return content"]
+    D --> W["save()<br/>if role check...<br/>update content"]
+
+    style D fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Document class handles both content AND access control
+- Permission checks scattered throughout methods
+- Hard to add logging, caching, or other cross-cutting concerns
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class User:
+    def __init__(self, name: str, role: str):
+        self.name = name
+        self.role = role  # "admin", "user", or "guest"
+
+class SecretDocument:
+    def __init__(self, content: str):
+        self._content = content
+
+    def read(self, user: User) -> str:
+        # Permission check mixed with business logic!
+        if user.role not in ["admin", "user"]:
+            raise PermissionError(f"Access denied for {user.name}")
+        return self._content
+
+    def save(self, user: User, content: str) -> None:
+        # Permission check mixed with business logic!
+        if user.role != "admin":
+            raise PermissionError(f"Save access denied for {user.name}")
+        self._content = content
+        print(f"Document updated by {user.name}")
+```
+
+#### `C#`
+
+```csharp
+public class User(string name, string role)
+{
+    public string Name { get; } = name;
+    public string Role { get; } = role;  // "admin", "user", or "guest"
+}
+
+public class SecretDocument
+{
+    private string _content;
+
+    public SecretDocument(string content) => _content = content;
+
+    public string Read(User user)
+    {
+        // Permission check mixed with business logic!
+        if (user.Role != "admin" && user.Role != "user")
+            throw new UnauthorizedAccessException($"Access denied for {user.Name}");
+        return _content;
+    }
+
+    public void Save(User user, string content)
+    {
+        // Permission check mixed with business logic!
+        if (user.Role != "admin")
+            throw new UnauthorizedAccessException($"Save access denied for {user.Name}");
+        _content = content;
+        Console.WriteLine($"Document updated by {user.Name}");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class User {
+  constructor(
+    public name: string,
+    public role: string  // "admin", "user", or "guest"
+  ) {}
+}
+
+class SecretDocument {
+  private content: string;
+
+  constructor(content: string) {
+    this.content = content;
+  }
+
+  read(user: User): string {
+    // Permission check mixed with business logic!
+    if (user.role !== "admin" && user.role !== "user") {
+      throw new Error(`Access denied for ${user.name}`);
+    }
+    return this.content;
+  }
+
+  save(user: User, content: string): void {
+    // Permission check mixed with business logic!
+    if (user.role !== "admin") {
+      throw new Error(`Save access denied for ${user.name}`);
+    }
+    this.content = content;
+    console.log(`Document updated by ${user.name}`);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class User {
+  final String name;
+  final String role;  // "admin", "user", or "guest"
+
+  User(this.name, this.role);
+}
+
+class SecretDocument {
+  String _content;
+
+  SecretDocument(this._content);
+
+  String read(User user) {
+    // Permission check mixed with business logic!
+    if (user.role != "admin" && user.role != "user") {
+      throw Exception("Access denied for ${user.name}");
+    }
+    return _content;
+  }
+
+  void save(User user, String content) {
+    // Permission check mixed with business logic!
+    if (user.role != "admin") {
+      throw Exception("Save access denied for ${user.name}");
+    }
+    _content = content;
+    print("Document updated by ${user.name}");
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+doc = SecretDocument("Top Secret Content")
+
+admin = User("Alice", "admin")
+user = User("Bob", "user")
+guest = User("Charlie", "guest")
+
+print(doc.read(admin))   # Works
+print(doc.read(user))    # Works
+print(doc.read(guest))   # PermissionError!
+
+# Every method needs user parameter for permission checks
+```
+
+#### `C#`
+
+```csharp
+var doc = new SecretDocument("Top Secret Content");
+
+var admin = new User("Alice", "admin");
+var user = new User("Bob", "user");
+var guest = new User("Charlie", "guest");
+
+Console.WriteLine(doc.Read(admin));   // Works
+Console.WriteLine(doc.Read(user));    // Works
+Console.WriteLine(doc.Read(guest));   // UnauthorizedAccessException!
+
+// Every method needs user parameter for permission checks
+```
+
+#### `TypeScript`
+
+```typescript
+const doc = new SecretDocument("Top Secret Content");
+
+const admin = new User("Alice", "admin");
+const user = new User("Bob", "user");
+const guest = new User("Charlie", "guest");
+
+console.log(doc.read(admin));   // Works
+console.log(doc.read(user));    // Works
+console.log(doc.read(guest));   // Error!
+
+// Every method needs user parameter for permission checks
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final doc = SecretDocument("Top Secret Content");
+
+  final admin = User("Alice", "admin");
+  final user = User("Bob", "user");
+  final guest = User("Charlie", "guest");
+
+  print(doc.read(admin));   // Works
+  print(doc.read(user));    // Works
+  print(doc.read(guest));   // Exception!
+
+  // Every method needs user parameter for permission checks
+}
+```
+
+:::
+
+
+## Solution
+
+The Proxy pattern solves this by:
+
+1. Defining a common **interface** (`Document`) for both real object and proxy
+2. **Real subject** (`SecretDocument`) contains only business logic — no permission checks
+3. **Proxy** (`DocumentProxy`) wraps the real subject and checks permissions before delegating
+
+The client interacts with the proxy as if it were the real object. The proxy transparently adds access control.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Document {
+        <<interface>>
+        +read() String
+        +save(content: String)
+    }
+
+    class SecretDocument {
+        -content: String
+        +read() String
+        +save(content: String)
+    }
+
+    class DocumentProxy {
+        -document: SecretDocument
+        -user: User
+        +read() String
+        +save(content: String)
+    }
+
+    class User {
+        +name: String
+        +role: String
+    }
+
+    Document <|.. SecretDocument
+    Document <|.. DocumentProxy
+    DocumentProxy --> SecretDocument : delegates to
+    DocumentProxy --> User : checks permissions
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+class User:
+    def __init__(self, name: str, role: str):
+        self.name = name
+        self.role = role
+
+# Subject interface
+class Document(ABC):
+    @abstractmethod
+    def read(self) -> str:
+        pass
+
+    @abstractmethod
+    def save(self, content: str) -> None:
+        pass
+
+# Real Subject - only business logic, no permission checks
+class SecretDocument(Document):
+    def __init__(self, content: str):
+        self._content = content
+
+    def read(self) -> str:
+        return self._content
+
+    def save(self, content: str) -> None:
+        self._content = content
+        print("Document updated")
+
+# Proxy - handles access control
+class DocumentProxy(Document):
+    def __init__(self, document: SecretDocument, user: User):
+        self._document = document
+        self._user = user
+
+    def read(self) -> str:
+        if self._user.role not in ["admin", "user"]:
+            raise PermissionError(f"Read access denied for {self._user.name}")
+        print(f"{self._user.name} is reading the document")
+        return self._document.read()
+
+    def save(self, content: str) -> None:
+        if self._user.role != "admin":
+            raise PermissionError(f"Save access denied for {self._user.name}")
+        print(f"{self._user.name} is saving the document")
+        self._document.save(content)
+```
+
+#### `C#`
+
+```csharp
+public class User(string name, string role)
+{
+    public string Name { get; } = name;
+    public string Role { get; } = role;
+}
+
+// Subject interface
+public interface IDocument
+{
+    string Read();
+    void Save(string content);
+}
+
+// Real Subject - only business logic, no permission checks
+public class SecretDocument : IDocument
+{
+    private string _content;
+
+    public SecretDocument(string content) => _content = content;
+
+    public string Read() => _content;
+
+    public void Save(string content)
+    {
+        _content = content;
+        Console.WriteLine("Document updated");
+    }
+}
+
+// Proxy - handles access control
+public class DocumentProxy : IDocument
+{
+    private readonly SecretDocument _document;
+    private readonly User _user;
+
+    public DocumentProxy(SecretDocument document, User user)
+    {
+        _document = document;
+        _user = user;
+    }
+
+    public string Read()
+    {
+        if (_user.Role != "admin" && _user.Role != "user")
+            throw new UnauthorizedAccessException($"Read access denied for {_user.Name}");
+        Console.WriteLine($"{_user.Name} is reading the document");
+        return _document.Read();
+    }
+
+    public void Save(string content)
+    {
+        if (_user.Role != "admin")
+            throw new UnauthorizedAccessException($"Save access denied for {_user.Name}");
+        Console.WriteLine($"{_user.Name} is saving the document");
+        _document.Save(content);
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class User {
+  constructor(
+    public name: string,
+    public role: string
+  ) {}
+}
+
+// Subject interface
+interface Document {
+  read(): string;
+  save(content: string): void;
+}
+
+// Real Subject - only business logic, no permission checks
+class SecretDocument implements Document {
+  private content: string;
+
+  constructor(content: string) {
+    this.content = content;
+  }
+
+  read(): string {
+    return this.content;
+  }
+
+  save(content: string): void {
+    this.content = content;
+    console.log("Document updated");
+  }
+}
+
+// Proxy - handles access control
+class DocumentProxy implements Document {
+  constructor(
+    private document: SecretDocument,
+    private user: User
+  ) {}
+
+  read(): string {
+    if (this.user.role !== "admin" && this.user.role !== "user") {
+      throw new Error(`Read access denied for ${this.user.name}`);
+    }
+    console.log(`${this.user.name} is reading the document`);
+    return this.document.read();
+  }
+
+  save(content: string): void {
+    if (this.user.role !== "admin") {
+      throw new Error(`Save access denied for ${this.user.name}`);
+    }
+    console.log(`${this.user.name} is saving the document`);
+    this.document.save(content);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class User {
+  final String name;
+  final String role;
+
+  User(this.name, this.role);
+}
+
+// Subject interface
+abstract class Document {
+  String read();
+  void save(String content);
+}
+
+// Real Subject - only business logic, no permission checks
+class SecretDocument implements Document {
+  String _content;
+
+  SecretDocument(this._content);
+
+  @override
+  String read() => _content;
+
+  @override
+  void save(String content) {
+    _content = content;
+    print("Document updated");
+  }
+}
+
+// Proxy - handles access control
+class DocumentProxy implements Document {
+  final SecretDocument _document;
+  final User _user;
+
+  DocumentProxy(this._document, this._user);
+
+  @override
+  String read() {
+    if (_user.role != "admin" && _user.role != "user") {
+      throw Exception("Read access denied for ${_user.name}");
+    }
+    print("${_user.name} is reading the document");
+    return _document.read();
+  }
+
+  @override
+  void save(String content) {
+    if (_user.role != "admin") {
+      throw Exception("Save access denied for ${_user.name}");
+    }
+    print("${_user.name} is saving the document");
+    _document.save(content);
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Create the real document
+secret_doc = SecretDocument("Top Secret Content")
+
+# Create proxies for different users
+admin = User("Alice", "admin")
+user = User("Bob", "user")
+guest = User("Charlie", "guest")
+
+admin_proxy: Document = DocumentProxy(secret_doc, admin)
+user_proxy: Document = DocumentProxy(secret_doc, user)
+guest_proxy: Document = DocumentProxy(secret_doc, guest)
+
+# Admin can read and save
+print(admin_proxy.read())
+# Alice is reading the document
+# Top Secret Content
+
+admin_proxy.save("Updated by admin")
+# Alice is saving the document
+# Document updated
+
+# User can only read
+print(user_proxy.read())
+# Bob is reading the document
+# Updated by admin
+
+# user_proxy.save("Hacked!")  # PermissionError!
+
+# Guest can't even read
+# guest_proxy.read()  # PermissionError!
+```
+
+#### `C#`
+
+```csharp
+// Create the real document
+var secretDoc = new SecretDocument("Top Secret Content");
+
+// Create proxies for different users
+var admin = new User("Alice", "admin");
+var user = new User("Bob", "user");
+var guest = new User("Charlie", "guest");
+
+IDocument adminProxy = new DocumentProxy(secretDoc, admin);
+IDocument userProxy = new DocumentProxy(secretDoc, user);
+IDocument guestProxy = new DocumentProxy(secretDoc, guest);
+
+// Admin can read and save
+Console.WriteLine(adminProxy.Read());
+// Alice is reading the document
+// Top Secret Content
+
+adminProxy.Save("Updated by admin");
+// Alice is saving the document
+// Document updated
+
+// User can only read
+Console.WriteLine(userProxy.Read());
+// Bob is reading the document
+// Updated by admin
+
+// userProxy.Save("Hacked!");  // UnauthorizedAccessException!
+
+// Guest can't even read
+// guestProxy.Read();  // UnauthorizedAccessException!
+```
+
+#### `TypeScript`
+
+```typescript
+// Create the real document
+const secretDoc = new SecretDocument("Top Secret Content");
+
+// Create proxies for different users
+const admin = new User("Alice", "admin");
+const user = new User("Bob", "user");
+const guest = new User("Charlie", "guest");
+
+const adminProxy: Document = new DocumentProxy(secretDoc, admin);
+const userProxy: Document = new DocumentProxy(secretDoc, user);
+const guestProxy: Document = new DocumentProxy(secretDoc, guest);
+
+// Admin can read and save
+console.log(adminProxy.read());
+// Alice is reading the document
+// Top Secret Content
+
+adminProxy.save("Updated by admin");
+// Alice is saving the document
+// Document updated
+
+// User can only read
+console.log(userProxy.read());
+// Bob is reading the document
+// Updated by admin
+
+// userProxy.save("Hacked!");  // Error!
+
+// Guest can't even read
+// guestProxy.read();  // Error!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Create the real document
+  final secretDoc = SecretDocument("Top Secret Content");
+
+  // Create proxies for different users
+  final admin = User("Alice", "admin");
+  final user = User("Bob", "user");
+  final guest = User("Charlie", "guest");
+
+  Document adminProxy = DocumentProxy(secretDoc, admin);
+  Document userProxy = DocumentProxy(secretDoc, user);
+  Document guestProxy = DocumentProxy(secretDoc, guest);
+
+  // Admin can read and save
+  print(adminProxy.read());
+  // Alice is reading the document
+  // Top Secret Content
+
+  adminProxy.save("Updated by admin");
+  // Alice is saving the document
+  // Document updated
+
+  // User can only read
+  print(userProxy.read());
+  // Bob is reading the document
+  // Updated by admin
+
+  // userProxy.save("Hacked!");  // Exception!
+
+  // Guest can't even read
+  // guestProxy.read();  // Exception!
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Proxy** provides a surrogate with the same interface as the real object, allowing transparent control over access, lazy loading, logging, or caching.
+:::
+
+### Key Benefits
+
+- **Access Control**: Centralize permission checks in the proxy
+- **Single Responsibility**: Real object focuses on business logic only
+- **Transparency**: Client uses proxy exactly like the real object
+- **Flexibility**: Add logging, caching, or lazy loading without changing the real object
+
+### Proxy Types
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| **Protection** | Access control | Document permissions (this chapter) |
+| **Virtual** | Lazy loading | Load heavy images only when displayed |
+| **Remote** | Network access | Local object representing remote service |
+| **Caching** | Cache results | Cache expensive computations or API calls |
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need access control without modifying the real object | The real object is simple and doesn't need protection |
+| You want lazy loading of expensive resources | Adding a proxy layer introduces unnecessary complexity |
+| You need logging, caching, or monitoring transparently | You need direct access to the real object's internals |
+| You want to represent a remote object locally | |

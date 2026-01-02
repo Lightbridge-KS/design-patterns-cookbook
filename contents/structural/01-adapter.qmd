@@ -1,0 +1,528 @@
+---
+title: "Adapter"
+---
+
+The **Adapter** pattern converts the interface of a class into another interface that clients expect. It allows classes with incompatible interfaces to work together — like a power plug adapter that lets you use devices in different countries.
+
+## Problem
+
+Imagine you're building a music player application that plays MP3 files. Later, you want to add support for new audio formats (WAV, OGG), but these external players have different interfaces that don't match your existing code.
+
+The naive approach scatters format-specific logic throughout your client code:
+
+- Client must know about each player's specific interface
+- Adding new formats requires modifying existing code
+- Tight coupling between client and concrete implementations
+
+### Example
+
+```{mermaid}
+flowchart LR
+    AP[AudioPlayer]
+
+    AP -->|"if mp3"| MP3["play()"]
+    AP -->|"if wav"| WAV["playWav() ❌"]
+    AP -->|"if ogg"| OGG["playOgg() ❌"]
+
+    style AP fill:#f96,stroke:#333
+    style WAV fill:#fcc,stroke:#c33
+    style OGG fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Client code contains format-checking conditionals
+- Each new format requires modifying the client
+- Different method names (`play`, `playWav`, `playOgg`) create inconsistency
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Mp3Player:
+    def play(self, filename: str) -> None:
+        print(f"Playing MP3: {filename}")
+
+class WavPlayer:
+    def play_wav(self, filename: str) -> None:  # Different method!
+        print(f"Playing WAV: {filename}")
+
+class OggPlayer:
+    def play_ogg(self, filename: str) -> None:  # Different method!
+        print(f"Playing OGG: {filename}")
+
+class AudioPlayer:
+    def __init__(self):
+        self.mp3_player = Mp3Player()
+        self.wav_player = WavPlayer()
+        self.ogg_player = OggPlayer()
+
+    def play(self, filename: str) -> None:
+        if filename.endswith(".mp3"):
+            self.mp3_player.play(filename)
+        elif filename.endswith(".wav"):
+            self.wav_player.play_wav(filename)  # Must know specific method
+        elif filename.endswith(".ogg"):
+            self.ogg_player.play_ogg(filename)  # Must know specific method
+        else:
+            raise ValueError(f"Unsupported format: {filename}")
+```
+
+#### `C#`
+
+```csharp
+public class Mp3Player
+{
+    public void Play(string filename) => Console.WriteLine($"Playing MP3: {filename}");
+}
+
+public class WavPlayer
+{
+    public void PlayWav(string filename) => Console.WriteLine($"Playing WAV: {filename}");  // Different method!
+}
+
+public class OggPlayer
+{
+    public void PlayOgg(string filename) => Console.WriteLine($"Playing OGG: {filename}");  // Different method!
+}
+
+public class AudioPlayer
+{
+    private readonly Mp3Player _mp3Player = new();
+    private readonly WavPlayer _wavPlayer = new();
+    private readonly OggPlayer _oggPlayer = new();
+
+    public void Play(string filename)
+    {
+        if (filename.EndsWith(".mp3"))
+            _mp3Player.Play(filename);
+        else if (filename.EndsWith(".wav"))
+            _wavPlayer.PlayWav(filename);  // Must know specific method
+        else if (filename.EndsWith(".ogg"))
+            _oggPlayer.PlayOgg(filename);  // Must know specific method
+        else
+            throw new ArgumentException($"Unsupported format: {filename}");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class Mp3Player {
+  play(filename: string): void {
+    console.log(`Playing MP3: ${filename}`);
+  }
+}
+
+class WavPlayer {
+  playWav(filename: string): void {  // Different method!
+    console.log(`Playing WAV: ${filename}`);
+  }
+}
+
+class OggPlayer {
+  playOgg(filename: string): void {  // Different method!
+    console.log(`Playing OGG: ${filename}`);
+  }
+}
+
+class AudioPlayer {
+  private mp3Player = new Mp3Player();
+  private wavPlayer = new WavPlayer();
+  private oggPlayer = new OggPlayer();
+
+  play(filename: string): void {
+    if (filename.endsWith(".mp3")) {
+      this.mp3Player.play(filename);
+    } else if (filename.endsWith(".wav")) {
+      this.wavPlayer.playWav(filename);  // Must know specific method
+    } else if (filename.endsWith(".ogg")) {
+      this.oggPlayer.playOgg(filename);  // Must know specific method
+    } else {
+      throw new Error(`Unsupported format: ${filename}`);
+    }
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+class Mp3Player {
+  void play(String filename) => print("Playing MP3: $filename");
+}
+
+class WavPlayer {
+  void playWav(String filename) => print("Playing WAV: $filename");  // Different method!
+}
+
+class OggPlayer {
+  void playOgg(String filename) => print("Playing OGG: $filename");  // Different method!
+}
+
+class AudioPlayer {
+  final _mp3Player = Mp3Player();
+  final _wavPlayer = WavPlayer();
+  final _oggPlayer = OggPlayer();
+
+  void play(String filename) {
+    if (filename.endsWith(".mp3")) {
+      _mp3Player.play(filename);
+    } else if (filename.endsWith(".wav")) {
+      _wavPlayer.playWav(filename);  // Must know specific method
+    } else if (filename.endsWith(".ogg")) {
+      _oggPlayer.playOgg(filename);  // Must know specific method
+    } else {
+      throw ArgumentError("Unsupported format: $filename");
+    }
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+player = AudioPlayer()
+player.play("song.mp3")  # Works
+player.play("song.wav")  # Works, but client knows about WavPlayer internals
+player.play("song.ogg")  # Works, but tightly coupled
+```
+
+#### `C#`
+
+```csharp
+var player = new AudioPlayer();
+player.Play("song.mp3");  // Works
+player.Play("song.wav");  // Works, but client knows about WavPlayer internals
+player.Play("song.ogg");  // Works, but tightly coupled
+```
+
+#### `TypeScript`
+
+```typescript
+const player = new AudioPlayer();
+player.play("song.mp3");  // Works
+player.play("song.wav");  // Works, but client knows about WavPlayer internals
+player.play("song.ogg");  // Works, but tightly coupled
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final player = AudioPlayer();
+  player.play("song.mp3");  // Works
+  player.play("song.wav");  // Works, but client knows about WavPlayer internals
+  player.play("song.ogg");  // Works, but tightly coupled
+}
+```
+
+:::
+
+
+## Solution
+
+The Adapter pattern solves this by:
+
+1. Defining a **target interface** (`MusicPlayer`) that the client expects
+2. Creating **adapters** that wrap the incompatible classes and implement the target interface
+3. The adapter translates calls from the target interface to the adaptee's interface
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class MusicPlayer {
+        <<interface>>
+        +play(filename: String)
+    }
+
+    class Mp3Player {
+        +play(filename: String)
+    }
+
+    class WavPlayer {
+        +playWav(filename: String)
+    }
+
+    class OggPlayer {
+        +playOgg(filename: String)
+    }
+
+    class WavPlayerAdapter {
+        -wavPlayer: WavPlayer
+        +play(filename: String)
+    }
+
+    class OggPlayerAdapter {
+        -oggPlayer: OggPlayer
+        +play(filename: String)
+    }
+
+    MusicPlayer <|.. Mp3Player
+    MusicPlayer <|.. WavPlayerAdapter
+    MusicPlayer <|.. OggPlayerAdapter
+
+    WavPlayerAdapter --> WavPlayer : adapts
+    OggPlayerAdapter --> OggPlayer : adapts
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Target interface
+class MusicPlayer(ABC):
+    @abstractmethod
+    def play(self, filename: str) -> None:
+        pass
+
+# Native implementation (no adapter needed)
+class Mp3Player(MusicPlayer):
+    def play(self, filename: str) -> None:
+        print(f"Playing MP3: {filename}")
+
+# External classes with incompatible interfaces (Adaptees)
+class WavPlayer:
+    def play_wav(self, filename: str) -> None:
+        print(f"Playing WAV: {filename}")
+
+class OggPlayer:
+    def play_ogg(self, filename: str) -> None:
+        print(f"Playing OGG: {filename}")
+
+# Adapters
+class WavPlayerAdapter(MusicPlayer):
+    def __init__(self):
+        self._wav_player = WavPlayer()
+
+    def play(self, filename: str) -> None:
+        self._wav_player.play_wav(filename)
+
+class OggPlayerAdapter(MusicPlayer):
+    def __init__(self):
+        self._ogg_player = OggPlayer()
+
+    def play(self, filename: str) -> None:
+        self._ogg_player.play_ogg(filename)
+```
+
+#### `C#`
+
+```csharp
+// Target interface
+public interface IMusicPlayer
+{
+    void Play(string filename);
+}
+
+// Native implementation (no adapter needed)
+public class Mp3Player : IMusicPlayer
+{
+    public void Play(string filename) => Console.WriteLine($"Playing MP3: {filename}");
+}
+
+// External classes with incompatible interfaces (Adaptees)
+public class WavPlayer
+{
+    public void PlayWav(string filename) => Console.WriteLine($"Playing WAV: {filename}");
+}
+
+public class OggPlayer
+{
+    public void PlayOgg(string filename) => Console.WriteLine($"Playing OGG: {filename}");
+}
+
+// Adapters
+public class WavPlayerAdapter : IMusicPlayer
+{
+    private readonly WavPlayer _wavPlayer = new();
+
+    public void Play(string filename) => _wavPlayer.PlayWav(filename);
+}
+
+public class OggPlayerAdapter : IMusicPlayer
+{
+    private readonly OggPlayer _oggPlayer = new();
+
+    public void Play(string filename) => _oggPlayer.PlayOgg(filename);
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Target interface
+interface MusicPlayer {
+  play(filename: string): void;
+}
+
+// Native implementation (no adapter needed)
+class Mp3Player implements MusicPlayer {
+  play(filename: string): void {
+    console.log(`Playing MP3: ${filename}`);
+  }
+}
+
+// External classes with incompatible interfaces (Adaptees)
+class WavPlayer {
+  playWav(filename: string): void {
+    console.log(`Playing WAV: ${filename}`);
+  }
+}
+
+class OggPlayer {
+  playOgg(filename: string): void {
+    console.log(`Playing OGG: ${filename}`);
+  }
+}
+
+// Adapters
+class WavPlayerAdapter implements MusicPlayer {
+  private wavPlayer = new WavPlayer();
+
+  play(filename: string): void {
+    this.wavPlayer.playWav(filename);
+  }
+}
+
+class OggPlayerAdapter implements MusicPlayer {
+  private oggPlayer = new OggPlayer();
+
+  play(filename: string): void {
+    this.oggPlayer.playOgg(filename);
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Target interface
+abstract class MusicPlayer {
+  void play(String filename);
+}
+
+// Native implementation (no adapter needed)
+class Mp3Player implements MusicPlayer {
+  @override
+  void play(String filename) => print("Playing MP3: $filename");
+}
+
+// External classes with incompatible interfaces (Adaptees)
+class WavPlayer {
+  void playWav(String filename) => print("Playing WAV: $filename");
+}
+
+class OggPlayer {
+  void playOgg(String filename) => print("Playing OGG: $filename");
+}
+
+// Adapters
+class WavPlayerAdapter implements MusicPlayer {
+  final _wavPlayer = WavPlayer();
+
+  @override
+  void play(String filename) => _wavPlayer.playWav(filename);
+}
+
+class OggPlayerAdapter implements MusicPlayer {
+  final _oggPlayer = OggPlayer();
+
+  @override
+  void play(String filename) => _oggPlayer.playOgg(filename);
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+def play_music(player: MusicPlayer, filename: str) -> None:
+    player.play(filename)
+
+# All players now have the same interface!
+play_music(Mp3Player(), "song.mp3")
+play_music(WavPlayerAdapter(), "song.wav")
+play_music(OggPlayerAdapter(), "song.ogg")
+```
+
+#### `C#`
+
+```csharp
+void PlayMusic(IMusicPlayer player, string filename)
+{
+    player.Play(filename);
+}
+
+// All players now have the same interface!
+PlayMusic(new Mp3Player(), "song.mp3");
+PlayMusic(new WavPlayerAdapter(), "song.wav");
+PlayMusic(new OggPlayerAdapter(), "song.ogg");
+```
+
+#### `TypeScript`
+
+```typescript
+function playMusic(player: MusicPlayer, filename: string): void {
+  player.play(filename);
+}
+
+// All players now have the same interface!
+playMusic(new Mp3Player(), "song.mp3");
+playMusic(new WavPlayerAdapter(), "song.wav");
+playMusic(new OggPlayerAdapter(), "song.ogg");
+```
+
+#### `Dart`
+
+```dart
+void playMusic(MusicPlayer player, String filename) {
+  player.play(filename);
+}
+
+void main() {
+  // All players now have the same interface!
+  playMusic(Mp3Player(), "song.mp3");
+  playMusic(WavPlayerAdapter(), "song.wav");
+  playMusic(OggPlayerAdapter(), "song.ogg");
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Adapter** wraps an incompatible object and translates its interface to one that the client expects, enabling integration without modifying existing code.
+:::
+
+### Key Benefits
+
+- **Integration**: Allows you to use third-party or legacy classes that have incompatible interfaces
+- **Single Responsibility**: Separates interface conversion logic from business logic
+- **Open/Closed Principle**: Add new adapters without modifying existing client code
+- **Reusability**: The same adapter can be reused wherever the target interface is expected
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You want to use an existing class with an incompatible interface | The interfaces are already compatible (no translation needed) |
+| You're integrating third-party libraries or legacy code | You can modify the source class directly |
+| You want to create a reusable class that works with unforeseen classes | Adding an adapter layer introduces unnecessary complexity |
+| You need multiple incompatible classes to work through a common interface | |

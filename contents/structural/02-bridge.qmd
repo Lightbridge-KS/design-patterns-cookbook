@@ -1,0 +1,970 @@
+---
+title: "Bridge"
+---
+
+The **Bridge** pattern decouples an abstraction from its implementation so that both can vary independently. It prevents class explosion when you have multiple dimensions of variation — instead of creating a class for every combination, you compose objects at runtime.
+
+## Problem
+
+Imagine you're building a smart home system with remote controls for various devices. You have different remote types (Basic, Advanced) and different devices (TV, Radio). Using inheritance alone leads to a combinatorial explosion of classes.
+
+With 2 remote types × 2 devices = 4 classes. Add a third device? Now you need 6 classes. Add a third remote type? 9 classes. This grows exponentially!
+
+### Example
+
+```{mermaid}
+flowchart TB
+    R[RemoteControl]
+
+    R --> TVR[TVRemote]
+    R --> RR[RadioRemote]
+
+    TVR --> BTVR[BasicTVRemote]
+    TVR --> ATVR[AdvancedTVRemote]
+
+    RR --> BRR[BasicRadioRemote]
+    RR --> ARR[AdvancedRadioRemote]
+
+    style R fill:#f96,stroke:#333
+    style BTVR fill:#fcc,stroke:#c33
+    style ATVR fill:#fcc,stroke:#c33
+    style BRR fill:#fcc,stroke:#c33
+    style ARR fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Class explosion: every combination needs its own class
+- Adding a new device requires creating classes for ALL remote types
+- Adding a new remote type requires creating classes for ALL devices
+- Duplicated logic across similar classes
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class BasicTVRemote:
+    def __init__(self):
+        self._on = False
+        self._volume = 30
+
+    def toggle_power(self) -> None:
+        self._on = not self._on
+        print(f"TV is {'on' if self._on else 'off'}")
+
+    def volume_up(self) -> None:
+        self._volume += 10
+        print(f"TV volume: {self._volume}")
+
+    def volume_down(self) -> None:
+        self._volume -= 10
+        print(f"TV volume: {self._volume}")
+
+class AdvancedTVRemote:
+    def __init__(self):
+        self._on = False
+        self._volume = 30
+
+    def toggle_power(self) -> None:
+        self._on = not self._on
+        print(f"TV is {'on' if self._on else 'off'}")
+
+    def volume_up(self) -> None:
+        self._volume += 10
+        print(f"TV volume: {self._volume}")
+
+    def volume_down(self) -> None:
+        self._volume -= 10
+        print(f"TV volume: {self._volume}")
+
+    def mute(self) -> None:  # Extra feature
+        self._volume = 0
+        print("TV muted")
+
+class BasicRadioRemote:
+    def __init__(self):
+        self._on = False
+        self._volume = 20
+
+    def toggle_power(self) -> None:
+        self._on = not self._on
+        print(f"Radio is {'on' if self._on else 'off'}")
+
+    def volume_up(self) -> None:
+        self._volume += 10
+        print(f"Radio volume: {self._volume}")
+
+    def volume_down(self) -> None:
+        self._volume -= 10
+        print(f"Radio volume: {self._volume}")
+
+# ... AdvancedRadioRemote with duplicated code ...
+```
+
+#### `C#`
+
+```csharp
+public class BasicTVRemote
+{
+    private bool _on = false;
+    private int _volume = 30;
+
+    public void TogglePower()
+    {
+        _on = !_on;
+        Console.WriteLine($"TV is {(_on ? "on" : "off")}");
+    }
+
+    public void VolumeUp()
+    {
+        _volume += 10;
+        Console.WriteLine($"TV volume: {_volume}");
+    }
+
+    public void VolumeDown()
+    {
+        _volume -= 10;
+        Console.WriteLine($"TV volume: {_volume}");
+    }
+}
+
+public class AdvancedTVRemote
+{
+    private bool _on = false;
+    private int _volume = 30;
+
+    public void TogglePower()
+    {
+        _on = !_on;
+        Console.WriteLine($"TV is {(_on ? "on" : "off")}");
+    }
+
+    public void VolumeUp()
+    {
+        _volume += 10;
+        Console.WriteLine($"TV volume: {_volume}");
+    }
+
+    public void VolumeDown()
+    {
+        _volume -= 10;
+        Console.WriteLine($"TV volume: {_volume}");
+    }
+
+    public void Mute()  // Extra feature
+    {
+        _volume = 0;
+        Console.WriteLine("TV muted");
+    }
+}
+
+public class BasicRadioRemote
+{
+    private bool _on = false;
+    private int _volume = 20;
+
+    public void TogglePower()
+    {
+        _on = !_on;
+        Console.WriteLine($"Radio is {(_on ? "on" : "off")}");
+    }
+
+    public void VolumeUp()
+    {
+        _volume += 10;
+        Console.WriteLine($"Radio volume: {_volume}");
+    }
+
+    public void VolumeDown()
+    {
+        _volume -= 10;
+        Console.WriteLine($"Radio volume: {_volume}");
+    }
+}
+
+// ... AdvancedRadioRemote with duplicated code ...
+```
+
+#### `TypeScript`
+
+```typescript
+class BasicTVRemote {
+  private on = false;
+  private volume = 30;
+
+  togglePower(): void {
+    this.on = !this.on;
+    console.log(`TV is ${this.on ? "on" : "off"}`);
+  }
+
+  volumeUp(): void {
+    this.volume += 10;
+    console.log(`TV volume: ${this.volume}`);
+  }
+
+  volumeDown(): void {
+    this.volume -= 10;
+    console.log(`TV volume: ${this.volume}`);
+  }
+}
+
+class AdvancedTVRemote {
+  private on = false;
+  private volume = 30;
+
+  togglePower(): void {
+    this.on = !this.on;
+    console.log(`TV is ${this.on ? "on" : "off"}`);
+  }
+
+  volumeUp(): void {
+    this.volume += 10;
+    console.log(`TV volume: ${this.volume}`);
+  }
+
+  volumeDown(): void {
+    this.volume -= 10;
+    console.log(`TV volume: ${this.volume}`);
+  }
+
+  mute(): void {  // Extra feature
+    this.volume = 0;
+    console.log("TV muted");
+  }
+}
+
+class BasicRadioRemote {
+  private on = false;
+  private volume = 20;
+
+  togglePower(): void {
+    this.on = !this.on;
+    console.log(`Radio is ${this.on ? "on" : "off"}`);
+  }
+
+  volumeUp(): void {
+    this.volume += 10;
+    console.log(`Radio volume: ${this.volume}`);
+  }
+
+  volumeDown(): void {
+    this.volume -= 10;
+    console.log(`Radio volume: ${this.volume}`);
+  }
+}
+
+// ... AdvancedRadioRemote with duplicated code ...
+```
+
+#### `Dart`
+
+```dart
+class BasicTVRemote {
+  bool _on = false;
+  int _volume = 30;
+
+  void togglePower() {
+    _on = !_on;
+    print("TV is ${_on ? 'on' : 'off'}");
+  }
+
+  void volumeUp() {
+    _volume += 10;
+    print("TV volume: $_volume");
+  }
+
+  void volumeDown() {
+    _volume -= 10;
+    print("TV volume: $_volume");
+  }
+}
+
+class AdvancedTVRemote {
+  bool _on = false;
+  int _volume = 30;
+
+  void togglePower() {
+    _on = !_on;
+    print("TV is ${_on ? 'on' : 'off'}");
+  }
+
+  void volumeUp() {
+    _volume += 10;
+    print("TV volume: $_volume");
+  }
+
+  void volumeDown() {
+    _volume -= 10;
+    print("TV volume: $_volume");
+  }
+
+  void mute() {  // Extra feature
+    _volume = 0;
+    print("TV muted");
+  }
+}
+
+class BasicRadioRemote {
+  bool _on = false;
+  int _volume = 20;
+
+  void togglePower() {
+    _on = !_on;
+    print("Radio is ${_on ? 'on' : 'off'}");
+  }
+
+  void volumeUp() {
+    _volume += 10;
+    print("Radio volume: $_volume");
+  }
+
+  void volumeDown() {
+    _volume -= 10;
+    print("Radio volume: $_volume");
+  }
+}
+
+// ... AdvancedRadioRemote with duplicated code ...
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Must create specific class for each combination
+tv_remote = BasicTVRemote()
+tv_remote.toggle_power()
+tv_remote.volume_up()
+
+radio_remote = AdvancedRadioRemote()  # Different class!
+radio_remote.toggle_power()
+radio_remote.mute()
+```
+
+#### `C#`
+
+```csharp
+// Must create specific class for each combination
+var tvRemote = new BasicTVRemote();
+tvRemote.TogglePower();
+tvRemote.VolumeUp();
+
+var radioRemote = new AdvancedRadioRemote();  // Different class!
+radioRemote.TogglePower();
+radioRemote.Mute();
+```
+
+#### `TypeScript`
+
+```typescript
+// Must create specific class for each combination
+const tvRemote = new BasicTVRemote();
+tvRemote.togglePower();
+tvRemote.volumeUp();
+
+const radioRemote = new AdvancedRadioRemote();  // Different class!
+radioRemote.togglePower();
+radioRemote.mute();
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Must create specific class for each combination
+  final tvRemote = BasicTVRemote();
+  tvRemote.togglePower();
+  tvRemote.volumeUp();
+
+  final radioRemote = AdvancedRadioRemote();  // Different class!
+  radioRemote.togglePower();
+  radioRemote.mute();
+}
+```
+
+:::
+
+
+## Solution
+
+The Bridge pattern solves this by separating two hierarchies:
+
+1. **Abstraction** (RemoteControl) — defines the high-level control interface
+2. **Implementation** (Device) — defines the low-level device operations
+
+The abstraction *contains* a reference to the implementation (the "bridge"), allowing any remote to work with any device.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Device {
+        <<interface>>
+        +isEnabled() bool
+        +enable()
+        +disable()
+        +getVolume() int
+        +setVolume(volume: int)
+    }
+
+    class TV {
+        -on: bool
+        -volume: int
+        +isEnabled() bool
+        +enable()
+        +disable()
+        +getVolume() int
+        +setVolume(volume: int)
+    }
+
+    class Radio {
+        -on: bool
+        -volume: int
+        +isEnabled() bool
+        +enable()
+        +disable()
+        +getVolume() int
+        +setVolume(volume: int)
+    }
+
+    class RemoteControl {
+        #device: Device
+        +togglePower()
+        +volumeUp()
+        +volumeDown()
+    }
+
+    class AdvancedRemote {
+        +mute()
+    }
+
+    Device <|.. TV
+    Device <|.. Radio
+
+    RemoteControl --> Device : bridge
+    RemoteControl <|-- AdvancedRemote
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Implementation interface
+class Device(ABC):
+    @abstractmethod
+    def is_enabled(self) -> bool:
+        pass
+
+    @abstractmethod
+    def enable(self) -> None:
+        pass
+
+    @abstractmethod
+    def disable(self) -> None:
+        pass
+
+    @abstractmethod
+    def get_volume(self) -> int:
+        pass
+
+    @abstractmethod
+    def set_volume(self, volume: int) -> None:
+        pass
+
+# Concrete Implementations
+class TV(Device):
+    def __init__(self):
+        self._on = False
+        self._volume = 30
+
+    def is_enabled(self) -> bool:
+        return self._on
+
+    def enable(self) -> None:
+        self._on = True
+        print("TV is on")
+
+    def disable(self) -> None:
+        self._on = False
+        print("TV is off")
+
+    def get_volume(self) -> int:
+        return self._volume
+
+    def set_volume(self, volume: int) -> None:
+        self._volume = max(0, min(100, volume))
+        print(f"TV volume: {self._volume}")
+
+class Radio(Device):
+    def __init__(self):
+        self._on = False
+        self._volume = 20
+
+    def is_enabled(self) -> bool:
+        return self._on
+
+    def enable(self) -> None:
+        self._on = True
+        print("Radio is on")
+
+    def disable(self) -> None:
+        self._on = False
+        print("Radio is off")
+
+    def get_volume(self) -> int:
+        return self._volume
+
+    def set_volume(self, volume: int) -> None:
+        self._volume = max(0, min(100, volume))
+        print(f"Radio volume: {self._volume}")
+
+# Abstraction
+class RemoteControl:
+    def __init__(self, device: Device):
+        self._device = device  # The bridge!
+
+    def toggle_power(self) -> None:
+        if self._device.is_enabled():
+            self._device.disable()
+        else:
+            self._device.enable()
+
+    def volume_up(self) -> None:
+        self._device.set_volume(self._device.get_volume() + 10)
+
+    def volume_down(self) -> None:
+        self._device.set_volume(self._device.get_volume() - 10)
+
+# Refined Abstraction
+class AdvancedRemote(RemoteControl):
+    def mute(self) -> None:
+        self._device.set_volume(0)
+        print("Muted")
+```
+
+#### `C#`
+
+```csharp
+// Implementation interface
+public interface IDevice
+{
+    bool IsEnabled { get; }
+    void Enable();
+    void Disable();
+    int Volume { get; set; }
+}
+
+// Concrete Implementations
+public class TV : IDevice
+{
+    private int _volume = 30;
+
+    public bool IsEnabled { get; private set; }
+
+    public void Enable()
+    {
+        IsEnabled = true;
+        Console.WriteLine("TV is on");
+    }
+
+    public void Disable()
+    {
+        IsEnabled = false;
+        Console.WriteLine("TV is off");
+    }
+
+    public int Volume
+    {
+        get => _volume;
+        set
+        {
+            _volume = Math.Clamp(value, 0, 100);
+            Console.WriteLine($"TV volume: {_volume}");
+        }
+    }
+}
+
+public class Radio : IDevice
+{
+    private int _volume = 20;
+
+    public bool IsEnabled { get; private set; }
+
+    public void Enable()
+    {
+        IsEnabled = true;
+        Console.WriteLine("Radio is on");
+    }
+
+    public void Disable()
+    {
+        IsEnabled = false;
+        Console.WriteLine("Radio is off");
+    }
+
+    public int Volume
+    {
+        get => _volume;
+        set
+        {
+            _volume = Math.Clamp(value, 0, 100);
+            Console.WriteLine($"Radio volume: {_volume}");
+        }
+    }
+}
+
+// Abstraction
+public class RemoteControl
+{
+    protected readonly IDevice Device;  // The bridge!
+
+    public RemoteControl(IDevice device) => Device = device;
+
+    public void TogglePower()
+    {
+        if (Device.IsEnabled)
+            Device.Disable();
+        else
+            Device.Enable();
+    }
+
+    public void VolumeUp() => Device.Volume += 10;
+
+    public void VolumeDown() => Device.Volume -= 10;
+}
+
+// Refined Abstraction
+public class AdvancedRemote : RemoteControl
+{
+    public AdvancedRemote(IDevice device) : base(device) { }
+
+    public void Mute()
+    {
+        Device.Volume = 0;
+        Console.WriteLine("Muted");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Implementation interface
+interface Device {
+  isEnabled(): boolean;
+  enable(): void;
+  disable(): void;
+  getVolume(): number;
+  setVolume(volume: number): void;
+}
+
+// Concrete Implementations
+class TV implements Device {
+  private on = false;
+  private volume = 30;
+
+  isEnabled(): boolean {
+    return this.on;
+  }
+
+  enable(): void {
+    this.on = true;
+    console.log("TV is on");
+  }
+
+  disable(): void {
+    this.on = false;
+    console.log("TV is off");
+  }
+
+  getVolume(): number {
+    return this.volume;
+  }
+
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(100, volume));
+    console.log(`TV volume: ${this.volume}`);
+  }
+}
+
+class Radio implements Device {
+  private on = false;
+  private volume = 20;
+
+  isEnabled(): boolean {
+    return this.on;
+  }
+
+  enable(): void {
+    this.on = true;
+    console.log("Radio is on");
+  }
+
+  disable(): void {
+    this.on = false;
+    console.log("Radio is off");
+  }
+
+  getVolume(): number {
+    return this.volume;
+  }
+
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(100, volume));
+    console.log(`Radio volume: ${this.volume}`);
+  }
+}
+
+// Abstraction
+class RemoteControl {
+  protected device: Device;  // The bridge!
+
+  constructor(device: Device) {
+    this.device = device;
+  }
+
+  togglePower(): void {
+    if (this.device.isEnabled()) {
+      this.device.disable();
+    } else {
+      this.device.enable();
+    }
+  }
+
+  volumeUp(): void {
+    this.device.setVolume(this.device.getVolume() + 10);
+  }
+
+  volumeDown(): void {
+    this.device.setVolume(this.device.getVolume() - 10);
+  }
+}
+
+// Refined Abstraction
+class AdvancedRemote extends RemoteControl {
+  mute(): void {
+    this.device.setVolume(0);
+    console.log("Muted");
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Implementation interface
+abstract class Device {
+  bool isEnabled();
+  void enable();
+  void disable();
+  int getVolume();
+  void setVolume(int volume);
+}
+
+// Concrete Implementations
+class TV implements Device {
+  bool _on = false;
+  int _volume = 30;
+
+  @override
+  bool isEnabled() => _on;
+
+  @override
+  void enable() {
+    _on = true;
+    print("TV is on");
+  }
+
+  @override
+  void disable() {
+    _on = false;
+    print("TV is off");
+  }
+
+  @override
+  int getVolume() => _volume;
+
+  @override
+  void setVolume(int volume) {
+    _volume = volume.clamp(0, 100);
+    print("TV volume: $_volume");
+  }
+}
+
+class Radio implements Device {
+  bool _on = false;
+  int _volume = 20;
+
+  @override
+  bool isEnabled() => _on;
+
+  @override
+  void enable() {
+    _on = true;
+    print("Radio is on");
+  }
+
+  @override
+  void disable() {
+    _on = false;
+    print("Radio is off");
+  }
+
+  @override
+  int getVolume() => _volume;
+
+  @override
+  void setVolume(int volume) {
+    _volume = volume.clamp(0, 100);
+    print("Radio volume: $_volume");
+  }
+}
+
+// Abstraction
+class RemoteControl {
+  final Device _device;  // The bridge!
+
+  RemoteControl(this._device);
+
+  void togglePower() {
+    if (_device.isEnabled()) {
+      _device.disable();
+    } else {
+      _device.enable();
+    }
+  }
+
+  void volumeUp() {
+    _device.setVolume(_device.getVolume() + 10);
+  }
+
+  void volumeDown() {
+    _device.setVolume(_device.getVolume() - 10);
+  }
+}
+
+// Refined Abstraction
+class AdvancedRemote extends RemoteControl {
+  AdvancedRemote(super.device);
+
+  void mute() {
+    _device.setVolume(0);
+    print("Muted");
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Any remote can control any device!
+tv = TV()
+radio = Radio()
+
+# Basic remote with TV
+basic_remote = RemoteControl(tv)
+basic_remote.toggle_power()  # TV is on
+basic_remote.volume_up()     # TV volume: 40
+
+# Advanced remote with Radio
+advanced_remote = AdvancedRemote(radio)
+advanced_remote.toggle_power()  # Radio is on
+advanced_remote.volume_up()     # Radio volume: 30
+advanced_remote.mute()          # Muted
+```
+
+#### `C#`
+
+```csharp
+// Any remote can control any device!
+var tv = new TV();
+var radio = new Radio();
+
+// Basic remote with TV
+var basicRemote = new RemoteControl(tv);
+basicRemote.TogglePower();  // TV is on
+basicRemote.VolumeUp();     // TV volume: 40
+
+// Advanced remote with Radio
+var advancedRemote = new AdvancedRemote(radio);
+advancedRemote.TogglePower();  // Radio is on
+advancedRemote.VolumeUp();     // Radio volume: 30
+advancedRemote.Mute();         // Muted
+```
+
+#### `TypeScript`
+
+```typescript
+// Any remote can control any device!
+const tv = new TV();
+const radio = new Radio();
+
+// Basic remote with TV
+const basicRemote = new RemoteControl(tv);
+basicRemote.togglePower();  // TV is on
+basicRemote.volumeUp();     // TV volume: 40
+
+// Advanced remote with Radio
+const advancedRemote = new AdvancedRemote(radio);
+advancedRemote.togglePower();  // Radio is on
+advancedRemote.volumeUp();     // Radio volume: 30
+advancedRemote.mute();         // Muted
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Any remote can control any device!
+  final tv = TV();
+  final radio = Radio();
+
+  // Basic remote with TV
+  final basicRemote = RemoteControl(tv);
+  basicRemote.togglePower();  // TV is on
+  basicRemote.volumeUp();     // TV volume: 40
+
+  // Advanced remote with Radio
+  final advancedRemote = AdvancedRemote(radio);
+  advancedRemote.togglePower();  // Radio is on
+  advancedRemote.volumeUp();     // Radio volume: 30
+  advancedRemote.mute();         // Muted
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Bridge** separates abstraction from implementation using composition, allowing both hierarchies to evolve independently without class explosion.
+:::
+
+### Key Benefits
+
+- **Avoids Class Explosion**: M abstractions × N implementations = M + N classes (not M × N)
+- **Independent Extension**: Add new remotes without touching devices, and vice versa
+- **Runtime Flexibility**: Switch implementations at runtime by changing the bridge reference
+- **Single Responsibility**: Abstraction focuses on high-level logic; implementation handles low-level details
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You have multiple dimensions of variation (e.g., remote × device) | You only have one dimension of variation |
+| You want to extend both hierarchies independently | The abstraction and implementation won't change independently |
+| You need to switch implementations at runtime | The added indirection isn't justified by flexibility needs |
+| You want to hide implementation details from clients | |

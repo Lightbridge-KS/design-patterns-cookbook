@@ -29,14 +29,14 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
   - Prototype → Shape Cloning
   - Singleton → Logger (+ DI alternative)
 
-- **Structural Design Patterns:**
-  - Adapter
-  - Bridge
-  - Composite
-  - Decorator
-  - Facade
-  - Flyweight
-  - Proxy
+- **Structural Design Patterns:** ✅ DONE
+  - Adapter → Media Player (MP3/WAV/OGG adapters)
+  - Bridge → Remote Control + Device
+  - Composite → File System (Files & Folders)
+  - Decorator → Coffee Shop (Beverages + Condiments)
+  - Facade → Computer Startup (CPU/Memory/HardDrive)
+  - Flyweight → Text Editor (Character Styles)
+  - Proxy → Document Access (Protection Proxy)
 
 - **Behavioral Design Patterns**
   - Chain of Responsibility
@@ -53,3 +53,7 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
 ## Template
 
 - For chapter that related to design pattern, use this template: @_template/design-pattern-chapter.qmd
+
+## After Writting Content
+
+- After you writting a `.qmd` file in `contents/`, please update `_quarto.yml`

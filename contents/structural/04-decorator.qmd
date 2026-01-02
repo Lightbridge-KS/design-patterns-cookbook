@@ -1,0 +1,670 @@
+---
+title: "Decorator"
+---
+
+The **Decorator** pattern attaches additional responsibilities to an object dynamically. It provides a flexible alternative to subclassing for extending functionality — you can stack multiple decorators to combine behaviors at runtime.
+
+## Problem
+
+Imagine you're building a coffee shop ordering system. You have base beverages (Espresso, Latte) and various condiments (Milk, Sugar, WhippedCream). Each combination has a different cost and description.
+
+Using inheritance leads to a class explosion:
+
+- 2 beverages × 7 condiment combinations = 14+ classes
+- Adding a new condiment means creating classes for ALL beverages
+- Can't add/remove condiments at runtime
+
+### Example
+
+```{mermaid}
+flowchart TB
+    B[Beverage]
+
+    B --> E[Espresso]
+    B --> L[Latte]
+
+    E --> EM[EspressoWithMilk]
+    E --> ES[EspressoWithSugar]
+    E --> EMS[EspressoWithMilkAndSugar]
+    E --> EMW[EspressoWithMilkAndWhippedCream]
+    E --> More1[...]
+
+    L --> LM[LatteWithMilk]
+    L --> More2[...]
+
+    style B fill:#f96,stroke:#333
+    style EM fill:#fcc,stroke:#c33
+    style ES fill:#fcc,stroke:#c33
+    style EMS fill:#fcc,stroke:#c33
+    style EMW fill:#fcc,stroke:#c33
+    style LM fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Class explosion for every combination
+- Can't modify condiments at runtime
+- Changing a condiment price requires updating many classes
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class Espresso:
+    def get_description(self) -> str:
+        return "Espresso"
+
+    def get_cost(self) -> float:
+        return 2.00
+
+class EspressoWithMilk:
+    def get_description(self) -> str:
+        return "Espresso, Milk"
+
+    def get_cost(self) -> float:
+        return 2.50
+
+class EspressoWithMilkAndSugar:
+    def get_description(self) -> str:
+        return "Espresso, Milk, Sugar"
+
+    def get_cost(self) -> float:
+        return 2.75
+
+class EspressoWithMilkAndSugarAndWhippedCream:
+    def get_description(self) -> str:
+        return "Espresso, Milk, Sugar, WhippedCream"
+
+    def get_cost(self) -> float:
+        return 3.50
+
+# ... and many more classes for every combination!
+```
+
+#### `C#`
+
+```csharp
+public class Espresso
+{
+    public string GetDescription() => "Espresso";
+    public decimal GetCost() => 2.00m;
+}
+
+public class EspressoWithMilk
+{
+    public string GetDescription() => "Espresso, Milk";
+    public decimal GetCost() => 2.50m;
+}
+
+public class EspressoWithMilkAndSugar
+{
+    public string GetDescription() => "Espresso, Milk, Sugar";
+    public decimal GetCost() => 2.75m;
+}
+
+public class EspressoWithMilkAndSugarAndWhippedCream
+{
+    public string GetDescription() => "Espresso, Milk, Sugar, WhippedCream";
+    public decimal GetCost() => 3.50m;
+}
+
+// ... and many more classes for every combination!
+```
+
+#### `TypeScript`
+
+```typescript
+class Espresso {
+  getDescription(): string {
+    return "Espresso";
+  }
+
+  getCost(): number {
+    return 2.0;
+  }
+}
+
+class EspressoWithMilk {
+  getDescription(): string {
+    return "Espresso, Milk";
+  }
+
+  getCost(): number {
+    return 2.5;
+  }
+}
+
+class EspressoWithMilkAndSugar {
+  getDescription(): string {
+    return "Espresso, Milk, Sugar";
+  }
+
+  getCost(): number {
+    return 2.75;
+  }
+}
+
+class EspressoWithMilkAndSugarAndWhippedCream {
+  getDescription(): string {
+    return "Espresso, Milk, Sugar, WhippedCream";
+  }
+
+  getCost(): number {
+    return 3.5;
+  }
+}
+
+// ... and many more classes for every combination!
+```
+
+#### `Dart`
+
+```dart
+class Espresso {
+  String getDescription() => "Espresso";
+  double getCost() => 2.00;
+}
+
+class EspressoWithMilk {
+  String getDescription() => "Espresso, Milk";
+  double getCost() => 2.50;
+}
+
+class EspressoWithMilkAndSugar {
+  String getDescription() => "Espresso, Milk, Sugar";
+  double getCost() => 2.75;
+}
+
+class EspressoWithMilkAndSugarAndWhippedCream {
+  String getDescription() => "Espresso, Milk, Sugar, WhippedCream";
+  double getCost() => 3.50;
+}
+
+// ... and many more classes for every combination!
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Must choose the exact class for each combination
+order1 = Espresso()
+order2 = EspressoWithMilk()
+order3 = EspressoWithMilkAndSugarAndWhippedCream()
+
+print(f"{order3.get_description()}: ${order3.get_cost():.2f}")
+# Can't easily add another condiment at runtime!
+```
+
+#### `C#`
+
+```csharp
+// Must choose the exact class for each combination
+var order1 = new Espresso();
+var order2 = new EspressoWithMilk();
+var order3 = new EspressoWithMilkAndSugarAndWhippedCream();
+
+Console.WriteLine($"{order3.GetDescription()}: ${order3.GetCost():F2}");
+// Can't easily add another condiment at runtime!
+```
+
+#### `TypeScript`
+
+```typescript
+// Must choose the exact class for each combination
+const order1 = new Espresso();
+const order2 = new EspressoWithMilk();
+const order3 = new EspressoWithMilkAndSugarAndWhippedCream();
+
+console.log(`${order3.getDescription()}: $${order3.getCost().toFixed(2)}`);
+// Can't easily add another condiment at runtime!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Must choose the exact class for each combination
+  final order1 = Espresso();
+  final order2 = EspressoWithMilk();
+  final order3 = EspressoWithMilkAndSugarAndWhippedCream();
+
+  print("${order3.getDescription()}: \$${order3.getCost().toStringAsFixed(2)}");
+  // Can't easily add another condiment at runtime!
+}
+```
+
+:::
+
+
+## Solution
+
+The Decorator pattern solves this by:
+
+1. Defining a **component interface** (`Beverage`) that both base objects and decorators implement
+2. **Concrete components** (`Espresso`, `Latte`) provide base behavior
+3. **Decorators** wrap a component and add behavior, then delegate to the wrapped object
+
+The key insight: a decorator IS-A Beverage AND HAS-A Beverage. This allows infinite stacking!
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Beverage {
+        <<interface>>
+        +getDescription() String
+        +getCost() float
+    }
+
+    class Espresso {
+        +getDescription() String
+        +getCost() float
+    }
+
+    class Latte {
+        +getDescription() String
+        +getCost() float
+    }
+
+    class CondimentDecorator {
+        <<abstract>>
+        #beverage: Beverage
+        +getDescription() String
+        +getCost() float
+    }
+
+    class Milk {
+        +getDescription() String
+        +getCost() float
+    }
+
+    class Sugar {
+        +getDescription() String
+        +getCost() float
+    }
+
+    class WhippedCream {
+        +getDescription() String
+        +getCost() float
+    }
+
+    Beverage <|.. Espresso
+    Beverage <|.. Latte
+    Beverage <|.. CondimentDecorator
+    CondimentDecorator <|-- Milk
+    CondimentDecorator <|-- Sugar
+    CondimentDecorator <|-- WhippedCream
+    CondimentDecorator --> Beverage : wraps
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Component interface
+class Beverage(ABC):
+    @abstractmethod
+    def get_description(self) -> str:
+        pass
+
+    @abstractmethod
+    def get_cost(self) -> float:
+        pass
+
+# Concrete Components
+class Espresso(Beverage):
+    def get_description(self) -> str:
+        return "Espresso"
+
+    def get_cost(self) -> float:
+        return 2.00
+
+class Latte(Beverage):
+    def get_description(self) -> str:
+        return "Latte"
+
+    def get_cost(self) -> float:
+        return 2.50
+
+# Decorator base class
+class CondimentDecorator(Beverage):
+    def __init__(self, beverage: Beverage):
+        self._beverage = beverage
+
+# Concrete Decorators
+class Milk(CondimentDecorator):
+    def get_description(self) -> str:
+        return f"{self._beverage.get_description()}, Milk"
+
+    def get_cost(self) -> float:
+        return self._beverage.get_cost() + 0.50
+
+class Sugar(CondimentDecorator):
+    def get_description(self) -> str:
+        return f"{self._beverage.get_description()}, Sugar"
+
+    def get_cost(self) -> float:
+        return self._beverage.get_cost() + 0.25
+
+class WhippedCream(CondimentDecorator):
+    def get_description(self) -> str:
+        return f"{self._beverage.get_description()}, WhippedCream"
+
+    def get_cost(self) -> float:
+        return self._beverage.get_cost() + 0.75
+```
+
+#### `C#`
+
+```csharp
+// Component interface
+public interface IBeverage
+{
+    string GetDescription();
+    decimal GetCost();
+}
+
+// Concrete Components
+public class Espresso : IBeverage
+{
+    public string GetDescription() => "Espresso";
+    public decimal GetCost() => 2.00m;
+}
+
+public class Latte : IBeverage
+{
+    public string GetDescription() => "Latte";
+    public decimal GetCost() => 2.50m;
+}
+
+// Decorator base class
+public abstract class CondimentDecorator(IBeverage beverage) : IBeverage
+{
+    protected readonly IBeverage Beverage = beverage;
+
+    public abstract string GetDescription();
+    public abstract decimal GetCost();
+}
+
+// Concrete Decorators
+public class Milk(IBeverage beverage) : CondimentDecorator(beverage)
+{
+    public override string GetDescription() => $"{Beverage.GetDescription()}, Milk";
+    public override decimal GetCost() => Beverage.GetCost() + 0.50m;
+}
+
+public class Sugar(IBeverage beverage) : CondimentDecorator(beverage)
+{
+    public override string GetDescription() => $"{Beverage.GetDescription()}, Sugar";
+    public override decimal GetCost() => Beverage.GetCost() + 0.25m;
+}
+
+public class WhippedCream(IBeverage beverage) : CondimentDecorator(beverage)
+{
+    public override string GetDescription() => $"{Beverage.GetDescription()}, WhippedCream";
+    public override decimal GetCost() => Beverage.GetCost() + 0.75m;
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Component interface
+interface Beverage {
+  getDescription(): string;
+  getCost(): number;
+}
+
+// Concrete Components
+class Espresso implements Beverage {
+  getDescription(): string {
+    return "Espresso";
+  }
+
+  getCost(): number {
+    return 2.0;
+  }
+}
+
+class Latte implements Beverage {
+  getDescription(): string {
+    return "Latte";
+  }
+
+  getCost(): number {
+    return 2.5;
+  }
+}
+
+// Decorator base class
+abstract class CondimentDecorator implements Beverage {
+  constructor(protected beverage: Beverage) {}
+
+  abstract getDescription(): string;
+  abstract getCost(): number;
+}
+
+// Concrete Decorators
+class Milk extends CondimentDecorator {
+  getDescription(): string {
+    return `${this.beverage.getDescription()}, Milk`;
+  }
+
+  getCost(): number {
+    return this.beverage.getCost() + 0.5;
+  }
+}
+
+class Sugar extends CondimentDecorator {
+  getDescription(): string {
+    return `${this.beverage.getDescription()}, Sugar`;
+  }
+
+  getCost(): number {
+    return this.beverage.getCost() + 0.25;
+  }
+}
+
+class WhippedCream extends CondimentDecorator {
+  getDescription(): string {
+    return `${this.beverage.getDescription()}, WhippedCream`;
+  }
+
+  getCost(): number {
+    return this.beverage.getCost() + 0.75;
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Component interface
+abstract class Beverage {
+  String getDescription();
+  double getCost();
+}
+
+// Concrete Components
+class Espresso implements Beverage {
+  @override
+  String getDescription() => "Espresso";
+
+  @override
+  double getCost() => 2.00;
+}
+
+class Latte implements Beverage {
+  @override
+  String getDescription() => "Latte";
+
+  @override
+  double getCost() => 2.50;
+}
+
+// Decorator base class
+abstract class CondimentDecorator implements Beverage {
+  final Beverage _beverage;
+
+  CondimentDecorator(this._beverage);
+}
+
+// Concrete Decorators
+class Milk extends CondimentDecorator {
+  Milk(super.beverage);
+
+  @override
+  String getDescription() => "${_beverage.getDescription()}, Milk";
+
+  @override
+  double getCost() => _beverage.getCost() + 0.50;
+}
+
+class Sugar extends CondimentDecorator {
+  Sugar(super.beverage);
+
+  @override
+  String getDescription() => "${_beverage.getDescription()}, Sugar";
+
+  @override
+  double getCost() => _beverage.getCost() + 0.25;
+}
+
+class WhippedCream extends CondimentDecorator {
+  WhippedCream(super.beverage);
+
+  @override
+  String getDescription() => "${_beverage.getDescription()}, WhippedCream";
+
+  @override
+  double getCost() => _beverage.getCost() + 0.75;
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Build orders by stacking decorators
+order1: Beverage = Espresso()
+print(f"{order1.get_description()}: ${order1.get_cost():.2f}")
+# Espresso: $2.00
+
+order2: Beverage = Milk(Espresso())
+print(f"{order2.get_description()}: ${order2.get_cost():.2f}")
+# Espresso, Milk: $2.50
+
+order3: Beverage = WhippedCream(Sugar(Milk(Espresso())))
+print(f"{order3.get_description()}: ${order3.get_cost():.2f}")
+# Espresso, Milk, Sugar, WhippedCream: $3.50
+
+# Double milk? No problem!
+order4: Beverage = Milk(Milk(Latte()))
+print(f"{order4.get_description()}: ${order4.get_cost():.2f}")
+# Latte, Milk, Milk: $3.50
+```
+
+#### `C#`
+
+```csharp
+// Build orders by stacking decorators
+IBeverage order1 = new Espresso();
+Console.WriteLine($"{order1.GetDescription()}: ${order1.GetCost():F2}");
+// Espresso: $2.00
+
+IBeverage order2 = new Milk(new Espresso());
+Console.WriteLine($"{order2.GetDescription()}: ${order2.GetCost():F2}");
+// Espresso, Milk: $2.50
+
+IBeverage order3 = new WhippedCream(new Sugar(new Milk(new Espresso())));
+Console.WriteLine($"{order3.GetDescription()}: ${order3.GetCost():F2}");
+// Espresso, Milk, Sugar, WhippedCream: $3.50
+
+// Double milk? No problem!
+IBeverage order4 = new Milk(new Milk(new Latte()));
+Console.WriteLine($"{order4.GetDescription()}: ${order4.GetCost():F2}");
+// Latte, Milk, Milk: $3.50
+```
+
+#### `TypeScript`
+
+```typescript
+// Build orders by stacking decorators
+const order1: Beverage = new Espresso();
+console.log(`${order1.getDescription()}: $${order1.getCost().toFixed(2)}`);
+// Espresso: $2.00
+
+const order2: Beverage = new Milk(new Espresso());
+console.log(`${order2.getDescription()}: $${order2.getCost().toFixed(2)}`);
+// Espresso, Milk: $2.50
+
+const order3: Beverage = new WhippedCream(new Sugar(new Milk(new Espresso())));
+console.log(`${order3.getDescription()}: $${order3.getCost().toFixed(2)}`);
+// Espresso, Milk, Sugar, WhippedCream: $3.50
+
+// Double milk? No problem!
+const order4: Beverage = new Milk(new Milk(new Latte()));
+console.log(`${order4.getDescription()}: $${order4.getCost().toFixed(2)}`);
+// Latte, Milk, Milk: $3.50
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Build orders by stacking decorators
+  Beverage order1 = Espresso();
+  print("${order1.getDescription()}: \$${order1.getCost().toStringAsFixed(2)}");
+  // Espresso: $2.00
+
+  Beverage order2 = Milk(Espresso());
+  print("${order2.getDescription()}: \$${order2.getCost().toStringAsFixed(2)}");
+  // Espresso, Milk: $2.50
+
+  Beverage order3 = WhippedCream(Sugar(Milk(Espresso())));
+  print("${order3.getDescription()}: \$${order3.getCost().toStringAsFixed(2)}");
+  // Espresso, Milk, Sugar, WhippedCream: $3.50
+
+  // Double milk? No problem!
+  Beverage order4 = Milk(Milk(Latte()));
+  print("${order4.getDescription()}: \$${order4.getCost().toStringAsFixed(2)}");
+  // Latte, Milk, Milk: $3.50
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Decorator** wraps objects to add behavior dynamically, allowing flexible combinations without class explosion — decorators can be stacked infinitely at runtime.
+:::
+
+### Key Benefits
+
+- **Flexible Combinations**: Stack decorators in any order, any number of times
+- **Runtime Modification**: Add or change behavior without recompiling
+- **Single Responsibility**: Each decorator handles one concern
+- **Open/Closed Principle**: Add new decorators without modifying existing code
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need to add responsibilities dynamically at runtime | The component interface is unstable or frequently changing |
+| Subclassing would create a class explosion | Order of decoration matters and is hard to manage |
+| You want to combine behaviors flexibly | You need to access the original object directly (decorators wrap it) |
+| Responsibilities can be added/removed independently | A single configuration is sufficient (just use inheritance) |

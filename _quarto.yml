@@ -29,8 +29,22 @@ book:
           href: "contents/creational/04-prototype.qmd"
         - text: Singleton Pattern
           href: "contents/creational/05-singleton.qmd"
-
-
+    - part: Structural Design Patterns
+      chapters: 
+        - text: Adapter Pattern
+          href: "contents/structural/01-adapter.qmd"
+        - text: Bridge Pattern
+          href: "contents/structural/02-bridge.qmd"
+        - text: Composite Pattern
+          href: "contents/structural/03-composite.qmd"
+        - text: Decorator Pattern
+          href: "contents/structural/04-decorator.qmd"
+        - text: Facade Pattern
+          href: "contents/structural/05-facade.qmd"
+        - text: Flyweight Pattern
+          href: "contents/structural/06-flyweight.qmd"
+        - text: Proxy Pattern
+          href: "contents/structural/07-proxy.qmd"
 
 format:
   html:

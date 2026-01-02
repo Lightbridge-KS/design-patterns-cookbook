@@ -1,0 +1,600 @@
+---
+title: "Composite"
+---
+
+The **Composite** pattern composes objects into tree structures and lets you treat individual objects and compositions of objects uniformly. It's ideal for representing part-whole hierarchies where a container can hold both individual items and other containers.
+
+## Problem
+
+Imagine you're building a file system utility that calculates storage usage. You have files and folders, where folders can contain files or other folders (nested). The naive approach requires type-checking everywhere to handle files and folders differently.
+
+This leads to:
+
+- Client code must know the difference between files and folders
+- Type checking scattered throughout the codebase
+- Adding new item types requires modifying existing code
+
+### Example
+
+```{mermaid}
+flowchart TB
+    C[Client Code]
+
+    C -->|"if File"| F1["file.size"]
+    C -->|"if Folder"| F2["loop children..."]
+
+    F2 -->|"if File"| F3["child.size"]
+    F2 -->|"if Folder"| F4["recurse..."]
+
+    style C fill:#f96,stroke:#333
+    style F2 fill:#fcc,stroke:#c33
+    style F4 fill:#fcc,stroke:#c33
+```
+
+**Problems with this approach:**
+
+- Different logic paths for files vs folders
+- Recursive handling requires special code
+- Client is tightly coupled to concrete types
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class File:
+    def __init__(self, name: str, size: int):
+        self.name = name
+        self.size = size
+
+class Folder:
+    def __init__(self, name: str):
+        self.name = name
+        self.children: list = []
+
+    def add(self, item) -> None:
+        self.children.append(item)
+
+def get_total_size(items: list) -> int:
+    total = 0
+    for item in items:
+        if isinstance(item, File):
+            total += item.size
+        elif isinstance(item, Folder):
+            total += get_total_size(item.children)  # Different logic!
+    return total
+```
+
+#### `C#`
+
+```csharp
+public class File
+{
+    public string Name { get; }
+    public int Size { get; }
+
+    public File(string name, int size)
+    {
+        Name = name;
+        Size = size;
+    }
+}
+
+public class Folder
+{
+    public string Name { get; }
+    public List<object> Children { get; } = [];
+
+    public Folder(string name) => Name = name;
+
+    public void Add(object item) => Children.Add(item);
+}
+
+public static int GetTotalSize(List<object> items)
+{
+    int total = 0;
+    foreach (var item in items)
+    {
+        if (item is File file)
+            total += file.Size;
+        else if (item is Folder folder)
+            total += GetTotalSize(folder.Children);  // Different logic!
+    }
+    return total;
+}
+```
+
+#### `TypeScript`
+
+```typescript
+class File {
+  constructor(
+    public name: string,
+    public size: number
+  ) {}
+}
+
+class Folder {
+  public children: (File | Folder)[] = [];
+
+  constructor(public name: string) {}
+
+  add(item: File | Folder): void {
+    this.children.push(item);
+  }
+}
+
+function getTotalSize(items: (File | Folder)[]): number {
+  let total = 0;
+  for (const item of items) {
+    if (item instanceof File) {
+      total += item.size;
+    } else if (item instanceof Folder) {
+      total += getTotalSize(item.children);  // Different logic!
+    }
+  }
+  return total;
+}
+```
+
+#### `Dart`
+
+```dart
+class File {
+  final String name;
+  final int size;
+
+  File(this.name, this.size);
+}
+
+class Folder {
+  final String name;
+  final List<dynamic> children = [];
+
+  Folder(this.name);
+
+  void add(dynamic item) => children.add(item);
+}
+
+int getTotalSize(List<dynamic> items) {
+  int total = 0;
+  for (final item in items) {
+    if (item is File) {
+      total += item.size;
+    } else if (item is Folder) {
+      total += getTotalSize(item.children);  // Different logic!
+    }
+  }
+  return total;
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+root = Folder("root")
+root.add(File("doc.txt", 100))
+root.add(File("image.png", 200))
+
+projects = Folder("projects")
+projects.add(File("code.py", 50))
+root.add(projects)
+
+# Must use external function with type checking
+total = get_total_size(root.children)
+print(f"Total size: {total}")  # 350
+```
+
+#### `C#`
+
+```csharp
+var root = new Folder("root");
+root.Add(new File("doc.txt", 100));
+root.Add(new File("image.png", 200));
+
+var projects = new Folder("projects");
+projects.Add(new File("code.py", 50));
+root.Add(projects);
+
+// Must use external function with type checking
+int total = GetTotalSize(root.Children);
+Console.WriteLine($"Total size: {total}");  // 350
+```
+
+#### `TypeScript`
+
+```typescript
+const root = new Folder("root");
+root.add(new File("doc.txt", 100));
+root.add(new File("image.png", 200));
+
+const projects = new Folder("projects");
+projects.add(new File("code.py", 50));
+root.add(projects);
+
+// Must use external function with type checking
+const total = getTotalSize(root.children);
+console.log(`Total size: ${total}`);  // 350
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  final root = Folder("root");
+  root.add(File("doc.txt", 100));
+  root.add(File("image.png", 200));
+
+  final projects = Folder("projects");
+  projects.add(File("code.py", 50));
+  root.add(projects);
+
+  // Must use external function with type checking
+  final total = getTotalSize(root.children);
+  print("Total size: $total");  // 350
+}
+```
+
+:::
+
+
+## Solution
+
+The Composite pattern solves this by:
+
+1. Defining a **component interface** (`FileSystemItem`) with common operations like `getSize()`
+2. **Leaf** nodes (`File`) implement the interface directly
+3. **Composite** nodes (`Folder`) implement the interface by delegating to children
+
+The client treats everything as `FileSystemItem` — no type checking needed!
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class FileSystemItem {
+        <<interface>>
+        +getName() String
+        +getSize() int
+    }
+
+    class File {
+        -name: String
+        -size: int
+        +getName() String
+        +getSize() int
+    }
+
+    class Folder {
+        -name: String
+        -children: List~FileSystemItem~
+        +getName() String
+        +getSize() int
+        +add(item: FileSystemItem)
+        +remove(item: FileSystemItem)
+    }
+
+    FileSystemItem <|.. File
+    FileSystemItem <|.. Folder
+    Folder o--> FileSystemItem : contains
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+from abc import ABC, abstractmethod
+
+# Component interface
+class FileSystemItem(ABC):
+    @abstractmethod
+    def get_name(self) -> str:
+        pass
+
+    @abstractmethod
+    def get_size(self) -> int:
+        pass
+
+# Leaf
+class File(FileSystemItem):
+    def __init__(self, name: str, size: int):
+        self._name = name
+        self._size = size
+
+    def get_name(self) -> str:
+        return self._name
+
+    def get_size(self) -> int:
+        return self._size
+
+# Composite
+class Folder(FileSystemItem):
+    def __init__(self, name: str):
+        self._name = name
+        self._children: list[FileSystemItem] = []
+
+    def get_name(self) -> str:
+        return self._name
+
+    def get_size(self) -> int:
+        # Delegates to children — no type checking!
+        return sum(child.get_size() for child in self._children)
+
+    def add(self, item: FileSystemItem) -> None:
+        self._children.append(item)
+
+    def remove(self, item: FileSystemItem) -> None:
+        self._children.remove(item)
+```
+
+#### `C#`
+
+```csharp
+// Component interface
+public interface IFileSystemItem
+{
+    string Name { get; }
+    int GetSize();
+}
+
+// Leaf
+public class File : IFileSystemItem
+{
+    public string Name { get; }
+    private readonly int _size;
+
+    public File(string name, int size)
+    {
+        Name = name;
+        _size = size;
+    }
+
+    public int GetSize() => _size;
+}
+
+// Composite
+public class Folder : IFileSystemItem
+{
+    public string Name { get; }
+    private readonly List<IFileSystemItem> _children = [];
+
+    public Folder(string name) => Name = name;
+
+    public int GetSize()
+    {
+        // Delegates to children — no type checking!
+        return _children.Sum(child => child.GetSize());
+    }
+
+    public void Add(IFileSystemItem item) => _children.Add(item);
+
+    public void Remove(IFileSystemItem item) => _children.Remove(item);
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Component interface
+interface FileSystemItem {
+  getName(): string;
+  getSize(): number;
+}
+
+// Leaf
+class File implements FileSystemItem {
+  constructor(
+    private name: string,
+    private size: number
+  ) {}
+
+  getName(): string {
+    return this.name;
+  }
+
+  getSize(): number {
+    return this.size;
+  }
+}
+
+// Composite
+class Folder implements FileSystemItem {
+  private children: FileSystemItem[] = [];
+
+  constructor(private name: string) {}
+
+  getName(): string {
+    return this.name;
+  }
+
+  getSize(): number {
+    // Delegates to children — no type checking!
+    return this.children.reduce((sum, child) => sum + child.getSize(), 0);
+  }
+
+  add(item: FileSystemItem): void {
+    this.children.push(item);
+  }
+
+  remove(item: FileSystemItem): void {
+    const index = this.children.indexOf(item);
+    if (index > -1) {
+      this.children.splice(index, 1);
+    }
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+// Component interface
+abstract class FileSystemItem {
+  String getName();
+  int getSize();
+}
+
+// Leaf
+class File implements FileSystemItem {
+  final String _name;
+  final int _size;
+
+  File(this._name, this._size);
+
+  @override
+  String getName() => _name;
+
+  @override
+  int getSize() => _size;
+}
+
+// Composite
+class Folder implements FileSystemItem {
+  final String _name;
+  final List<FileSystemItem> _children = [];
+
+  Folder(this._name);
+
+  @override
+  String getName() => _name;
+
+  @override
+  int getSize() {
+    // Delegates to children — no type checking!
+    return _children.fold(0, (sum, child) => sum + child.getSize());
+  }
+
+  void add(FileSystemItem item) => _children.add(item);
+
+  void remove(FileSystemItem item) => _children.remove(item);
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Build the tree structure
+root = Folder("root")
+root.add(File("doc.txt", 100))
+root.add(File("image.png", 200))
+
+projects = Folder("projects")
+projects.add(File("code.py", 50))
+
+data = Folder("data")
+data.add(File("data.csv", 150))
+projects.add(data)
+
+root.add(projects)
+
+# Uniform interface — works the same for files and folders!
+print(f"doc.txt size: {File('doc.txt', 100).get_size()}")  # 100
+print(f"projects size: {projects.get_size()}")             # 200
+print(f"root size: {root.get_size()}")                     # 500
+```
+
+#### `C#`
+
+```csharp
+// Build the tree structure
+var root = new Folder("root");
+root.Add(new File("doc.txt", 100));
+root.Add(new File("image.png", 200));
+
+var projects = new Folder("projects");
+projects.Add(new File("code.py", 50));
+
+var data = new Folder("data");
+data.Add(new File("data.csv", 150));
+projects.Add(data);
+
+root.Add(projects);
+
+// Uniform interface — works the same for files and folders!
+Console.WriteLine($"doc.txt size: {new File("doc.txt", 100).GetSize()}");  // 100
+Console.WriteLine($"projects size: {projects.GetSize()}");                  // 200
+Console.WriteLine($"root size: {root.GetSize()}");                          // 500
+```
+
+#### `TypeScript`
+
+```typescript
+// Build the tree structure
+const root = new Folder("root");
+root.add(new File("doc.txt", 100));
+root.add(new File("image.png", 200));
+
+const projects = new Folder("projects");
+projects.add(new File("code.py", 50));
+
+const data = new Folder("data");
+data.add(new File("data.csv", 150));
+projects.add(data);
+
+root.add(projects);
+
+// Uniform interface — works the same for files and folders!
+console.log(`doc.txt size: ${new File("doc.txt", 100).getSize()}`);  // 100
+console.log(`projects size: ${projects.getSize()}`);                  // 200
+console.log(`root size: ${root.getSize()}`);                          // 500
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Build the tree structure
+  final root = Folder("root");
+  root.add(File("doc.txt", 100));
+  root.add(File("image.png", 200));
+
+  final projects = Folder("projects");
+  projects.add(File("code.py", 50));
+
+  final data = Folder("data");
+  data.add(File("data.csv", 150));
+  projects.add(data);
+
+  root.add(projects);
+
+  // Uniform interface — works the same for files and folders!
+  print("doc.txt size: ${File('doc.txt', 100).getSize()}");  // 100
+  print("projects size: ${projects.getSize()}");              // 200
+  print("root size: ${root.getSize()}");                      // 500
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Composite** lets you build tree structures where clients treat individual objects and groups of objects uniformly through a common interface.
+:::
+
+### Key Benefits
+
+- **Uniform Treatment**: Client code works with both leaves and composites through the same interface
+- **Recursive Structures**: Naturally handles nested hierarchies of any depth
+- **Open/Closed Principle**: Add new component types without changing existing code
+- **Simplified Client**: No type checking or special cases needed
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need to represent part-whole hierarchies (trees) | The structure is flat, not hierarchical |
+| You want clients to treat individual and composite objects uniformly | Leaf and composite behaviors differ significantly |
+| You need recursive structures of unknown depth | You need to enforce strict type differences between leaves and composites |
+| Operations should propagate through the tree (e.g., calculate totals) | |

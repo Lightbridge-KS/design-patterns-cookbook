@@ -1,0 +1,609 @@
+---
+title: "Facade"
+---
+
+The **Facade** pattern provides a simplified interface to a complex subsystem. It defines a higher-level interface that makes the subsystem easier to use — like a single power button that orchestrates the entire boot sequence of a computer.
+
+## Problem
+
+Imagine you're building a computer simulation. Starting a computer involves multiple subsystems: CPU, Memory, and HardDrive. Each has its own methods and must be called in a specific sequence. Without a facade, the client must coordinate all these subsystems manually.
+
+This leads to:
+
+- Client must know internal details of each subsystem
+- Client must know the correct sequence of operations
+- Changes to the boot sequence require modifying all client code
+- High coupling between client and subsystems
+
+### Example
+
+```{mermaid}
+flowchart LR
+    C[Client]
+
+    C --> CPU["cpu.freeze()"]
+    C --> HD["hardDrive.read()"]
+    C --> M["memory.load()"]
+    C --> CPU2["cpu.jump()"]
+    C --> CPU3["cpu.execute()"]
+
+    style C fill:#f96,stroke:#333
+```
+
+**Problems with this approach:**
+
+- Client is tightly coupled to all subsystem classes
+- Client must remember the exact boot sequence
+- Adding new steps (e.g., GPU initialization) requires changing client code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+class CPU:
+    def freeze(self) -> None:
+        print("CPU: Freezing processor")
+
+    def jump(self, address: int) -> None:
+        print(f"CPU: Jumping to address {address}")
+
+    def execute(self) -> None:
+        print("CPU: Executing instructions")
+
+class Memory:
+    def load(self, address: int, data: bytes) -> None:
+        print(f"Memory: Loading {len(data)} bytes at address {address}")
+
+class HardDrive:
+    def read(self, sector: int, size: int) -> bytes:
+        print(f"HardDrive: Reading {size} bytes from sector {sector}")
+        return b"boot_data"
+
+# Client must coordinate everything manually
+BOOT_ADDRESS = 0x0000
+BOOT_SECTOR = 0
+SECTOR_SIZE = 512
+
+cpu = CPU()
+memory = Memory()
+hard_drive = HardDrive()
+
+cpu.freeze()
+boot_data = hard_drive.read(BOOT_SECTOR, SECTOR_SIZE)
+memory.load(BOOT_ADDRESS, boot_data)
+cpu.jump(BOOT_ADDRESS)
+cpu.execute()
+```
+
+#### `C#`
+
+```csharp
+public class CPU
+{
+    public void Freeze() => Console.WriteLine("CPU: Freezing processor");
+    public void Jump(long address) => Console.WriteLine($"CPU: Jumping to address {address}");
+    public void Execute() => Console.WriteLine("CPU: Executing instructions");
+}
+
+public class Memory
+{
+    public void Load(long address, byte[] data)
+        => Console.WriteLine($"Memory: Loading {data.Length} bytes at address {address}");
+}
+
+public class HardDrive
+{
+    public byte[] Read(long sector, int size)
+    {
+        Console.WriteLine($"HardDrive: Reading {size} bytes from sector {sector}");
+        return new byte[size];
+    }
+}
+
+// Client must coordinate everything manually
+const long BootAddress = 0x0000;
+const long BootSector = 0;
+const int SectorSize = 512;
+
+var cpu = new CPU();
+var memory = new Memory();
+var hardDrive = new HardDrive();
+
+cpu.Freeze();
+var bootData = hardDrive.Read(BootSector, SectorSize);
+memory.Load(BootAddress, bootData);
+cpu.Jump(BootAddress);
+cpu.Execute();
+```
+
+#### `TypeScript`
+
+```typescript
+class CPU {
+  freeze(): void {
+    console.log("CPU: Freezing processor");
+  }
+
+  jump(address: number): void {
+    console.log(`CPU: Jumping to address ${address}`);
+  }
+
+  execute(): void {
+    console.log("CPU: Executing instructions");
+  }
+}
+
+class Memory {
+  load(address: number, data: Uint8Array): void {
+    console.log(`Memory: Loading ${data.length} bytes at address ${address}`);
+  }
+}
+
+class HardDrive {
+  read(sector: number, size: number): Uint8Array {
+    console.log(`HardDrive: Reading ${size} bytes from sector ${sector}`);
+    return new Uint8Array(size);
+  }
+}
+
+// Client must coordinate everything manually
+const BOOT_ADDRESS = 0x0000;
+const BOOT_SECTOR = 0;
+const SECTOR_SIZE = 512;
+
+const cpu = new CPU();
+const memory = new Memory();
+const hardDrive = new HardDrive();
+
+cpu.freeze();
+const bootData = hardDrive.read(BOOT_SECTOR, SECTOR_SIZE);
+memory.load(BOOT_ADDRESS, bootData);
+cpu.jump(BOOT_ADDRESS);
+cpu.execute();
+```
+
+#### `Dart`
+
+```dart
+import 'dart:typed_data';
+
+class CPU {
+  void freeze() => print("CPU: Freezing processor");
+  void jump(int address) => print("CPU: Jumping to address $address");
+  void execute() => print("CPU: Executing instructions");
+}
+
+class Memory {
+  void load(int address, Uint8List data) {
+    print("Memory: Loading ${data.length} bytes at address $address");
+  }
+}
+
+class HardDrive {
+  Uint8List read(int sector, int size) {
+    print("HardDrive: Reading $size bytes from sector $sector");
+    return Uint8List(size);
+  }
+}
+
+// Client must coordinate everything manually
+const bootAddress = 0x0000;
+const bootSector = 0;
+const sectorSize = 512;
+
+void main() {
+  final cpu = CPU();
+  final memory = Memory();
+  final hardDrive = HardDrive();
+
+  cpu.freeze();
+  final bootData = hardDrive.read(bootSector, sectorSize);
+  memory.load(bootAddress, bootData);
+  cpu.jump(bootAddress);
+  cpu.execute();
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Every client must know the entire boot sequence
+cpu.freeze()
+boot_data = hard_drive.read(BOOT_SECTOR, SECTOR_SIZE)
+memory.load(BOOT_ADDRESS, boot_data)
+cpu.jump(BOOT_ADDRESS)
+cpu.execute()
+
+# What if boot sequence changes? All clients must be updated!
+```
+
+#### `C#`
+
+```csharp
+// Every client must know the entire boot sequence
+cpu.Freeze();
+var bootData = hardDrive.Read(BootSector, SectorSize);
+memory.Load(BootAddress, bootData);
+cpu.Jump(BootAddress);
+cpu.Execute();
+
+// What if boot sequence changes? All clients must be updated!
+```
+
+#### `TypeScript`
+
+```typescript
+// Every client must know the entire boot sequence
+cpu.freeze();
+const bootData = hardDrive.read(BOOT_SECTOR, SECTOR_SIZE);
+memory.load(BOOT_ADDRESS, bootData);
+cpu.jump(BOOT_ADDRESS);
+cpu.execute();
+
+// What if boot sequence changes? All clients must be updated!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Every client must know the entire boot sequence
+  cpu.freeze();
+  final bootData = hardDrive.read(bootSector, sectorSize);
+  memory.load(bootAddress, bootData);
+  cpu.jump(bootAddress);
+  cpu.execute();
+
+  // What if boot sequence changes? All clients must be updated!
+}
+```
+
+:::
+
+
+## Solution
+
+The Facade pattern solves this by:
+
+1. Creating a **facade class** (`Computer`) that wraps the complex subsystems
+2. Providing a **simple method** (`start()`) that orchestrates the subsystems
+3. Clients only interact with the facade, not the subsystems directly
+
+Note: The facade doesn't hide the subsystems — they're still accessible for advanced use cases.
+
+### UML Diagram
+
+```{mermaid}
+classDiagram
+    class Computer {
+        -cpu: CPU
+        -memory: Memory
+        -hardDrive: HardDrive
+        +start()
+    }
+
+    class CPU {
+        +freeze()
+        +jump(address: long)
+        +execute()
+    }
+
+    class Memory {
+        +load(address: long, data: bytes)
+    }
+
+    class HardDrive {
+        +read(sector: long, size: int) bytes
+    }
+
+    class Client
+
+    Client --> Computer : uses
+    Computer --> CPU : orchestrates
+    Computer --> Memory : orchestrates
+    Computer --> HardDrive : orchestrates
+```
+
+### Refactored Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Subsystems (unchanged)
+class CPU:
+    def freeze(self) -> None:
+        print("CPU: Freezing processor")
+
+    def jump(self, address: int) -> None:
+        print(f"CPU: Jumping to address {address}")
+
+    def execute(self) -> None:
+        print("CPU: Executing instructions")
+
+class Memory:
+    def load(self, address: int, data: bytes) -> None:
+        print(f"Memory: Loading {len(data)} bytes at address {address}")
+
+class HardDrive:
+    def read(self, sector: int, size: int) -> bytes:
+        print(f"HardDrive: Reading {size} bytes from sector {sector}")
+        return b"boot_data"
+
+# Facade
+class Computer:
+    BOOT_ADDRESS = 0x0000
+    BOOT_SECTOR = 0
+    SECTOR_SIZE = 512
+
+    def __init__(self):
+        self._cpu = CPU()
+        self._memory = Memory()
+        self._hard_drive = HardDrive()
+
+    def start(self) -> None:
+        print("Computer: Starting...")
+        self._cpu.freeze()
+        boot_data = self._hard_drive.read(self.BOOT_SECTOR, self.SECTOR_SIZE)
+        self._memory.load(self.BOOT_ADDRESS, boot_data)
+        self._cpu.jump(self.BOOT_ADDRESS)
+        self._cpu.execute()
+        print("Computer: Ready!")
+```
+
+#### `C#`
+
+```csharp
+// Subsystems (unchanged)
+public class CPU
+{
+    public void Freeze() => Console.WriteLine("CPU: Freezing processor");
+    public void Jump(long address) => Console.WriteLine($"CPU: Jumping to address {address}");
+    public void Execute() => Console.WriteLine("CPU: Executing instructions");
+}
+
+public class Memory
+{
+    public void Load(long address, byte[] data)
+        => Console.WriteLine($"Memory: Loading {data.Length} bytes at address {address}");
+}
+
+public class HardDrive
+{
+    public byte[] Read(long sector, int size)
+    {
+        Console.WriteLine($"HardDrive: Reading {size} bytes from sector {sector}");
+        return new byte[size];
+    }
+}
+
+// Facade
+public class Computer
+{
+    private const long BootAddress = 0x0000;
+    private const long BootSector = 0;
+    private const int SectorSize = 512;
+
+    private readonly CPU _cpu = new();
+    private readonly Memory _memory = new();
+    private readonly HardDrive _hardDrive = new();
+
+    public void Start()
+    {
+        Console.WriteLine("Computer: Starting...");
+        _cpu.Freeze();
+        var bootData = _hardDrive.Read(BootSector, SectorSize);
+        _memory.Load(BootAddress, bootData);
+        _cpu.Jump(BootAddress);
+        _cpu.Execute();
+        Console.WriteLine("Computer: Ready!");
+    }
+}
+```
+
+#### `TypeScript`
+
+```typescript
+// Subsystems (unchanged)
+class CPU {
+  freeze(): void {
+    console.log("CPU: Freezing processor");
+  }
+
+  jump(address: number): void {
+    console.log(`CPU: Jumping to address ${address}`);
+  }
+
+  execute(): void {
+    console.log("CPU: Executing instructions");
+  }
+}
+
+class Memory {
+  load(address: number, data: Uint8Array): void {
+    console.log(`Memory: Loading ${data.length} bytes at address ${address}`);
+  }
+}
+
+class HardDrive {
+  read(sector: number, size: number): Uint8Array {
+    console.log(`HardDrive: Reading ${size} bytes from sector ${sector}`);
+    return new Uint8Array(size);
+  }
+}
+
+// Facade
+class Computer {
+  private static readonly BOOT_ADDRESS = 0x0000;
+  private static readonly BOOT_SECTOR = 0;
+  private static readonly SECTOR_SIZE = 512;
+
+  private cpu = new CPU();
+  private memory = new Memory();
+  private hardDrive = new HardDrive();
+
+  start(): void {
+    console.log("Computer: Starting...");
+    this.cpu.freeze();
+    const bootData = this.hardDrive.read(
+      Computer.BOOT_SECTOR,
+      Computer.SECTOR_SIZE
+    );
+    this.memory.load(Computer.BOOT_ADDRESS, bootData);
+    this.cpu.jump(Computer.BOOT_ADDRESS);
+    this.cpu.execute();
+    console.log("Computer: Ready!");
+  }
+}
+```
+
+#### `Dart`
+
+```dart
+import 'dart:typed_data';
+
+// Subsystems (unchanged)
+class CPU {
+  void freeze() => print("CPU: Freezing processor");
+  void jump(int address) => print("CPU: Jumping to address $address");
+  void execute() => print("CPU: Executing instructions");
+}
+
+class Memory {
+  void load(int address, Uint8List data) {
+    print("Memory: Loading ${data.length} bytes at address $address");
+  }
+}
+
+class HardDrive {
+  Uint8List read(int sector, int size) {
+    print("HardDrive: Reading $size bytes from sector $sector");
+    return Uint8List(size);
+  }
+}
+
+// Facade
+class Computer {
+  static const _bootAddress = 0x0000;
+  static const _bootSector = 0;
+  static const _sectorSize = 512;
+
+  final _cpu = CPU();
+  final _memory = Memory();
+  final _hardDrive = HardDrive();
+
+  void start() {
+    print("Computer: Starting...");
+    _cpu.freeze();
+    final bootData = _hardDrive.read(_bootSector, _sectorSize);
+    _memory.load(_bootAddress, bootData);
+    _cpu.jump(_bootAddress);
+    _cpu.execute();
+    print("Computer: Ready!");
+  }
+}
+```
+
+:::
+
+#### Usage
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Simple! Client only knows about the facade
+computer = Computer()
+computer.start()
+
+# Output:
+# Computer: Starting...
+# CPU: Freezing processor
+# HardDrive: Reading 512 bytes from sector 0
+# Memory: Loading 9 bytes at address 0
+# CPU: Jumping to address 0
+# CPU: Executing instructions
+# Computer: Ready!
+```
+
+#### `C#`
+
+```csharp
+// Simple! Client only knows about the facade
+var computer = new Computer();
+computer.Start();
+
+// Output:
+// Computer: Starting...
+// CPU: Freezing processor
+// HardDrive: Reading 512 bytes from sector 0
+// Memory: Loading 512 bytes at address 0
+// CPU: Jumping to address 0
+// CPU: Executing instructions
+// Computer: Ready!
+```
+
+#### `TypeScript`
+
+```typescript
+// Simple! Client only knows about the facade
+const computer = new Computer();
+computer.start();
+
+// Output:
+// Computer: Starting...
+// CPU: Freezing processor
+// HardDrive: Reading 512 bytes from sector 0
+// Memory: Loading 512 bytes at address 0
+// CPU: Jumping to address 0
+// CPU: Executing instructions
+// Computer: Ready!
+```
+
+#### `Dart`
+
+```dart
+void main() {
+  // Simple! Client only knows about the facade
+  final computer = Computer();
+  computer.start();
+
+  // Output:
+  // Computer: Starting...
+  // CPU: Freezing processor
+  // HardDrive: Reading 512 bytes from sector 0
+  // Memory: Loading 512 bytes at address 0
+  // CPU: Jumping to address 0
+  // CPU: Executing instructions
+  // Computer: Ready!
+}
+```
+
+:::
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Facade** provides a simple interface to a complex subsystem, reducing coupling between clients and the subsystem's internals.
+:::
+
+### Key Benefits
+
+- **Simplified Interface**: One method call instead of coordinating multiple subsystems
+- **Reduced Coupling**: Clients depend only on the facade, not internal classes
+- **Layered Architecture**: Facade can serve as an entry point to each subsystem layer
+- **Flexibility**: Subsystems remain accessible for advanced use cases
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need a simple interface to a complex subsystem | The subsystem is already simple enough |
+| You want to reduce dependencies between clients and subsystems | You need clients to have fine-grained control over subsystems |
+| You want to layer your subsystems (facade as entry point per layer) | The facade would become a "god object" that does too much |
+| Multiple clients need the same simplified workflow | |
