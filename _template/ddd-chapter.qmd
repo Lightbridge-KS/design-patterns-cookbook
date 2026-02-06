@@ -1,0 +1,25 @@
+---
+title: "[ddd-chapter-title]"
+---
+
+[You can use flexible explaination strategy and design here]
+
+[Mermaid diagram is welcome]
+
+```{mermaid}
+
+```
+
+
+## Concrete Example
+
+[Show concret code example to demonstrate the usage]
+
+::: {.panel-tabset}
+#### `C#`
+
+
+#### `Python`
+
+
+:::

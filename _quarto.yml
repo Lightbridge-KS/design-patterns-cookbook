@@ -69,6 +69,10 @@ book:
           href: "contents/behavioral/09-template-method.qmd"
         - text: Visitor Pattern
           href: "contents/behavioral/10-visitor.qmd"
+    - part: Domain-Driven Design
+      chapters:
+        - text: "Strategic Design"
+          href: "contents/ddd/strategic-design.qmd"
 
 format:
   html:
