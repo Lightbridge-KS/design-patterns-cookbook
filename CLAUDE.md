@@ -51,9 +51,13 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
   - Template Method → Beverage Preparation
   - Visitor → Shape Operations
 
+- **Domain-Driven Design:**
+  - Strategic Design → Radiology AI Workflow (Bounded Context, Aggregate, Domain Event) — C# & Python only
+
 ## Template
 
 - For chapter that related to design pattern, use this template: @_template/design-pattern-chapter.qmd
+- For chapter that related to DDD, use this template: @_template/ddd-chapter.qmd (C# & Python only)
 
 ## After Writting Content
 
