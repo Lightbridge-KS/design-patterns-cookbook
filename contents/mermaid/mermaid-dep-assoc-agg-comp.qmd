@@ -157,6 +157,26 @@ Separately, in **Mermaid's own vocabulary**, the plain solid line `A -- B` is co
 
 Here's the full spectrum rendered in the syntax you just learned, so the symbols stick:
 
+
+```{mermaid}
+classDiagram
+    direction LR
+
+    class ReportPrinter
+    class Document
+    class Order
+    class Customer
+    class Team
+    class Player
+    class House
+    class Room
+
+    ReportPrinter ..> Document : dependency (uses)
+    Order --> Customer : association (field)
+    Team o-- Player : aggregation (shared, outlives)
+    House *-- Room : composition (owned, dies with)
+```
+
 ```mermaid
 classDiagram
     direction LR
