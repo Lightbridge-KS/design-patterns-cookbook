@@ -13,6 +13,8 @@ book:
       chapters: 
         - text: OOP Cheatsheet
           href: "contents/oop/oop-cheatsheet.qmd"
+        - text: Mermaid Diagram Cheatsheet
+          href: "contents/mermaid/mermaid-diagram-cheatsheet.qmd"
     - part: Overview
       chapters:
         - text: Design Pattern Overview
