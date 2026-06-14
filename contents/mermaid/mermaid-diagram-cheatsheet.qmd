@@ -20,6 +20,17 @@ That's the whole grammar. Everything else is filling in details on those two.
 
 ## 2. Defining a class and its members
 
+```{mermaid}
+classDiagram
+    class Patient {
+        +string Name
+        +DateTime BirthDate
+        -string _hospitalNumber
+        +CalculateAge() int
+        +IsAdult() bool
+    }
+```
+
 ```mermaid
 classDiagram
     class Patient {
@@ -39,6 +50,13 @@ Inside the braces, the rule of thumb is: **fields look like `Type Name` or `Name
 ```
 
 You can also declare members outside the braces with a colon, which is handy when generating diagrams programmatically:
+
+```{mermaid}
+classDiagram
+    class Patient
+    Patient : +string Name
+    Patient : +CalculateAge() int
+```
 
 ```mermaid
 classDiagram
@@ -64,6 +82,15 @@ And two *trailing* modifiers (placed at the end of the line):
 |--------|---------|---------------|
 | `*` | abstract | `abstract` method |
 | `$` | static | `static` |
+
+```{mermaid}
+classDiagram
+    class MathHelper {
+        +Pi double$
+        +Compute()* double
+        +Round(double x) double$
+    }
+```
 
 ```mermaid
 classDiagram
@@ -99,6 +126,32 @@ Solid line vs dashed line: **solid = structural** (it's a field/member), **dashe
 
 Worked example showing all of them:
 
+```{mermaid}
+classDiagram
+    class Animal {
+        <<abstract>>
+        +string Name
+        +MakeSound()* string
+    }
+    class Dog {
+        +MakeSound() string
+    }
+    class IFeedable {
+        <<interface>>
+        +Feed() void
+    }
+    class Engine
+    class Wheel
+    class Car
+    class Logger
+
+    Animal <|-- Dog : inheritance
+    IFeedable <|.. Dog : realization
+    Car *-- Engine : composition
+    Car o-- Wheel : aggregation
+    Car --> Logger : association
+```
+
 ```mermaid
 classDiagram
     class Animal {
@@ -131,6 +184,13 @@ Note `IFeedable <|.. Dog` — that's the same as `Dog ..|> IFeedable`, just writ
 
 Put quoted multiplicity strings on either end of a relationship:
 
+```{mermaid}
+classDiagram
+    Customer "1" --> "0..*" Order
+    Order "1" *-- "1..*" OrderLine
+    Order "*" --> "1" Product
+```
+
 ```mermaid
 classDiagram
     Customer "1" --> "0..*" Order
@@ -143,6 +203,26 @@ Common values: `1`, `0..1`, `1..*`, `0..*`, `*`, or exact numbers like `2`. Read
 ## 6. Annotations (stereotypes)
 
 These give a class a `<<label>>` badge — essential for distinguishing interfaces, abstract classes, enums, and DDD building blocks:
+
+```{mermaid}
+classDiagram
+    class IPatientRepository {
+        <<interface>>
+        +GetById(Guid id) Patient
+        +Save(Patient patient) void
+    }
+    class Money {
+        <<value object>>
+        +decimal Amount
+        +string Currency
+    }
+    class StudyStatus {
+        <<enumeration>>
+        Pending
+        InProgress
+        Completed
+    }
+```
 
 ```mermaid
 classDiagram
@@ -170,6 +250,18 @@ Built-in ones include `<<interface>>`, `<<abstract>>`, `<<enumeration>>`, `<<ser
 
 Use tildes `~T~` instead of angle brackets (since `<>` clash with the arrow syntax):
 
+```{mermaid}
+classDiagram
+    class IRepository~T~ {
+        <<interface>>
+        +GetById(Guid id) T
+        +Add(T entity) void
+        +List~T~ GetAll()
+    }
+    class Repository~T~
+    IRepository~T~ <|.. Repository~T~
+```
+
 ```mermaid
 classDiagram
     class IRepository~T~ {
@@ -186,6 +278,14 @@ Nested generics like `List~T~` work inside members too.
 
 ## 8. Notes and layout direction
 
+```{mermaid}
+classDiagram
+    direction LR
+    note "All entities derive from EntityBase"
+    class EntityBase
+    note for EntityBase "Holds the Id and equality logic"
+```
+
 ```mermaid
 classDiagram
     direction LR
@@ -199,6 +299,56 @@ classDiagram
 ## 9. Putting it together — a DDD / clean-architecture slice in C#
 
 Here's a small but realistic example that ties all the pieces to your project's themes — an aggregate root, a value object, a repository interface, and the dependency-inversion arrow that defines clean architecture:
+
+```{mermaid}
+classDiagram
+    direction LR
+
+    class EntityBase {
+        <<abstract>>
+        +Guid Id
+        #EntityBase(Guid id)
+    }
+
+    class RadiologyStudy {
+        <<aggregate root>>
+        +PatientId PatientId
+        +StudyStatus Status
+        -List~Report~ _reports
+        +AddReport(Report report) void
+        +Complete() void
+    }
+
+    class Report {
+        <<entity>>
+        +Guid Id
+        +string Findings
+    }
+
+    class PatientId {
+        <<value object>>
+        +Guid Value
+        +Equals(object other) bool
+    }
+
+    class IStudyRepository {
+        <<interface>>
+        +GetById(Guid id) RadiologyStudy
+        +Save(RadiologyStudy study) void
+    }
+
+    class EfStudyRepository {
+        +GetById(Guid id) RadiologyStudy
+        +Save(RadiologyStudy study) void
+    }
+
+    EntityBase <|-- RadiologyStudy
+    EntityBase <|-- Report
+    RadiologyStudy "1" *-- "0..*" Report : composition
+    RadiologyStudy --> PatientId : association
+    IStudyRepository <|.. EfStudyRepository : implements
+    IStudyRepository ..> RadiologyStudy : depends
+```
 
 ```mermaid
 classDiagram
