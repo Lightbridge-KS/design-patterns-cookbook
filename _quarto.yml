@@ -13,10 +13,12 @@ book:
       chapters: 
         - text: OOP Cheatsheet
           href: "contents/oop/oop-cheatsheet.qmd"
-        - text: Mermaid Diagram Cheatsheet
-          href: "contents/mermaid/mermaid-diagram-cheatsheet.qmd"
-        - text: Mermaid Different Type of Relationship
-          href: "contents/mermaid/mermaid-dep-assoc-agg-comp.qmd"
+        - text: Mermaid UML Diagram Cheatsheet
+          href: "contents/mermaid/uml-diagram-cheatsheet.qmd"
+        - text: Mermaid UML Different Type of Relationship
+          href: "contents/mermaid/uml-dep-assoc-agg-comp.qmd"
+        - text: Mermaid UML Access Modifier
+          href: "contents/mermaid/uml-access-modifiers.qmd"
     - part: Overview
       chapters:
         - text: Design Pattern Overview

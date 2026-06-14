@@ -1,5 +1,5 @@
 ---
-title: "Mermaid Diagram CheatSheet"
+title: "UML: Mermaid Diagram CheatSheet"
 ---
 
 Class diagrams are the workhorse of OOP modeling, and they map almost 1:1 onto C# concepts (classes, interfaces, inheritance, composition). Mermaid's `classDiagram` syntax is also what the Mermaid MCP in this project speaks, so learning it pays off twice.

@@ -1,5 +1,5 @@
 ---
-title: "Mermaid Different Type of Relationship"
+title: "UML: Different Type of Relationship"
 ---
 
 ::: {.callout-note appearance="default" collapse="false"}
