@@ -79,7 +79,14 @@ book:
       chapters:
         - text: "Strategic Design"
           href: "contents/ddd/strategic-design.qmd"
-
+    - part: Microkernel / Plug-in Architecture
+      chapters: 
+        - text: "Microkernel, Registry, and Manifest-First"
+          href: "contents/plugins-arch/microkernel-registry-manifest-first.qmd"
+        - text: "Manifest-first / Declarative Meta"
+          href: "contents/plugins-arch/manifest-first-declarative-meta.qmd"
+        - text: "Capability Flag"
+          href: "contents/plugins-arch/capability-flag-over-type-switching.qmd"
 format:
   html:
     theme:
@@ -91,3 +98,4 @@ format:
     lightbox: true
 
 
+freeze: auto

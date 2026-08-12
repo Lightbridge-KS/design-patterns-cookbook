@@ -1,0 +1,525 @@
+---
+title: "Microkernel, Registry, and Manifest-First"
+---
+
+> A study note on how three ideas at three levels of abstraction fit together:
+> an architectural **style**, a **pattern**, and a **mechanism**.
+
+---
+
+## 0. The map
+
+The three concepts are often confused because they usually appear together. They
+are not alternatives — they stack.
+
+```
+  ARCHITECTURAL STYLE   Microkernel / Plug-in Architecture
+        |                  "thin core + independently deployable extensions"
+        |
+        +--------------------------------------------------+
+        v                                                  v
+  PATTERN               Registry                     Plugin Contract
+        |                  "index of what exists"       "the interface"
+        v
+  MECHANISM             Manifest-first discovery
+                           "populate the index from declarative data"
+```
+
+Read top-down: the style creates the need, the pattern answers it, the mechanism
+implements the pattern.
+
+---
+
+## 1. Microkernel / Plug-in Architecture
+
+### 1.1 Definition
+
+A **thin core system** that provides minimal general functionality, plus a set of
+**plug-in components** that supply specialized, independently deployable
+behaviour. The core knows *that* plugins exist and how to talk to them; it does
+not know what any specific plugin does.
+
+```
+                    +-------------------------+
+                    |      CORE SYSTEM        |
+                    |  (minimal, stable, thin)|
+                    +------------+------------+
+                                 |
+        +----------+----------+--+-------+----------+
+        |          |          |          |          |
+   +---------+ +---------+ +---------+ +---------+ +---------+
+   | Plug-in | | Plug-in | | Plug-in | | Plug-in | | Plug-in |
+   |    A    | |    B    | |    C    | |    D    | |    E    |
+   +---------+ +---------+ +---------+ +---------+ +---------+
+   independently deployable, separately versioned, often 3rd-party
+```
+
+### 1.2 The core's three obligations
+
+Unpack "the core" and you always find the same three jobs:
+
+```
+  +--------------------------- CORE SYSTEM ---------------------------+
+  |                                                                   |
+  |   +------------+    +------------+    +----------------------+    |
+  |   | DISCOVERY  |--->|  REGISTRY  |--->| CONTRACT / ADAPTER   |    |
+  |   |            |    |            |    |                      |    |
+  |   | how do I   |    | what is    |    | how do I call it     |    |
+  |   | FIND them? |    | available? |    | once I have it?      |    |
+  |   +------------+    +------------+    +----------------------+    |
+  |                                                                   |
+  +-------------------------------------------------------------------+
+```
+
+| Obligation | Question it answers | Typical implementation |
+|---|---|---|
+| Discovery | Where do plugins come from? | directory scan, config list, package index |
+| Registry | What is available right now? | in-memory dict/index (Section 2) |
+| Contract | How do I invoke one safely? | interface + version negotiation + adapter |
+
+**Manifest-first (Section 3) answers Discovery, fills the Registry, and declares
+one half of the Contract.**
+
+### 1.3 Examples
+
+| System | Core | Plug-ins |
+|---|---|---|
+| VS Code | editor shell | extensions |
+| Quarto | render pipeline | filters, formats, extensions |
+| Android | OS + framework | apps |
+| Claude Code | agent loop | skills, MCP servers, hooks |
+| Eclipse / OSGi | runtime | bundles |
+| pytest | test runner | plugins / fixtures |
+| Web browser | engine | extensions |
+
+### 1.4 When to reach for it
+
+```
+  USE when:                          AVOID when:
+  + feature set is open-ended        - feature set is small and fixed
+  + third parties should extend it   - all code is yours and in-repo
+  + features ship on separate        - everything ships as one binary
+    schedules from the core          - the "core" would be thicker than
+  + users install only what they       the plugins (no real separation)
+    need
+```
+
+**Main cost:** every extension point is a public API you can no longer change
+freely. Design few, wide extension points rather than many narrow ones.
+
+---
+
+## 2. The Registry Pattern
+
+### 2.1 Definition
+
+A well-known object that maps a **key** to a **thing**, so callers can look up a
+component by identity or capability instead of importing it directly. It is the
+core system's *memory* of what exists.
+
+```
+   Registry {
+     "dicom" -> DicomReader,
+     "pdf"   -> PdfExporter,
+     "nifti" -> NiftiReader,
+   }
+   + secondary indexes: by capability, by file format, by priority
+```
+
+It is a form of **inversion of control**: the caller says *what* it needs
+("a reader for `.dcm`"), not *which class* to instantiate.
+
+### 2.2 How registries get filled — the spectrum
+
+Registry is agnostic about its source. The options form a spectrum, and
+manifest-first sits at one end:
+
+```
+ CODE-FIRST <--------------------------------------------> MANIFEST-FIRST
+
+ (1) Manual        (2) Self-register    (3) Convention    (4) Manifest
+     wiring            (decorator /         scan              file
+                        static init)
+
+ registry.add(     @register("pdf")     scan plugins/*    read plugin.yaml
+   "pdf", Pdf)     class Pdf: ...       import each       import nothing
+```
+
+| | (1) Manual | (2) Decorator | (3) Scan | (4) Manifest |
+|---|---|---|---|---|
+| Must execute code to discover? | yes | yes | yes | **no** |
+| Discovery cost = activation cost? | yes | yes | yes | **no** |
+| Safe for untrusted plugins? | no | no | no | **yes** |
+| Deterministic registration order? | yes | **no** | **no** | yes |
+| Tooling / catalog friendly? | no | no | no | **yes** |
+| Risk of declaration/code drift? | low | lowest | low | **higher** |
+
+> **Import-order hazard (option 2).** A `@register` decorator never fires if
+> nothing imports the module. Classic silent-failure bug in Python and in C#
+> static constructors. Manifest-first eliminates it structurally: the scan is a
+> directory listing, not a call graph.
+
+### 2.3 The two-tier registry
+
+The structural move that makes a registry manifest-first: split it, and populate
+only the top tier eagerly.
+
+```
+  +-----------------------------------------------------+
+  | TIER 1 -- DESCRIPTOR REGISTRY   (eager, cheap)      |
+  |   key -> { metadata..., entry: "module:Class" }     |
+  |   * populated by scanning manifests                 |
+  |   * queryable, sortable, permission-checkable       |
+  |   * NO plugin code has executed                     |
+  +---------------------------+-------------------------+
+                              | resolve(key)
+                              v
+  +-----------------------------------------------------+
+  | TIER 2 -- INSTANCE REGISTRY     (lazy, expensive)   |
+  |   key -> live object / factory result               |
+  |   * populated on first use, then memoized           |
+  +-----------------------------------------------------+
+```
+
+```python
+class Registry:
+    def __init__(self, root: Path):
+        # Tier 1: eager, pure data -- no plugin code runs
+        self._desc = {m["name"]: m for m in scan_manifests(root)}
+        self._live: dict[str, object] = {}          # Tier 2: lazy
+
+    def find(self, **query):            # query without activating
+        return [d for d in self._desc.values() if matches(d, query)]
+
+    def get(self, name):                # the ONLY door to execution
+        if name not in self._live:
+            d = self._desc[name]
+            self._live[name] = import_string(d["entry"])()
+        return self._live[name]
+```
+
+`find()` never touches plugin code. `get()` is the single activation point.
+That separation is unavailable if the registry is populated by imports.
+
+---
+
+## 3. Manifest-First / Declarative Metadata
+
+### 3.1 The core idea
+
+> Describe a component's identity, capabilities, and requirements as **data** —
+> separate from, and readable **before**, the code that implements it.
+
+The manifest is the contract. The implementation is an artifact the runtime
+fetches later, only if the manifest says it is needed.
+
+```
+        +-----------------------------------------+
+        |  MANIFEST  (declarative, cheap, safe)   |
+        |  name, version, capabilities,           |
+        |  dependencies, entry point, config      |
+        +--------------------+--------------------+
+                             |  read + validate FIRST
+                             v
+        +-----------------------------------------+
+        |  LOADER / RESOLVER                      |
+        |  build registry, resolve deps, decide   |
+        +--------------------+--------------------+
+                             |  activate on demand
+                             v
+        +-----------------------------------------+
+        |  IMPLEMENTATION (imperative, expensive) |
+        |  the actual code, loaded lazily         |
+        +-----------------------------------------+
+```
+
+"Manifest-**first**" is the temporal claim: nothing executes until the
+description has been read and understood.
+
+### 3.2 Side by side
+
+**Imperative (code-first)** — to answer *"what plugins exist?"* you must import
+everything:
+
+```python
+# plugins/__init__.py -- must EXECUTE to learn anything
+from .pdf_export import PdfExporter
+from .dicom_reader import DicomReader   # imports pydicom, numpy... 400ms
+
+registry.register("pdf", PdfExporter)
+registry.register("dicom", DicomReader)
+```
+
+**Declarative (manifest-first)** — the entry point is a *string*, not an import:
+
+```yaml
+# plugins/dicom_reader/plugin.yaml
+schemaVersion: 1
+name: dicom-reader
+version: 1.2.0
+provides: [reader]
+formats: [".dcm", ".ima"]
+requires: { pydicom: ">=2.4" }
+entry: dicom_reader.main:DicomReader
+```
+
+```python
+manifests = [yaml.safe_load(p.read_text())
+             for p in Path("plugins").glob("*/plugin.yaml")]
+# Everything is known. Zero plugin code has run.
+
+chosen = next(m for m in manifests if ".dcm" in m["formats"])
+cls = import_string(chosen["entry"])   # activate ONLY this one
+```
+
+### 3.3 The four properties that create the value
+
+```
+ 1. INSPECTABLE WITHOUT EXECUTING
+    enumerate, search, validate, permission-check, render docs,
+    build a dependency graph -- without running a line
+
+ 2. LATE / LAZY BINDING
+    discovery is O(read a small file); activation is deferred
+    1000 plugins ~ 1000 tiny reads, 1 actual import
+
+ 3. UNIFORM SHAPE -> TOOLING
+    schema-backed data enables linters, IDE completion, registries,
+    reviewable diffs, codegen, marketplaces
+
+ 4. INVERSION OF CONTROL
+    the component declares WHAT it is; the host decides WHEN and
+    WHETHER to use it -- host owns the lifecycle
+```
+
+Property 1 is the **security** story (Android permissions, browser extension
+manifests). Property 2 is the **performance** story. Property 3 is why
+**ecosystems** grow around manifest-based systems.
+
+### 3.4 The decisive argument: dependency resolution
+
+If plugins depend on each other, you must know **all** declarations before
+activating **any** of them. You cannot topologically sort a graph you are
+discovering by walking it.
+
+```
+  CODE-FIRST                        MANIFEST-FIRST
+  ----------                        --------------
+  import A                          read all manifests
+   +- A needs B?                     +- A requires B
+      import B  <- discovered        +- B requires C
+       +- B needs C?                 +- C requires nothing
+          import C  <- discovered
+             +- C needs A?          build graph -> topo-sort
+                XX cycle, mid-init  -> C, B, A
+                   half-built state    (or reject cleanly, nothing loaded)
+```
+
+Code-first finds the cycle *after* partially constructing objects.
+Manifest-first finds it in a pure function over data, before any side effects.
+
+This is exactly why `Cargo.toml`, `package.json` and R's `DESCRIPTION` are
+separate files rather than inferred from `use` / `require` / `library()`
+statements: **the resolver must run on data.**
+
+> **Consequence:** Registry + inter-plugin dependencies => you will end up
+> manifest-first whether you planned to or not.
+
+### 3.5 Progressive disclosure — the LLM-era variant
+
+When the scarce resource is *context window* rather than *startup time*, the
+same pattern appears under a different name:
+
+```
+   ALL components       ~50 tokens each      always loaded
+   +--------------------------------------+
+   | name + description  (the manifest)   |  <- cheap, eager
+   +--------------------------------------+
+              | match / route
+              v
+   ONE component        ~2000 tokens        loaded on demand
+   +--------------------------------------+
+   | body, references/, scripts/          |  <- expensive, lazy
+   +--------------------------------------+
+```
+
+Claude Code skills work this way: only YAML frontmatter (`name`,
+`description`) is eagerly in context; the body is read only for the matched
+skill. MCP tool schemas are the same idea for tools.
+
+> **Rule that follows:** in a manifest-first system, **the manifest _is_ the
+> interface.** A poor `description` makes an excellent skill invisible, because
+> the implementation is never reached.
+
+---
+
+## 4. Where they meet — and where they don't
+
+Manifest-first is a mechanism *commonly used inside* microkernel architecture,
+but neither implies the other. Overlapping sets, not nesting:
+
+```
+   +---------------------------+   +---------------------------+
+   | MICROKERNEL, no manifest  |   | MANIFEST-FIRST, no kernel |
+   |                           |   |                           |
+   | * pytest hooks            |   | * Cargo.toml / npm        |
+   | * .NET MEF [Export]       |   | * Kubernetes YAML         |
+   | * Emacs / vim plugins     |   | * GitHub Actions workflow |
+   | * naive scan-and-import   |   | * Quarto doc frontmatter  |
+   |        +------------------+---+--------------+            |
+   |        |  BOTH -- the common case:           |            |
+   |        |    VS Code extensions               |            |
+   |        |    Android apps                     |            |
+   |        |    Claude Code skills / MCP         |            |
+   |        |    Quarto extensions                |            |
+   |        |    OSGi bundles                     |            |
+   |        +------------------+---+--------------+            |
+   +---------------------------+   +---------------------------+
+```
+
+> **.NET MEF is the interesting hybrid.** `[Export]` attributes are metadata
+> embedded in the assembly — declarative in spirit, but you must load the
+> assembly to read them. Hence MEF's separate catalog-caching layer, which
+> claws back the lazy-discovery property that a true manifest gives for free.
+
+### 4.1 Why microkernels gravitate toward manifests
+
+Not accidental — each defining constraint of the style pushes that way:
+
+| Microkernel constraint | What it demands | Manifest supplies |
+|---|---|---|
+| Independently deployable plugins | discover without recompiling core | file scan, no imports |
+| Third-party / untrusted plugins | inspect + gate before running | permissions, capabilities |
+| Many available, few used | don't pay for the unused | lazy entry point |
+| Core and plugins evolve apart | version negotiation | `engines`, `apiVersion` |
+| Users browse and install | a marketplace needs a catalog | uniform schema |
+
+**Canonical illustration — VS Code:** `contributes` declares every command,
+menu, and setting so the UI can render them without loading anything;
+`activationEvents` means the extension's JS loads only when a declared trigger
+fires. Install 60 extensions, load 4.
+
+### 4.2 Manifest layout in a plugin
+
+```
+  plugins/dicom-reader/
+    plugin.yaml          <- MANIFEST: identity, deps, entry point, capabilities
+    src/
+      main.py            <- IMPLEMENTATION: loaded only via entry point
+    tests/
+```
+
+> The manifest declares **that** the plugin satisfies a contract and **under
+> what conditions** it applies. The code **proves** it.
+> The interface itself (signatures, ABI) stays in code — that is the other half
+> of the contract.
+
+---
+
+## 5. Trade-offs and failure modes
+
+### 5.1 Manifest drift
+Two sources of truth that can disagree (`entry: foo:Bar` while the code renamed
+`Bar` to `Baz`). Failure surfaces at *load time* with a confusing error rather
+than at compile time.
+**Mitigate:** JSON-Schema validation in CI; or generate one side from the other
+(decorators -> manifest, or manifest -> stub code).
+
+### 5.2 The "YAML becomes a programming language" trap
+
+```
+   expressiveness
+   needed
+        |                             ,--- Helm / CI-YAML hell
+        |                        ,---'
+        |            ,----------'
+        |     ,-----'  <- sweet spot: static facts only
+        +----'------------------------------------> feature creep over time
+```
+
+Declarative formats acquire conditionals, then loops, then interpolation, then
+templating — and you have built a bad language with no debugger.
+**Rule:** if a field's value depends on runtime state, it does not belong in the
+manifest. Add a code escape hatch instead of growing the schema.
+
+### 5.3 Schema versioning
+The manifest schema is a public API. Once third parties author manifests you
+cannot rename fields. **Include `schemaVersion` from day one.**
+
+### 5.4 Indirection cost
+For a closed system with three components you own, a manifest layer is pure
+ceremony.
+
+---
+
+## 6. Decision guide
+
+```
+  Do I need a MICROKERNEL?
+    open-ended features + independent deployment + external authors  -> yes
+    small fixed feature set, single binary                           -> no
+
+  Do I need a REGISTRY?
+    more than a handful of interchangeable components                -> yes
+    a couple of implementations behind one interface                 -> just DI
+
+  Do I need MANIFEST-FIRST?  (>= 2 of these)
+    [ ] open set of components (plugins, 3rd-party, user-authored)
+    [ ] discovery must be cheaper than activation
+    [ ] components are untrusted or need permission gating
+    [ ] you want tooling / a catalog / a marketplace
+    [ ] non-programmers must configure or author components
+    [ ] plugins depend on each other (topological ordering needed)
+
+  Skip manifests when:
+    x closed set, all in-repo, all yours
+    x every component loads on every run anyway
+    x the "config" is really logic in disguise
+```
+
+> **Heuristic: the manifest earns its keep at the trust boundary.**
+> If plugins cross an organizational, deployment, or security boundary —
+> declare. If they don't — wire them up in code and skip the ceremony.
+
+---
+
+## 7. One-paragraph synthesis
+
+Microkernel is the **shape**: a thin core plus swappable extensions. Registry is
+the core's **memory** of which extensions exist. Manifest-first is the
+**discipline** that lets that memory be built from inert, inspectable data
+instead of executed code — which in turn is what makes untrusted plugins safe,
+large plugin sets fast, and inter-plugin dependencies resolvable. You can build
+a microkernel without it, and many do; but every microkernel that grew a
+third-party ecosystem eventually adopted it, because a marketplace is just a
+registry of manifests you have not downloaded yet.
+
+---
+
+## Appendix — Manifest examples in the wild
+
+| System | Manifest | Implementation |
+|---|---|---|
+| npm | `package.json` | `node_modules/**/*.js` |
+| Rust | `Cargo.toml` | `src/**/*.rs` |
+| R packages | `DESCRIPTION` / `NAMESPACE` | `R/*.R` |
+| Python | `pyproject.toml`, entry points | the package |
+| Quarto | `_quarto.yml`, `_extension.yml` | `.qmd` body, Lua filters |
+| Kubernetes | Deployment / Pod YAML | container image |
+| VS Code ext. | `package.json -> contributes` | `extension.js` (lazy) |
+| Android | `AndroidManifest.xml` | `classes.dex` |
+| Claude Code skills | `SKILL.md` frontmatter | body + `scripts/` |
+| MCP | tool JSON schemas | server handlers |
+| GitHub Actions | `action.yml` | the action's code |
+
+## Appendix — Related patterns
+
+| Pattern | Relationship |
+|---|---|
+| Registry | The in-memory index the manifest populates (Section 2) |
+| Service Locator | A registry queried by service type; same IoC family |
+| Dependency Injection | Solves the same wiring problem from the opposite direction — the container pushes dependencies in, rather than components pulling from an index |
+| Abstract Factory | Often what a registry entry *resolves to* |
+| Lazy Loading / Virtual Proxy | The activation half of manifest-first |
+| Progressive Disclosure | The context-window variant (Section 3.5) |
+| Convention over Configuration | The competing philosophy: infer from structure instead of declaring |

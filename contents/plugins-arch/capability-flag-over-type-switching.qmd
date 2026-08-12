@@ -1,0 +1,209 @@
+---
+title: "Capability flags over type-switching"
+---
+
+::: {.callout-note appearance="default" collapse="false"}
+Q: What is "Capability flags over type-switching" design strategy
+:::
+
+
+## The one-line version
+
+> Don't ask an object **what it is**; ask it **what it can do** — and let it answer with data, not with its class name.
+
+Type-switching couples the caller to the *identity* of every implementation. Capability flags couple the caller only to the *feature* it actually needs.
+
+---
+
+## 1. The smell it replaces
+
+```python
+def export(source):
+    if isinstance(source, PacsSource):
+        return source.pull_via_cmove()
+    elif isinstance(source, LocalDicomDir):
+        return source.read_files()
+    elif isinstance(source, S3Source):
+        return source.download_prefix()
+    elif isinstance(source, ScannerLiveFeed):
+        raise NotImplementedError("can't export a live feed")
+    ...
+```
+
+Every new `ImageSource` forces you to reopen **every** `if/elif` chain in the codebase. That's *shotgun surgery*, and it's a direct Open/Closed violation.
+
+```
+            TYPE-SWITCHING                        CAPABILITY-BASED
+   ┌──────────────────────────────┐      ┌──────────────────────────────┐
+   │ caller must know the full     │      │ caller knows one predicate    │
+   │ closed list of concrete types │      │ "does it support X?"          │
+   └──────────────────────────────┘      └──────────────────────────────┘
+              │                                        │
+    add a new type  →  edit N call sites     add a new type  →  edit 0 call sites
+```
+
+---
+
+## 2. The reframe
+
+The `export()` function never actually cared about `PacsSource`. It cared about **"is this thing enumerable and pullable in bulk?"** — a *capability*. So make that the question:
+
+```python
+def export(source: ImageSource):
+    if not source.supports_bulk_pull:
+        raise UnsupportedOperation(f"{source.name} cannot bulk-pull")
+    return source.bulk_pull()
+```
+
+Now `ScannerLiveFeed` just reports `supports_bulk_pull = False`, and a future `GoogleHealthcareApiSource` reports `True` — **no call site changes**.
+
+You've moved knowledge from the *caller* into the *implementation*, which is the only place that legitimately owns it.
+
+---
+
+## 3. Four levels of the same idea
+
+There's a ladder here, from crude to type-safe. Worth knowing where you are on it.
+
+```
+ Level 4  Capability object      Optional<Seekable> asSeekable()   ← strongest
+ Level 3  Role interface query   if (x is ISeekable s) s.Seek()
+ Level 2  Capability set         if (caps.contains(Cap.SEEK))
+ Level 1  Boolean flags          if (x.CanSeek)
+ ─────────────────────────────────────────────────────────────
+ Level 0  Type switch            if (x is FileStream)            ← weakest
+```
+
+**Level 1 — Boolean flags.** The canonical .NET example, which you'll recognize:
+
+```csharp
+public abstract class Stream {
+    public abstract bool CanRead  { get; }
+    public abstract bool CanSeek  { get; }
+    public abstract bool CanWrite { get; }
+}
+```
+
+`Stream` is deliberately one fat type whose *shape* is described by data.
+
+**Level 2 — Capability sets.** Better when capabilities multiply; they become composable and queryable.
+
+```python
+class Cap(Flag):
+    BULK_PULL   = auto()
+    STREAMING   = auto()
+    QUERY_BY_ID = auto()
+    ANONYMIZE   = auto()
+
+# implementation declares itself
+class PacsSource(ImageSource):
+    capabilities = Cap.BULK_PULL | Cap.QUERY_BY_ID
+
+# caller composes requirements
+required = Cap.BULK_PULL | Cap.ANONYMIZE
+if required not in source.capabilities:
+    missing = required & ~source.capabilities
+```
+
+That last line is impossible with scattered booleans — you get set algebra for free.
+
+**Level 3 — Role interfaces.** Interface Segregation applied as capability. Note this *looks* like type-switching but isn't: you're testing a narrow role, not a concrete class, so it stays open to extension.
+
+```csharp
+if (source is IAnonymizable anon) { anon.StripPhi(); }
+```
+
+**Level 4 — Capability objects.** The strongest form, and the one that fixes the flaw below.
+
+---
+
+## 4. The trap: the lying flag
+
+Levels 1–2 have a real weakness. The flag and the method are two separate things, so nothing stops this:
+
+```csharp
+stream.CanSeek == true;
+stream.Seek(0, SeekOrigin.Begin);   // 💥 NotSupportedException anyway
+```
+
+The fat interface still *declares* `Seek()` on every stream, and non-seekable ones must throw. That's a **Liskov violation baked into the design** — the flag is a runtime apology for a type that promises more than it delivers.
+
+```
+  FLAG STYLE                          CAPABILITY-OBJECT STYLE
+  ┌────────────────┐                  ┌────────────────┐
+  │ Source         │                  │ Source         │
+  │  canBulkPull   │                  │  asBulkPuller()│──┐
+  │  bulkPull() ⚠  │  may throw       └────────────────┘  │
+  └────────────────┘                                      ▼
+                                              ┌────────────────────┐
+   check and use are SEPARABLE                │ BulkPuller | None  │
+   → you can skip the check                   │  bulkPull()  ✓     │
+                                              └────────────────────┘
+                                        check and use are FUSED
+                                        → you cannot call it unless you have it
+```
+
+```dart
+abstract class ImageSource {
+  BulkPuller? get bulkPuller;   // null == capability absent
+}
+
+// usage — the null check IS the capability check
+final puller = source.bulkPuller;
+if (puller == null) return Err('not supported');
+await puller.pull();            // guaranteed to exist
+```
+
+Rule of thumb: **flags where the capability is cheap and advisory; capability objects where calling the wrong thing is a bug you want the type system to catch.**
+
+---
+
+## 5. Why it's structurally better
+
+| Force | Type-switching | Capability |
+|---|---|---|
+| Add a new implementation | edit N call sites | edit 1 new class |
+| Add a new capability | edit N classes | edit 1 call site + declare on relevant classes |
+| Who owns the knowledge | the caller (wrong) | the implementation (right) |
+| Coupling | to the full type set | to one predicate |
+| Testability | need real subclasses | fake object with a flag |
+
+Note row 2 carefully — this is the **expression problem**. Capability flags optimize for *adding implementations*; type-switching optimizes for *adding operations*. Neither is free.
+
+---
+
+## 6. When NOT to use it
+
+This is where most write-ups stop too early. Type-switching is **correct** when your variant set is genuinely *closed*:
+
+```python
+match result:
+    case Success(value):   ...
+    case Retryable(err):   ...
+    case Fatal(err):       ...
+    # compiler/linter proves exhaustiveness
+```
+
+Here the three cases are the *whole point of the type*, and exhaustive matching gives you a compile-time guarantee that a capability flag can never give you. Adding a fourth case *should* break every call site — that's a feature.
+
+```
+   Is the set of variants closed and owned by you?
+                    │
+          ┌─────────┴─────────┐
+         YES                  NO / unknown / plugin-extensible
+          │                    │
+   Sealed hierarchy +      Capability flags or
+   exhaustive match        capability objects
+   (ADT / sum type)        (open polymorphism)
+```
+
+Other counter-indications:
+- **Capability explosion.** 15 booleans on one interface means your abstraction is wrong; you probably have 3 types wearing a trenchcoat.
+- **Flags that change over time.** `canWrite` flipping between check and call is a TOCTOU race. Capability objects that carry a lease handle this better.
+- **Behavioural difference, not structural.** If all implementations *can* do X but do it *differently*, that's plain polymorphism — no flag needed.
+
+---
+
+## 7. Summary
+
+Capability flags are polymorphism applied to the **existence** of an operation rather than its implementation. Use them when the implementation set is open; use exhaustive matching when it's closed; and prefer capability *objects* over capability *booleans* whenever "the flag said yes but it threw anyway" would be a costly bug.

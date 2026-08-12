@@ -1,0 +1,174 @@
+---
+title: "Manifest-first / declarative metadata"
+---
+
+::: {.callout-note appearance="default" collapse="false"}
+**Q:** What is "Manifest-first / declarative metadata" design pattern?
+:::
+
+## The core idea
+
+**Describe a component's identity, capabilities, and requirements as *data* — separate from and readable *before* the code that implements it.**
+
+The manifest is the contract. The implementation is an artifact the runtime fetches *later*, only if the manifest says it's needed.
+
+```
+        ┌─────────────────────────────────────────┐
+        │  MANIFEST  (declarative, cheap, safe)   │
+        │  ───────────────────────────────────    │
+        │  name, version, capabilities,           │
+        │  dependencies, entry point, config      │
+        └────────────────┬────────────────────────┘
+                         │  read + validate FIRST
+                         ▼
+        ┌─────────────────────────────────────────┐
+        │  LOADER / RESOLVER                      │
+        │  builds registry, resolves deps,        │
+        │  decides what to activate               │
+        └────────────────┬────────────────────────┘
+                         │  activate on demand
+                         ▼
+        ┌─────────────────────────────────────────┐
+        │  IMPLEMENTATION (imperative, expensive) │
+        │  the actual code, loaded lazily         │
+        └─────────────────────────────────────────┘
+```
+
+"Manifest-**first**" is the temporal claim: nothing executes until the description has been read and understood.
+
+---
+
+## Imperative vs. declarative registration
+
+The pattern is best understood by what it replaces.
+
+**Imperative (code-first):**
+
+```python
+# plugins/__init__.py — must EXECUTE to learn anything
+from .pdf_export import PdfExporter
+from .dicom_reader import DicomReader   # imports pydicom, numpy... 400ms
+
+registry.register("pdf", PdfExporter)
+registry.register("dicom", DicomReader)
+```
+
+To answer "what plugins exist?" you must import everything. Discovery cost = activation cost. Untrusted plugin = arbitrary code execution at scan time.
+
+**Declarative (manifest-first):**
+
+```yaml
+# plugins/dicom_reader/plugin.yaml
+name: dicom-reader
+version: 1.2.0
+provides: [reader]
+formats: [".dcm", ".ima"]
+requires: { pydicom: ">=2.4" }
+entry: dicom_reader.main:DicomReader   # a STRING, not an import
+```
+
+```python
+manifests = [yaml.safe_load(p.read_text())
+             for p in Path("plugins").glob("*/plugin.yaml")]
+# Now you know everything. Zero plugin code has run.
+
+chosen = next(m for m in manifests if ".dcm" in m["formats"])
+cls = import_string(chosen["entry"])   # activate ONLY this one
+```
+
+---
+
+## The four properties that make it valuable
+
+```
+1. INSPECTABLE WITHOUT EXECUTING
+   Enumerate, search, validate, permission-check, render docs,
+   build a dependency graph — all without running a line.
+
+2. LATE / LAZY BINDING
+   Discovery is O(read a small file). Activation is deferred.
+   1000 plugins ≈ 1000 tiny YAML reads, 1 actual import.
+
+3. UNIFORM SHAPE → TOOLING
+   Because it's data with a schema: linters, IDE autocomplete,
+   registries, diff/review, codegen, marketplaces.
+
+4. INVERSION OF CONTROL
+   The component declares WHAT it is; the host decides WHEN
+   and WHETHER to use it. Host owns the lifecycle.
+```
+
+Property 1 is the security story (Android's `AndroidManifest.xml` permissions, browser extension manifests). Property 2 is the performance story. Property 3 is why ecosystems grow around it.
+
+---
+
+## Where you've already met it
+
+| System | Manifest | Implementation |
+|---|---|---|
+| npm | `package.json` | `node_modules/**/*.js` |
+| Rust | `Cargo.toml` | `src/**/*.rs` |
+| R packages | `DESCRIPTION` / `NAMESPACE` | `R/*.R` |
+| Quarto | `_quarto.yml` + doc YAML header | `.qmd` body |
+| Kubernetes | Pod/Deployment YAML | container image |
+| VS Code ext. | `package.json → contributes` | `extension.js` (lazy activated) |
+| Claude Code Skills | `SKILL.md` frontmatter (`name`, `description`) | the SKILL.md body + scripts |
+| MCP | tool JSON schemas | the server handler |
+
+That last pair is worth dwelling on, since you author both. A skill's frontmatter is a manifest whose `description` field is the *routing key* — the host reads only the frontmatter of every installed skill, matches against the task, and reads the body only for the winner. This variant has a name: **progressive disclosure**.
+
+```
+   ALL skills          ~50 tokens each     always in context
+   ┌──────────────────────────────────────┐
+   │ name + description  (the manifest)   │  ← cheap, eager
+   └──────────────────────────────────────┘
+              │ match
+              ▼
+   ONE skill            ~2000 tokens       loaded on demand
+   ┌──────────────────────────────────────┐
+   │ SKILL.md body, references/, scripts/ │  ← expensive, lazy
+   └──────────────────────────────────────┘
+```
+
+Which explains a rule you've probably felt: a bad `description` makes a *good* skill invisible. In manifest-first systems, **the manifest is the interface** — quality of the description dominates quality of the implementation, because the implementation is never reached otherwise.
+
+---
+
+## Trade-offs (the honest part)
+
+**Manifest drift.** Two sources of truth that can disagree — the manifest says `entry: foo:Bar`, the code renamed `Bar` to `Baz`. Declarative systems fail *at load time with a confusing error* rather than at compile time. Mitigations: schema validation in CI, or generate one side from the other (decorators → manifest, or manifest → stub code).
+
+**The YAML-becomes-a-programming-language trap.** Declarative formats start clean, then acquire conditionals, then loops, then variable interpolation, then templating (Helm), and you've built a bad language with no debugger.
+
+```
+   expressiveness needed
+        │
+        │                          ╭── Helm/CI-YAML hell
+        │                    ╭─────╯
+        │        ╭───────────╯
+        │  ╭─────╯  ← the sweet spot: static facts only
+        └──┴──────────────────────────────► time / feature creep
+```
+Rule of thumb: **if a field's value depends on runtime state, it does not belong in the manifest.** Put an escape hatch (a code entry point) instead of growing the schema.
+
+**Versioning.** The manifest schema is a public API. Once third parties write manifests, you can't rename fields. Include a `schemaVersion` from day one.
+
+**Indirection cost.** For a closed system with 3 components you control, a manifest layer is pure ceremony. Just import them.
+
+---
+
+## When to reach for it
+
+```
+USE IT when ≥2 hold:
+  ✓ open set of components (plugins, third-party, user-authored)
+  ✓ discovery must be cheaper than activation
+  ✓ components are untrusted or need permission gating
+  ✓ you want tooling / a registry / a marketplace
+  ✓ non-programmers need to configure or author components
+
+SKIP IT when:
+  ✗ closed set, all in-repo, all yours
+  ✗ every component is loaded on every run anyway
+  ✗ the "config" is really logic in disguise
+```
