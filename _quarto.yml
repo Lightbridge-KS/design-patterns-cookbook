@@ -87,6 +87,10 @@ book:
           href: "contents/plugins-arch/manifest-first-declarative-meta.qmd"
         - text: "Capability Flag"
           href: "contents/plugins-arch/capability-flag-over-type-switching.qmd"
+    - part: Hexagonal Architecture
+      chapters: 
+        - text: Port & Adapter
+          href: "contents/hexagonal/port-adapter-explained.qmd"
 format:
   html:
     theme:

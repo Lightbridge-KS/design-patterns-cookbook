@@ -1,0 +1,240 @@
+---
+title: "Port & Adapter Explained"
+---
+
+## The problem at a module boundary
+
+When two modules touch, the naive version lets the business logic call the technology directly. The dependency arrow then points *outward*, from the thing that changes rarely (rules) toward the things that change often (database, email, HTTP framework):
+
+```
+   NAIVE: the core depends on details
+
+   ┌──────────────────┐        ┌────────────┐
+   │  Business logic  │ ─────► │ PostgreSQL │   change DB  → edit core
+   │  (CompleteTask)  │ ─────► │   SMTP     │   test core  → need real DB + mail
+   └──────────────────┘        └────────────┘
+```
+
+Ports & Adapters (Alistair Cockburn's "Hexagonal Architecture") fixes this by putting a deliberately designed seam at the boundary, with two parts.
+
+A **port** is an interface *owned by the core* and written in the core's own vocabulary. It describes what the core needs ("get and save a Task") or what it offers ("complete a task"), and says nothing about how. An **adapter** is a piece of code *outside* the core that implements (or calls) a port and translates between the core's language and one specific technology: JSON, SQL, a REST call, a CLI string.
+
+The key move is dependency inversion. Because the core owns the interface, both arrows now point inward:
+
+```
+   PORTS & ADAPTERS: everything depends on the core
+
+   ┌────────────┐            ┌──────── CORE ─────────┐            ┌──────────────┐
+   │ CLI / HTTP │──calls───► │ CompleteTask.execute  │            │ JsonFileRepo │
+   │ Test case  │            │      (driving port)   │            │ InMemoryRepo │
+   └────────────┘            │                       │ ◄─impl──── └──────────────┘
+   DRIVING adapters          │  ITaskRepository ─────┼─┐          ┌──────────────┐
+   (primary: they start      │  INotifier ───────────┼─┘ ◄─impl── │ConsoleNotify │
+    the conversation)        │  (driven ports)       │            │ SpyNotifier  │
+                             └───────────────────────┘            └──────────────┘
+                                                                  DRIVEN adapters
+                                                                  (secondary: the core
+                                                                   calls out to them)
+```
+
+There are two kinds of port, and the distinction matters. A driving (primary) port is the core's front door: something outside (a user, a CLI, a test, another module) drives the core through it. A driven (secondary) port is the core's back door: the core needs something from outside (storage, notification, a clock) and declares that need as an interface.
+
+## Why this is useful specifically at a seam
+
+A seam is a place where you can change behaviour without editing the code on either side. Ports & Adapters makes that seam explicit and gives it a few concrete benefits.
+
+The dependency rule becomes checkable: the core imports nothing from the adapters, so "does `core/` import `sqlalchemy`?" is a lint you can automate. Swapping is local: moving from a JSON file to Postgres means writing one new adapter and changing one line in `main`, while the core and its tests stay untouched. Testing becomes cheap, since a test is just another driving adapter and fake driven adapters (in-memory, spy) replace I/O. Translation has one home: messy external shapes (JSON dicts, ORM rows, API payloads) get converted to domain objects inside the adapter, so they never leak inward. This is the same idea as DDD's anti-corruption layer, at a smaller scale. And you can defer decisions: the core can be built and tested before you've chosen a database at all.
+
+## The toy example
+
+The full runnable file is below. It has one use case (`CompleteTask`), two driven ports (`ITaskRepository`, `INotifier`), and four adapters wired two different ways. Here are the three parts that carry the idea.
+
+The core declares what it needs, in its own words, and depends only on that:
+
+```python
+class ITaskRepository(ABC):
+    @abstractmethod
+    def get(self, task_id: int) -> Task: ...
+    @abstractmethod
+    def save(self, task: Task) -> None: ...
+```
+
+An adapter does the translation, and that is its only job:
+
+```python
+class JsonFileTaskRepository(ITaskRepository):
+    def get(self, task_id: int) -> Task:
+        rows = json.loads(self._path.read_text())
+        return Task(**rows[str(task_id)])   # JSON dict -> domain object
+```
+
+The composition root is the only place that knows both sides:
+
+```python
+CompleteTask(JsonFileTaskRepository(path), ConsoleNotifier())   # production
+CompleteTask(InMemoryTaskRepository([...]), SpyNotifier())      # test
+```
+
+Running it shows the same core producing a real JSON write in one wiring and a pure in-memory assertion in the other, with no `if testing:` branches anywhere.
+
+## Rules of thumb (and how to avoid overdoing it)
+
+Name ports after the core's need, not the technology. `ITaskRepository` and `INotifier` are good. `IPostgresClient` is an adapter in disguise.
+
+Keep technology types out of port signatures. If a port method returns a `requests.Response` or an ORM row, the seam leaks, and the core is coupled again.
+
+One adapter means a hypothetical seam; two means a real one. Notice that `CompleteTask` has no `ICompleteTask` ABC. With a single implementation that won't vary, that interface would pass straight through and add nothing (the deletion test). The driven ports earn their interfaces because each one has two adapters: one real, one for tests.
+
+Don't put ports in front of stable dependencies. `pathlib`, `datetime`, or `numpy` don't need adapters. Reserve ports for volatile things: I/O, network, external services, and libraries that churn.
+
+A useful way to remember it: the core is a device with standardized sockets (ports). Adapters are the plugs that fit those sockets on one side and a particular technology on the other. You can change the plug without rewiring the device.Run it with `python3 ports_adapters_toy.py`. A good next exercise is to add a third driven adapter, such as a `SqliteTaskRepository`, and confirm that nothing above the `ADAPTERS` banner has to change.
+
+## Toy Example
+
+::: {.callout-note appearance="default" collapse="true"}
+
+```python
+"""
+Ports & Adapters (Hexagonal Architecture) — toy example.
+
+Use case: "complete a task" -> mark it done, persist it, notify someone.
+
+    CORE      : Task entity + CompleteTask use case + the PORTS it owns
+    ADAPTERS  : plug technology into those ports (memory, JSON file, console, spy)
+    MAIN      : composition root — the only place that knows both sides
+"""
+from __future__ import annotations
+
+import json
+import tempfile
+from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+
+# ═════════════════════════════ CORE (the hexagon) ═════════════════════════════
+# Rule: nothing in this section imports or mentions a technology.
+
+@dataclass
+class Task:
+    id: int
+    title: str
+    done: bool = False
+
+    def complete(self) -> None:
+        if self.done:                       # a business rule lives in the core
+            raise ValueError(f"Task {self.id} is already done")
+        self.done = True
+
+
+# ── Driven (secondary) ports: what the core NEEDS from the outside world ──
+class ITaskRepository(ABC):
+    @abstractmethod
+    def get(self, task_id: int) -> Task: ...
+
+    @abstractmethod
+    def save(self, task: Task) -> None: ...
+
+
+class INotifier(ABC):
+    @abstractmethod
+    def notify(self, message: str) -> None: ...
+
+
+# ── Driving (primary) port: what the core OFFERS to the outside world ──
+# Here the port is simply the public method `execute`. No ABC: there is
+# only one implementation, so an interface would be a pass-through.
+class CompleteTask:
+    def __init__(self, repo: ITaskRepository, notifier: INotifier) -> None:
+        self._repo = repo
+        self._notifier = notifier
+
+    def execute(self, task_id: int) -> None:
+        task = self._repo.get(task_id)
+        task.complete()
+        self._repo.save(task)
+        self._notifier.notify(f"Task '{task.title}' completed")
+
+
+# ═════════════════════════════ DRIVEN ADAPTERS ═════════════════════════════
+# Each one translates the core's language (Task) <-> a technology.
+
+class InMemoryTaskRepository(ITaskRepository):
+    def __init__(self, tasks: list[Task]) -> None:
+        self._tasks = {t.id: t for t in tasks}
+
+    def get(self, task_id: int) -> Task:
+        return self._tasks[task_id]
+
+    def save(self, task: Task) -> None:
+        self._tasks[task.id] = task
+
+
+class JsonFileTaskRepository(ITaskRepository):
+    """Second adapter for the same port -> proof the seam is real."""
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def get(self, task_id: int) -> Task:
+        rows = json.loads(self._path.read_text())
+        return Task(**rows[str(task_id)])          # JSON dict -> domain object
+
+    def save(self, task: Task) -> None:
+        rows = json.loads(self._path.read_text())
+        rows[str(task.id)] = asdict(task)          # domain object -> JSON dict
+        self._path.write_text(json.dumps(rows, indent=2))
+
+
+class ConsoleNotifier(INotifier):
+    def notify(self, message: str) -> None:
+        print(f"[console] {message}")
+
+
+class SpyNotifier(INotifier):
+    """Test adapter: records instead of sending."""
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    def notify(self, message: str) -> None:
+        self.sent.append(message)
+
+
+# ═════════════════════════════ DRIVING ADAPTER ═════════════════════════════
+# Translates a CLI string into a call on the core's driving port.
+
+def cli(command: str, use_case: CompleteTask) -> None:
+    verb, arg = command.split()                    # e.g. "done 1"
+    if verb != "done":
+        raise SystemExit(f"unknown command: {verb}")
+    use_case.execute(int(arg))
+
+
+# ═════════════════════════ COMPOSITION ROOT (main) ═════════════════════════
+
+def demo_production() -> None:
+    print("── production wiring: JSON file + console ──")
+    path = Path(tempfile.mkdtemp()) / "tasks.json"
+    path.write_text(json.dumps({"1": {"id": 1, "title": "Write report", "done": False}}))
+
+    use_case = CompleteTask(JsonFileTaskRepository(path), ConsoleNotifier())
+    cli("done 1", use_case)
+    print(path.read_text())
+
+
+def demo_test() -> None:
+    print("── test wiring: in-memory + spy (no disk, no I/O) ──")
+    repo = InMemoryTaskRepository([Task(1, "Write report")])
+    spy = SpyNotifier()
+
+    CompleteTask(repo, spy).execute(1)             # a test is just another driver
+
+    assert repo.get(1).done is True
+    assert spy.sent == ["Task 'Write report' completed"]
+    print("assertions passed:", spy.sent)
+
+
+if __name__ == "__main__":
+    demo_production()
+    demo_test()
+```
+:::
