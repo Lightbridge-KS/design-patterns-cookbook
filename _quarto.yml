@@ -94,11 +94,13 @@ book:
 format:
   html:
     theme:
-      light: 
-        - cosmo
-        - brand
-      dark: 
-        - darkly
+      light:
+        - theme/warm-light.scss
+      dark:
+        - theme/warm-dark.scss
+    highlight-style:
+      light: theme/atom-one-light-warm.theme
+      dark: theme/atom-one-dark-warm.theme
     lightbox: true
 
 

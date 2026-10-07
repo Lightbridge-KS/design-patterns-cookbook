@@ -1,0 +1,123 @@
+/*-- scss:defaults --*/
+
+// Warm Light — cream "paper" background, brown ink, terracotta accent.
+// Contrast (WCAG): body text ~11:1, links ~6:1, muted text ~5:1 on the page bg.
+
+// Palette
+$paper:      #faf8f3;
+$paper-deep: #f1ede4;   // code blocks, table stripes, sidebar
+$rule:       #e2ddd0;   // hairlines, borders
+$rule-strong: #c6bda9;   // code-block stripe
+$ink:        #38332d;
+$ink-muted:  #6b655a;
+$accent:     #a1472a;   // terracotta
+$accent-hov: #7a3822;
+
+// Bootstrap core
+$body-bg:        $paper;
+$body-color:     $ink;
+$link-color:     $accent;
+$link-hover-color: $accent-hov;
+$border-color:   $rule;
+$text-muted:     $ink-muted;
+$primary:        $accent;
+
+// Type — serif prose for long reading, system mono for code
+$font-family-sans-serif: Charter, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, "Noto Serif", serif;
+$font-family-monospace:  ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+$font-size-base:   1.075rem;
+$line-height-base: 1.7;
+$headings-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+$headings-color:   #2a2622;
+$headings-font-weight: 650;
+
+// Code
+$code-color:    #873d24;
+$code-bg:       $paper-deep;
+$code-block-bg: $paper-deep;
+$code-block-border-left: 3px solid $rule-strong;
+$code-block-color: $ink;
+
+// Narrower measure (~70 characters) for readability
+$grid-body-width: 760px;
+
+// Sidebar / navbar / TOC
+$sidebar-bg:        $paper-deep;
+$sidebar-fg:        $ink;
+$sidebar-hl:        $accent;
+$sidebar-border-color: $rule;
+$navbar-bg:         $paper-deep;
+$navbar-fg:         $ink;
+$navbar-hl:         $accent;
+$toc-color:         $accent;
+$toc-font-size:     0.9rem;
+
+// Selection
+$input-focus-border-color: $accent;
+
+/*-- scss:rules --*/
+
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+body { font-feature-settings: "kern", "liga"; }
+
+#quarto-content p, #quarto-content li { hyphens: manual; }
+
+// Headings: sans against serif body, with a quiet rule under h2
+h1, h2, h3, h4, h5, h6 { letter-spacing: -0.01em; }
+h2 { padding-bottom: 0.25em; border-bottom: 1px solid $rule; margin-top: 2.2rem; }
+h1.title { font-weight: 750; }
+
+::selection { background: rgba($accent, 0.22); }
+
+a { text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
+
+strong { color: #2a2622; }
+
+// Inline code: soft chip, not Bootstrap pink
+:not(pre) > code {
+  padding: 0.12em 0.38em;
+  border-radius: 4px;
+  background: $paper-deep;
+  border: 1px solid $rule;
+  font-size: 0.86em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+// Code blocks (incl. the ASCII diagrams): style the outer wrapper only,
+// so the border/stripe isn't doubled by the inner <pre>.
+div.sourceCode, pre:not(.sourceCode) {
+  background: $paper-deep;
+  border: 1px solid $rule;
+  border-left: 3px solid $rule-strong;
+  border-radius: 4px;
+}
+div.sourceCode pre.sourceCode {
+  background: transparent;
+  border: 0;
+  margin: 0;
+}
+pre { line-height: 1.5; }
+pre:not(.sourceCode), pre:not(.sourceCode) code { color: $ink; }
+pre code { font-size: 0.86em; }
+
+blockquote {
+  border-left: 3px solid $rule;
+  color: $ink-muted;
+  padding-left: 1rem;
+}
+
+// Tables
+.table { --bs-table-striped-bg: #{$paper-deep}; }
+table thead th { border-bottom: 2px solid $rule; }
+
+// Sidebar & TOC
+.sidebar-navigation .sidebar-item a.active,
+#quarto-margin-sidebar .active { color: $accent; font-weight: 600; }
+#quarto-margin-sidebar { border-left-color: $rule; }
+
+// Callouts: soften the default saturated colors
+.callout { border-radius: 4px; border-color: $rule; background: #fffefb; }
+
+hr { border-color: $rule; opacity: 1; }
