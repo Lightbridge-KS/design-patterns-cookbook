@@ -926,6 +926,433 @@ cart.checkout();
 
 :::
 
+## Modern Approach
+
+Each concrete strategy above is a class with **one method** plus a constructor that stores some config. All four languages already have a name for that shape: a **function**. The strategy interface becomes a function type. Each concrete strategy becomes a closure that captures its config, and the context simply receives a function.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟢 Replaces** — a one-method strategy *is* a function, and the closure holds the config the constructor used to hold.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class PaymentStrategy(ABC)` with abstract `pay()` | `type PaymentStrategy = Callable[[float], bool]` |
+| `class CreditCardPayment(PaymentStrategy)` | `def credit_card_payment(...)` returning a closure |
+| `self._card_number` stored in `__init__` | `card_number` captured by the closure |
+| `set_payment_strategy()` + `None` check | `checkout(pay)` parameter |
+| A `MockPayment` class for tests | `lambda amount: True` |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IPaymentStrategy` with `Pay()` | `using PaymentStrategy = System.Func<decimal, bool>;` |
+| `class CreditCardPayment : IPaymentStrategy` | `Payments.CreditCard(...)` returning a lambda |
+| `private readonly string _cardNumber` | `cardNumber` captured by the lambda |
+| `SetPaymentStrategy()` + `null` check | `Checkout(pay)` parameter |
+| A `MockPayment` class for tests | `_ => true` |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface PaymentStrategy` with `pay()` | `type PaymentStrategy = (amount: number) => boolean` |
+| `class CreditCardPayment implements PaymentStrategy` | `const creditCardPayment = (...) => (amount) => …` |
+| `private cardNumber` constructor parameter | `cardNumber` captured by the closure |
+| `setPaymentStrategy()` + `null` check | `checkout(pay)` parameter |
+| A `MockPayment` class for tests | `() => true` |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class PaymentStrategy` with `pay()` | `typedef PaymentStrategy = bool Function(double amount)` |
+| `class CreditCardPayment implements PaymentStrategy` | `PaymentStrategy creditCardPayment(...)` returning a closure |
+| `final String _cardNumber` | `cardNumber` captured by the closure |
+| `setPaymentStrategy()` + `null` check | `checkout(pay)` parameter |
+| A `MockPayment` class for tests | `(_) => true` |
+
+:::
+
+**Ecosystem:** no library needed, because the language is the feature. In .NET apps that resolve strategies from DI, *keyed services* (.NET 8+, `AddKeyedSingleton<IPaymentStrategy, PayPalPayment>("paypal")`) select a class-based strategy by name.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — closures, `type` alias over collections.abc.Callable
+from collections.abc import Callable
+
+# Strategy interface → a function type
+type PaymentStrategy = Callable[[float], bool]
+
+
+# Concrete strategies → factories that capture config in a closure
+def credit_card_payment(card_number: str, cvv: str) -> PaymentStrategy:
+    def pay(amount: float) -> bool:
+        if len(card_number) != 16 or len(cvv) != 3:
+            print("Invalid card details")
+            return False
+        print(f"Processing credit card payment of ${amount:.2f}")
+        print(f"Card: ****{card_number[-4:]}")
+        return True
+
+    return pay
+
+
+def paypal_payment(email: str) -> PaymentStrategy:
+    def pay(amount: float) -> bool:
+        if "@" not in email:
+            print("Invalid PayPal email")
+            return False
+        print(f"Redirecting to PayPal for ${amount:.2f}")
+        print(f"Account: {email}")
+        return True
+
+    return pay
+
+
+def crypto_payment(wallet_address: str) -> PaymentStrategy:
+    def pay(amount: float) -> bool:
+        if not wallet_address.startswith("0x"):
+            print("Invalid wallet address")
+            return False
+        print(f"Sending ${amount:.2f} worth of crypto")
+        print(f"Wallet: {wallet_address[:10]}...")
+        return True
+
+    return pay
+
+
+# Context → receives the strategy per call: no setter, no None check
+class ShoppingCart:
+    def __init__(self) -> None:
+        self._items: list[tuple[str, float]] = []
+
+    def add_item(self, name: str, price: float) -> None:
+        self._items.append((name, price))
+        print(f"Added {name} - ${price:.2f}")
+
+    def get_total(self) -> float:
+        return sum(price for _, price in self._items)
+
+    def checkout(self, pay: PaymentStrategy) -> bool:
+        if not self._items:
+            print("Cart is empty")
+            return False
+        return pay(self.get_total())
+
+
+# --- Usage ---
+cart = ShoppingCart()
+cart.add_item("Laptop", 999.99)
+cart.add_item("Mouse", 29.99)
+# Added Laptop - $999.99
+# Added Mouse - $29.99
+
+# Switching strategy = passing a different function
+cart.checkout(credit_card_payment("1234567890123456", "123"))
+# Processing credit card payment of $1029.98
+# Card: ****3456
+
+cart.checkout(paypal_payment("user@example.com"))
+# Redirecting to PayPal for $1029.98
+# Account: user@example.com
+
+cart.checkout(crypto_payment("0x742d35Cc6634C0532925a3b844Bc9e7595f"))
+# Sending $1029.98 worth of crypto
+# Wallet: 0x742d35Cc...
+
+# A test double is just a lambda — no MockPayment class
+print(cart.checkout(lambda amount: True))
+# True
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — Func<> delegates, lambdas, closures
+using PaymentStrategy = System.Func<decimal, bool>;  // strategy interface → a delegate type
+
+// Concrete strategies → factory methods returning lambdas that capture config
+public static class Payments
+{
+    public static PaymentStrategy CreditCard(string cardNumber, string cvv) => amount =>
+    {
+        if (cardNumber.Length != 16 || cvv.Length != 3)
+        {
+            Console.WriteLine("Invalid card details");
+            return false;
+        }
+        Console.WriteLine($"Processing credit card payment of ${amount:F2}");
+        Console.WriteLine($"Card: ****{cardNumber[^4..]}");
+        return true;
+    };
+
+    public static PaymentStrategy PayPal(string email) => amount =>
+    {
+        if (!email.Contains('@'))
+        {
+            Console.WriteLine("Invalid PayPal email");
+            return false;
+        }
+        Console.WriteLine($"Redirecting to PayPal for ${amount:F2}");
+        Console.WriteLine($"Account: {email}");
+        return true;
+    };
+
+    public static PaymentStrategy Crypto(string walletAddress) => amount =>
+    {
+        if (!walletAddress.StartsWith("0x"))
+        {
+            Console.WriteLine("Invalid wallet address");
+            return false;
+        }
+        Console.WriteLine($"Sending ${amount:F2} worth of crypto");
+        Console.WriteLine($"Wallet: {walletAddress[..10]}...");
+        return true;
+    };
+}
+
+// Context → receives the strategy per call: no setter, no null check
+public class ShoppingCart
+{
+    private readonly List<(string Name, decimal Price)> _items = [];
+
+    public void AddItem(string name, decimal price)
+    {
+        _items.Add((name, price));
+        Console.WriteLine($"Added {name} - ${price:F2}");
+    }
+
+    public decimal GetTotal() => _items.Sum(item => item.Price);
+
+    public bool Checkout(PaymentStrategy pay)
+    {
+        if (_items.Count == 0)
+        {
+            Console.WriteLine("Cart is empty");
+            return false;
+        }
+        return pay(GetTotal());
+    }
+}
+
+// --- Usage ---
+var cart = new ShoppingCart();
+cart.AddItem("Laptop", 999.99m);
+cart.AddItem("Mouse", 29.99m);
+// Added Laptop - $999.99
+// Added Mouse - $29.99
+
+// Switching strategy = passing a different function
+cart.Checkout(Payments.CreditCard("1234567890123456", "123"));
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+cart.Checkout(Payments.PayPal("user@example.com"));
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+cart.Checkout(Payments.Crypto("0x742d35Cc6634C0532925a3b844Bc9e7595f"));
+// Sending $1029.98 worth of crypto
+// Wallet: 0x742d35Cc...
+
+// A test double is just a lambda — no MockPayment class
+Console.WriteLine(cart.Checkout(_ => true));
+// True
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — function types, closures
+
+// Strategy interface → a function type
+type PaymentStrategy = (amount: number) => boolean;
+
+// Concrete strategies → factories returning closures that capture config
+const creditCardPayment = (cardNumber: string, cvv: string): PaymentStrategy => (amount) => {
+  if (cardNumber.length !== 16 || cvv.length !== 3) {
+    console.log("Invalid card details");
+    return false;
+  }
+  console.log(`Processing credit card payment of $${amount.toFixed(2)}`);
+  console.log(`Card: ****${cardNumber.slice(-4)}`);
+  return true;
+};
+
+const paypalPayment = (email: string): PaymentStrategy => (amount) => {
+  if (!email.includes("@")) {
+    console.log("Invalid PayPal email");
+    return false;
+  }
+  console.log(`Redirecting to PayPal for $${amount.toFixed(2)}`);
+  console.log(`Account: ${email}`);
+  return true;
+};
+
+const cryptoPayment = (walletAddress: string): PaymentStrategy => (amount) => {
+  if (!walletAddress.startsWith("0x")) {
+    console.log("Invalid wallet address");
+    return false;
+  }
+  console.log(`Sending $${amount.toFixed(2)} worth of crypto`);
+  console.log(`Wallet: ${walletAddress.slice(0, 10)}...`);
+  return true;
+};
+
+// Context → receives the strategy per call: no setter, no null check
+class ShoppingCart {
+  private items: Array<{ name: string; price: number }> = [];
+
+  addItem(name: string, price: number): void {
+    this.items.push({ name, price });
+    console.log(`Added ${name} - $${price.toFixed(2)}`);
+  }
+
+  getTotal(): number {
+    return this.items.reduce((sum, item) => sum + item.price, 0);
+  }
+
+  checkout(pay: PaymentStrategy): boolean {
+    if (this.items.length === 0) {
+      console.log("Cart is empty");
+      return false;
+    }
+    return pay(this.getTotal());
+  }
+}
+
+// --- Usage ---
+const cart = new ShoppingCart();
+cart.addItem("Laptop", 999.99);
+cart.addItem("Mouse", 29.99);
+// Added Laptop - $999.99
+// Added Mouse - $29.99
+
+// Switching strategy = passing a different function
+cart.checkout(creditCardPayment("1234567890123456", "123"));
+// Processing credit card payment of $1029.98
+// Card: ****3456
+
+cart.checkout(paypalPayment("user@example.com"));
+// Redirecting to PayPal for $1029.98
+// Account: user@example.com
+
+cart.checkout(cryptoPayment("0x742d35Cc6634C0532925a3b844Bc9e7595f"));
+// Sending $1029.98 worth of crypto
+// Wallet: 0x742d35Cc...
+
+// A test double is just a lambda — no MockPayment class
+console.log(cart.checkout(() => true));
+// true
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — function types (typedef), closures
+
+// Strategy interface → a function type
+typedef PaymentStrategy = bool Function(double amount);
+
+// Concrete strategies → functions returning closures that capture config
+PaymentStrategy creditCardPayment(String cardNumber, String cvv) => (amount) {
+      if (cardNumber.length != 16 || cvv.length != 3) {
+        print('Invalid card details');
+        return false;
+      }
+      print('Processing credit card payment of \$${amount.toStringAsFixed(2)}');
+      print('Card: ****${cardNumber.substring(cardNumber.length - 4)}');
+      return true;
+    };
+
+PaymentStrategy paypalPayment(String email) => (amount) {
+      if (!email.contains('@')) {
+        print('Invalid PayPal email');
+        return false;
+      }
+      print('Redirecting to PayPal for \$${amount.toStringAsFixed(2)}');
+      print('Account: $email');
+      return true;
+    };
+
+PaymentStrategy cryptoPayment(String walletAddress) => (amount) {
+      if (!walletAddress.startsWith('0x')) {
+        print('Invalid wallet address');
+        return false;
+      }
+      print('Sending \$${amount.toStringAsFixed(2)} worth of crypto');
+      print('Wallet: ${walletAddress.substring(0, 10)}...');
+      return true;
+    };
+
+// Context → receives the strategy per call: no setter, no null check
+class ShoppingCart {
+  final List<({String name, double price})> _items = [];
+
+  void addItem(String name, double price) {
+    _items.add((name: name, price: price));
+    print('Added $name - \$${price.toStringAsFixed(2)}');
+  }
+
+  double getTotal() => _items.fold(0, (sum, item) => sum + item.price);
+
+  bool checkout(PaymentStrategy pay) {
+    if (_items.isEmpty) {
+      print('Cart is empty');
+      return false;
+    }
+    return pay(getTotal());
+  }
+}
+
+// --- Usage ---
+void main() {
+  final cart = ShoppingCart();
+  cart.addItem('Laptop', 999.99);
+  cart.addItem('Mouse', 29.99);
+  // Added Laptop - $999.99
+  // Added Mouse - $29.99
+
+  // Switching strategy = passing a different function
+  cart.checkout(creditCardPayment('1234567890123456', '123'));
+  // Processing credit card payment of $1029.98
+  // Card: ****3456
+
+  cart.checkout(paypalPayment('user@example.com'));
+  // Redirecting to PayPal for $1029.98
+  // Account: user@example.com
+
+  cart.checkout(cryptoPayment('0x742d35Cc6634C0532925a3b844Bc9e7595f'));
+  // Sending $1029.98 worth of crypto
+  // Wallet: 0x742d35Cc...
+
+  // A test double is just a lambda — no MockPayment class
+  print(cart.checkout((_) => true));
+  // true
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer functions when | Keep strategy classes when |
+|---|---|
+| The strategy is a single operation (`pay`) | The strategy is a family of related operations (`pay` + `refund` + `validate`) |
+| Config fits in a few captured values | The strategy needs identity: a name for logging, serialization, or a settings screen |
+| You want one-line test doubles | A DI container must construct the strategy and inject *its* dependencies |
+| Strategies are chosen in code at the call site | Strategies are plug-ins discovered at runtime (see [Microkernel](../plugins-arch/microkernel-registry-manifest-first.qmd)) |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}

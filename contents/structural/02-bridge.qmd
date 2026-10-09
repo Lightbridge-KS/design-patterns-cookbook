@@ -947,6 +947,391 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Unlike most patterns in this book, Bridge has **no modern replacement**, because the bridge *is* the modern idiom. "Hold a reference to an interface and delegate to it" is plain composition, and composition over inheritance is exactly what modern languages and DI containers steer you toward. Modern syntax changes only the **ceremony** around the two hierarchies.
+
+::: {.callout-note appearance="simple"}
+**Verdict: ⚪ Still the idiom** — no language feature replaces composition, and modern syntax only trims the boilerplate around it.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Device(ABC)` with abstract methods | `class Device(Protocol)`: a structural contract |
+| `class TV(Device)`: must inherit | `class TV`: fits `Device` by shape, no base class |
+| `RemoteControl.__init__` stores `self._device` | unchanged |
+| `class AdvancedRemote(RemoteControl)` | unchanged |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IDevice` | unchanged |
+| `TV` with a `_volume` backing field | `field` keyword inside the `Volume` setter (C# 14) |
+| `protected readonly IDevice Device` + constructor | primary constructor `RemoteControl(IDevice device)` (C# 12) |
+| `AdvancedRemote(IDevice device) : base(device)` | `AdvancedRemote(IDevice device) : RemoteControl(device)` |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface Device` | unchanged (already structural) |
+| `class TV implements Device` | `createTV()` returning an object literal (a class still works) |
+| `RemoteControl` stores `this.device` | unchanged |
+| `class AdvancedRemote extends RemoteControl` | unchanged |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Device` | `abstract interface class Device`: implement-only (Dart 3) |
+| `class TV implements Device` | `final class TV implements Device`: no subclasses outside the library |
+| `RemoteControl(this._device)` | unchanged |
+| `AdvancedRemote(super.device)` | unchanged |
+
+:::
+
+**Ecosystem:** you already use bridge-shaped APIs, where an abstraction delegates to a swappable implementation. Examples are .NET's `HttpClient` over `HttpMessageHandler` and Python's `logging.Logger` over `logging.Handler`. DI containers then wire the bridge once at startup (`services.AddSingleton<IDevice, TV>()`).
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.8+ — typing.Protocol (structural typing)
+from typing import Protocol
+
+
+# Implementation side → a structural contract: devices never inherit from it
+class Device(Protocol):
+    def is_enabled(self) -> bool: ...
+    def enable(self) -> None: ...
+    def disable(self) -> None: ...
+    def get_volume(self) -> int: ...
+    def set_volume(self, volume: int) -> None: ...
+
+
+# No base class: TV fits Device by shape, and so could a third-party SDK class
+# (Radio has the same shape and is omitted here)
+class TV:
+    def __init__(self) -> None:
+        self._on = False
+        self._volume = 30
+
+    def is_enabled(self) -> bool:
+        return self._on
+
+    def enable(self) -> None:
+        self._on = True
+        print("TV is on")
+
+    def disable(self) -> None:
+        self._on = False
+        print("TV is off")
+
+    def get_volume(self) -> int:
+        return self._volume
+
+    def set_volume(self, volume: int) -> None:
+        self._volume = max(0, min(100, volume))
+        print(f"TV volume: {self._volume}")
+
+
+# Abstraction side → unchanged: the bridge is still a stored reference
+class RemoteControl:
+    def __init__(self, device: Device) -> None:
+        self._device = device
+
+    def toggle_power(self) -> None:
+        if self._device.is_enabled():
+            self._device.disable()
+        else:
+            self._device.enable()
+
+    def volume_up(self) -> None:
+        self._device.set_volume(self._device.get_volume() + 10)
+
+    def volume_down(self) -> None:
+        self._device.set_volume(self._device.get_volume() - 10)
+
+
+class AdvancedRemote(RemoteControl):
+    def mute(self) -> None:
+        self._device.set_volume(0)
+        print("Muted")
+
+
+# --- Usage ---
+tv = TV()
+RemoteControl(tv).toggle_power()  # TV is on
+
+remote = AdvancedRemote(tv)
+remote.volume_up()  # TV volume: 40
+remote.mute()  # TV volume: 0
+#                Muted
+```
+
+#### `C#`
+
+```csharp
+// C# 14 / .NET 10 — primary constructors (C# 12), `field` keyword (C# 14)
+
+// Implementation side → unchanged
+public interface IDevice
+{
+    bool IsEnabled { get; }
+    void Enable();
+    void Disable();
+    int Volume { get; set; }
+}
+
+// `field` refers to the compiler-generated backing field: no `_volume` needed
+// (Radio has the same shape and is omitted here)
+public class TV : IDevice
+{
+    public bool IsEnabled { get; private set; }
+
+    public int Volume
+    {
+        get;
+        set
+        {
+            field = Math.Clamp(value, 0, 100);
+            Console.WriteLine($"TV volume: {field}");
+        }
+    } = 30;
+
+    public void Enable()
+    {
+        IsEnabled = true;
+        Console.WriteLine("TV is on");
+    }
+
+    public void Disable()
+    {
+        IsEnabled = false;
+        Console.WriteLine("TV is off");
+    }
+}
+
+// Abstraction side → the primary-constructor parameter IS the bridge
+public class RemoteControl(IDevice device)
+{
+    protected IDevice Device => device;
+
+    public void TogglePower()
+    {
+        if (device.IsEnabled)
+            device.Disable();
+        else
+            device.Enable();
+    }
+
+    public void VolumeUp() => device.Volume += 10;
+
+    public void VolumeDown() => device.Volume -= 10;
+}
+
+// Refined abstraction → forwards the parameter to the base primary constructor
+public class AdvancedRemote(IDevice device) : RemoteControl(device)
+{
+    public void Mute()
+    {
+        Device.Volume = 0;
+        Console.WriteLine("Muted");
+    }
+}
+
+// --- Usage ---
+var tv = new TV();
+new RemoteControl(tv).TogglePower();  // TV is on
+
+var remote = new AdvancedRemote(tv);
+remote.VolumeUp();  // TV volume: 40
+remote.Mute();      // TV volume: 0
+                    // Muted
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — structural typing: an object literal can satisfy an interface
+
+// Implementation side → unchanged
+interface Device {
+  isEnabled(): boolean;
+  enable(): void;
+  disable(): void;
+  getVolume(): number;
+  setVolume(volume: number): void;
+}
+
+// A device doesn't need a class: any object of the right shape fits
+// (Radio has the same shape and is omitted here)
+function createTV(): Device {
+  let on = false;
+  let volume = 30;
+  return {
+    isEnabled: () => on,
+    enable: () => {
+      on = true;
+      console.log("TV is on");
+    },
+    disable: () => {
+      on = false;
+      console.log("TV is off");
+    },
+    getVolume: () => volume,
+    setVolume: (v) => {
+      volume = Math.max(0, Math.min(100, v));
+      console.log(`TV volume: ${volume}`);
+    },
+  };
+}
+
+// Abstraction side → unchanged: still a class holding the bridge
+class RemoteControl {
+  protected device: Device;
+
+  constructor(device: Device) {
+    this.device = device;
+  }
+
+  togglePower(): void {
+    if (this.device.isEnabled()) {
+      this.device.disable();
+    } else {
+      this.device.enable();
+    }
+  }
+
+  volumeUp(): void {
+    this.device.setVolume(this.device.getVolume() + 10);
+  }
+
+  volumeDown(): void {
+    this.device.setVolume(this.device.getVolume() - 10);
+  }
+}
+
+class AdvancedRemote extends RemoteControl {
+  mute(): void {
+    this.device.setVolume(0);
+    console.log("Muted");
+  }
+}
+
+// --- Usage ---
+const tv = createTV();
+new RemoteControl(tv).togglePower();  // TV is on
+
+const remote = new AdvancedRemote(tv);
+remote.volumeUp();  // TV volume: 40
+remote.mute();      // TV volume: 0
+                    // Muted
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — class modifiers (`interface`, `final`)
+
+// Implementation side → `interface`: can be implemented, never extended
+abstract interface class Device {
+  bool isEnabled();
+  void enable();
+  void disable();
+  int getVolume();
+  void setVolume(int volume);
+}
+
+// `final`: no subclasses outside this library
+// (Radio has the same shape and is omitted here)
+final class TV implements Device {
+  bool _on = false;
+  int _volume = 30;
+
+  @override
+  bool isEnabled() => _on;
+
+  @override
+  void enable() {
+    _on = true;
+    print("TV is on");
+  }
+
+  @override
+  void disable() {
+    _on = false;
+    print("TV is off");
+  }
+
+  @override
+  int getVolume() => _volume;
+
+  @override
+  void setVolume(int volume) {
+    _volume = volume.clamp(0, 100);
+    print("TV volume: $_volume");
+  }
+}
+
+// Abstraction side → unchanged
+class RemoteControl {
+  final Device _device;  // The bridge!
+
+  RemoteControl(this._device);
+
+  void togglePower() {
+    if (_device.isEnabled()) {
+      _device.disable();
+    } else {
+      _device.enable();
+    }
+  }
+
+  void volumeUp() => _device.setVolume(_device.getVolume() + 10);
+
+  void volumeDown() => _device.setVolume(_device.getVolume() - 10);
+}
+
+class AdvancedRemote extends RemoteControl {
+  AdvancedRemote(super.device);
+
+  void mute() {
+    _device.setVolume(0);
+    print("Muted");
+  }
+}
+
+// --- Usage ---
+void main() {
+  final tv = TV();
+  RemoteControl(tv).togglePower();  // TV is on
+
+  final remote = AdvancedRemote(tv);
+  remote.volumeUp();  // TV volume: 40
+  remote.mute();      // TV volume: 0
+                      // Muted
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Lean on modern syntax when | Keep the explicit form when |
+|---|---|
+| Devices come from code you don't own, since `Protocol` / structural typing lets them fit without inheriting | You want conformance enforced at runtime: a Python `ABC` fails fast on a missing method, while a `Protocol` is checked only by the type checker |
+| The abstraction only stores and forwards the device (C# primary constructor) | The constructor must validate, wrap, or default the device |
+| A device is small enough to be an object literal (TypeScript) | Devices carry enough state and behavior to deserve a named class |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}

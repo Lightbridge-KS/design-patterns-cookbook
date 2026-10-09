@@ -949,6 +949,315 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Most builders exist to avoid the **telescoping constructor**, where a call like `House("wood", 4, 2, 6, true, false, "red")` is unreadable. All four languages now fix that at the call site with three features:
+
+- **Named arguments with defaults** label every parameter.
+- **Required markers** make it impossible to construct an incomplete object.
+- **Non-destructive copies** (`replace` / `with` / spread / `copyWith`) turn a preset into a variant in one expression.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — named arguments and immutable copies remove the builder *classes*, while the Director's recipes survive as plain functions.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class House` with mutable attributes | `@dataclass(frozen=True, kw_only=True) class House` |
+| `build_garage()` and the other optional steps | keyword arguments with defaults: `has_garage=True` |
+| `build_walls()` / `build_roof()`: steps you must remember to call | `walls` and `roof` have no default, so they are required |
+| Half-built house until `get_result()` | complete and immutable once constructed |
+| `WoodenHouseBuilder` / `StoneHouseBuilder` | presets `WOODEN` / `STONE` |
+| `Director.build_full_featured_house()` | `full_featured(base)` using `dataclasses.replace()` |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `class House` with `{ get; set; }` properties | `record House` with `{ get; init; }` properties |
+| `BuildGarage()` and the other optional steps | object initializer: `new() { HasGarage = true }` |
+| `BuildWalls()` / `BuildRoof()`: steps you must remember to call | `required` members: a compile error if missing |
+| Half-built house until `GetResult()` | complete and immutable once constructed |
+| `WoodenHouseBuilder` / `StoneHouseBuilder` | `static readonly` presets `Houses.Wooden` / `Houses.Stone` |
+| `Director.BuildFullFeaturedHouse()` | `Houses.FullFeatured(house)` using a `with` expression |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `class House` with mutable fields | `interface House` with `readonly` fields |
+| `buildGarage()` and the other optional steps | options object with defaults: `house({ …, hasGarage: true })` |
+| `buildWalls()` / `buildRoof()`: steps you must remember to call | `walls` and `roof` are non-optional (via `Pick<…>`) |
+| Half-built house until `getResult()` | complete on creation, and `readonly` rejects later writes |
+| `WoodenHouseBuilder` / `StoneHouseBuilder` | preset objects `wooden` / `stone` |
+| `Director.buildFullFeaturedHouse()` | `fullFeatured(base)` using object spread |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `class House` with mutable fields | `final` fields + `const` constructor |
+| `buildGarage()` and the other optional steps | named parameters with defaults: `hasGarage: true` |
+| `buildWalls()` / `buildRoof()`: steps you must remember to call | `required this.walls`, `required this.roof` |
+| Half-built house until `getResult()` | complete and immutable once constructed |
+| `WoodenHouseBuilder` / `StoneHouseBuilder` | `const` presets `wooden` / `stone` |
+| `Director.buildFullFeaturedHouse()` | `fullFeatured(base)` using `copyWith()` |
+
+:::
+
+**Ecosystem:** in Python, `attrs` and Pydantic (`model_copy(update=…)`) add validation on top of the same idea. In Dart, `freezed` generates `copyWith`, `==`, and `toString` so you don't have to write them by hand.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.10+ — @dataclass(frozen=True, kw_only=True), dataclasses.replace
+from dataclasses import dataclass, replace
+
+
+# Product → an immutable value; the constructor IS the builder
+@dataclass(frozen=True, kw_only=True)
+class House:
+    walls: str  # required: no default
+    roof: str  # required
+    doors: int = 1
+    windows: int = 2
+    has_garage: bool = False
+    has_swimming_pool: bool = False
+
+    def __str__(self) -> str:
+        features: list[str] = []
+        if self.has_garage:
+            features.append("garage")
+        if self.has_swimming_pool:
+            features.append("pool")
+        extras = f" with {', '.join(features)}" if features else ""
+        return f"House({self.walls} walls, {self.roof} roof{extras})"
+
+
+# Concrete builders → presets (they only ever differed in materials)
+WOODEN = House(walls="wooden", roof="shingle")
+STONE = House(walls="stone", roof="concrete")
+
+
+# Director recipe → a function over any preset
+def full_featured(base: House) -> House:
+    return replace(base, doors=4, windows=8, has_garage=True, has_swimming_pool=True)
+
+
+# --- Usage ---
+print(WOODEN)  # House(wooden walls, shingle roof)
+print(full_featured(STONE))  # House(stone walls, concrete roof with garage, pool)
+
+# Custom configuration: named, any order, starting from a preset
+custom = replace(WOODEN, doors=2, windows=4, has_garage=True)
+print(custom)  # House(wooden walls, shingle roof with garage)
+
+# Mistakes fail fast instead of producing a half-built house:
+# House(roof="shingle")             → TypeError: missing 1 required keyword-only argument: 'walls'
+# House("wooden", "shingle", 4)     → TypeError: takes 1 positional argument but 4 were given
+# WOODEN.doors = 9                  → FrozenInstanceError: cannot assign to field 'doors'
+```
+
+#### `C#`
+
+```csharp
+// C# 11+ / .NET 8+ — record, required + init properties, `with` expression
+
+// Product → an immutable record; the object initializer IS the builder
+public record House
+{
+    public required string Walls { get; init; }
+    public required string Roof { get; init; }
+    public int Doors { get; init; } = 1;
+    public int Windows { get; init; } = 2;
+    public bool HasGarage { get; init; }
+    public bool HasSwimmingPool { get; init; }
+
+    public override string ToString()
+    {
+        var features = new List<string>();
+        if (HasGarage) features.Add("garage");
+        if (HasSwimmingPool) features.Add("pool");
+        var extras = features.Count > 0 ? $" with {string.Join(", ", features)}" : "";
+        return $"House({Walls} walls, {Roof} roof{extras})";
+    }
+}
+
+public static class Houses
+{
+    // Concrete builders → presets (they only ever differed in materials)
+    public static readonly House Wooden = new() { Walls = "wooden", Roof = "shingle" };
+    public static readonly House Stone = new() { Walls = "stone", Roof = "concrete" };
+
+    // Director recipe → a function over any preset
+    public static House FullFeatured(House house) =>
+        house with { Doors = 4, Windows = 8, HasGarage = true, HasSwimmingPool = true };
+}
+
+// --- Usage ---
+Console.WriteLine(Houses.Wooden);                      // House(wooden walls, shingle roof)
+Console.WriteLine(Houses.FullFeatured(Houses.Stone));  // House(stone walls, concrete roof with garage, pool)
+
+// Custom configuration: named, any order, starting from a preset
+var custom = Houses.Wooden with { Doors = 2, Windows = 4, HasGarage = true };
+Console.WriteLine(custom);                             // House(wooden walls, shingle roof with garage)
+
+// Mistakes are compile errors instead of a half-built house:
+// new House { Roof = "shingle" };  → CS9035: Required member 'House.Walls' must be set
+// Houses.Wooden.Doors = 9;         → CS8852: Init-only property or indexer 'House.Doors' can only be assigned in an object initializer…
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — readonly properties, defaults via object spread
+
+// Product → an immutable value
+interface House {
+  readonly walls: string;
+  readonly roof: string;
+  readonly doors: number;
+  readonly windows: number;
+  readonly hasGarage: boolean;
+  readonly hasSwimmingPool: boolean;
+}
+
+// The builder → one function: walls & roof required, the rest optional with defaults
+const house = (spec: Pick<House, "walls" | "roof"> & Partial<House>): House => ({
+  doors: 1,
+  windows: 2,
+  hasGarage: false,
+  hasSwimmingPool: false,
+  ...spec,
+});
+
+const describe = (h: House): string => {
+  const features: string[] = [];
+  if (h.hasGarage) features.push("garage");
+  if (h.hasSwimmingPool) features.push("pool");
+  const extras = features.length > 0 ? ` with ${features.join(", ")}` : "";
+  return `House(${h.walls} walls, ${h.roof} roof${extras})`;
+};
+
+// Concrete builders → presets (they only ever differed in materials)
+const wooden = house({ walls: "wooden", roof: "shingle" });
+const stone = house({ walls: "stone", roof: "concrete" });
+
+// Director recipe → a function over any preset
+const fullFeatured = (base: House): House => ({
+  ...base,
+  doors: 4,
+  windows: 8,
+  hasGarage: true,
+  hasSwimmingPool: true,
+});
+
+// --- Usage ---
+console.log(describe(wooden));               // House(wooden walls, shingle roof)
+console.log(describe(fullFeatured(stone)));  // House(stone walls, concrete roof with garage, pool)
+
+// Custom configuration: named, any order, starting from a preset
+const custom: House = { ...wooden, doors: 2, windows: 4, hasGarage: true };
+console.log(describe(custom));               // House(wooden walls, shingle roof with garage)
+
+// Mistakes are compile errors instead of a half-built house:
+// house({ roof: "shingle" });  → TS2345: Property 'walls' is missing
+// wooden.doors = 9;            → TS2540: Cannot assign to 'doors' because it is a read-only property
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — named parameters (required + defaults), const constructor, copyWith
+
+// Product → an immutable value; the constructor IS the builder
+class House {
+  final String walls;
+  final String roof;
+  final int doors;
+  final int windows;
+  final bool hasGarage;
+  final bool hasSwimmingPool;
+
+  const House({
+    required this.walls,
+    required this.roof,
+    this.doors = 1,
+    this.windows = 2,
+    this.hasGarage = false,
+    this.hasSwimmingPool = false,
+  });
+
+  // Hand-written here; `freezed` generates it in real projects
+  House copyWith({
+    String? walls,
+    String? roof,
+    int? doors,
+    int? windows,
+    bool? hasGarage,
+    bool? hasSwimmingPool,
+  }) =>
+      House(
+        walls: walls ?? this.walls,
+        roof: roof ?? this.roof,
+        doors: doors ?? this.doors,
+        windows: windows ?? this.windows,
+        hasGarage: hasGarage ?? this.hasGarage,
+        hasSwimmingPool: hasSwimmingPool ?? this.hasSwimmingPool,
+      );
+
+  @override
+  String toString() {
+    final features = <String>[];
+    if (hasGarage) features.add("garage");
+    if (hasSwimmingPool) features.add("pool");
+    final extras = features.isNotEmpty ? " with ${features.join(", ")}" : "";
+    return "House($walls walls, $roof roof$extras)";
+  }
+}
+
+// Concrete builders → compile-time const presets
+const wooden = House(walls: "wooden", roof: "shingle");
+const stone = House(walls: "stone", roof: "concrete");
+
+// Director recipe → a function over any preset
+House fullFeatured(House base) =>
+    base.copyWith(doors: 4, windows: 8, hasGarage: true, hasSwimmingPool: true);
+
+// --- Usage ---
+void main() {
+  print(wooden);               // House(wooden walls, shingle roof)
+  print(fullFeatured(stone));  // House(stone walls, concrete roof with garage, pool)
+
+  // Custom configuration: named, any order, starting from a preset
+  final custom = wooden.copyWith(doors: 2, windows: 4, hasGarage: true);
+  print(custom);               // House(wooden walls, shingle roof with garage)
+
+  // Mistakes are compile errors instead of a half-built house:
+  // House(roof: "shingle");  → The named parameter 'walls' is required, but there's no corresponding argument
+  // wooden.doors = 9;        → 'doors' can't be used as a setter because it's final
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer named args + copies when | Keep a Builder when |
+|---|---|
+| The pain is many optional parameters | Construction is a real multi-step *process*, with parsing, I/O, or validation between steps |
+| The product is a value (immutable data) | Steps must run in an enforced order, or cross-field rules apply mid-build |
+| Variants differ only in data (wooden vs stone) | The same steps must produce different product *types* (e.g., an HTML vs a PDF report) |
+| The whole object is known in one place, in one expression | The object accumulates piece by piece over time (`StringBuilder`, SQL query builders) |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}

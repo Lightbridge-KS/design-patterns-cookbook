@@ -85,6 +85,73 @@ title: "[type-of-this-design-pattern]"
 
 :::
 
+## Modern Approach
+
+[1–3 sentences: which language feature (stdlib or language syntax) absorbs which role of the classic pattern. Keep the SAME theme and names as the Solution above — the point is the side-by-side diff.]
+
+::: {.callout-note appearance="simple"}
+**Verdict: [🟢 Replaces | 🟡 Simplifies | ⚪ Still the idiom]** — [one-line reason]
+:::
+
+### Feature Map
+
+[One tab per language. "Classic" names that language's own classic code from the Solution above (e.g., `class PaymentStrategy(ABC)`), "Modern" names what replaces it. Write "unchanged" where nothing changes — never force an equivalent.]
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+|   |   |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+|   |   |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+|   |   |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+|   |   |
+
+:::
+
+**Ecosystem:** [popular 3rd-party packages, by name only — never used in the code below]
+
+### Modern Code
+
+[Code + usage in ONE block per language:
+- Language, stdlib, and first-party frameworks only — no 3rd-party packages.
+- First line is a comment naming the minimum version + feature, e.g. `# Python 3.12+ — closures, type alias`.
+- Separate definitions from usage with `# --- Usage ---` / `// --- Usage ---` (Dart: put it above `void main()`).
+- Each block must run as-is as a complete program; expected output goes in comments, identical across languages.
+- ⚪ verdicts: show only the modernized parts; omit unchanged siblings with a comment (e.g., "Radio has the same shape and is omitted here").]
+
+::: {.panel-tabset}
+#### `Python`
+
+#### `C#`
+
+#### `TypeScript`
+
+#### `Dart`
+
+:::
+
+### Classic or Modern?
+
+| Prefer modern when | Keep classic when |
+|------------|--------------|
+|            |              |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
