@@ -667,11 +667,10 @@ tea.prepare_recipe()
 
 print("\n=== Making Tea (no condiments) ===")
 plain_tea = Tea(with_condiments=False)
-plain_tea.prepare_recipe()
+plain_tea.prepare_recipe()  # hook is off, so the condiment step is skipped
 # Boiling water
 # Steeping the tea
 # Pouring into cup
-# (No condiments added - hook returned False)
 ```
 
 #### `C#`
@@ -695,11 +694,10 @@ tea.PrepareRecipe();
 
 Console.WriteLine("\n=== Making Tea (no condiments) ===");
 var plainTea = new Tea(withCondiments: false);
-plainTea.PrepareRecipe();
+plainTea.PrepareRecipe();  // hook is off, so the condiment step is skipped
 // Boiling water
 // Steeping the tea
 // Pouring into cup
-// (No condiments added - hook returned false)
 ```
 
 #### `TypeScript`
@@ -723,11 +721,10 @@ tea.prepareRecipe();
 
 console.log("\n=== Making Tea (no condiments) ===");
 const plainTea = new Tea(false);
-plainTea.prepareRecipe();
+plainTea.prepareRecipe();  // hook is off, so the condiment step is skipped
 // Boiling water
 // Steeping the tea
 // Pouring into cup
-// (No condiments added - hook returned false)
 ```
 
 #### `Dart`
@@ -751,11 +748,10 @@ tea.prepareRecipe();
 
 print('\n=== Making Tea (no condiments) ===');
 final plainTea = Tea(withCondiments: false);
-plainTea.prepareRecipe();
+plainTea.prepareRecipe();  // hook is off, so the condiment step is skipped
 // Boiling water
 // Steeping the tea
 // Pouring into cup
-// (No condiments added - hook returned false)
 ```
 
 :::
@@ -869,11 +865,10 @@ prepare_recipe(TEA)
 # Adding lemon
 
 print("\n=== Making Tea (no condiments) ===")
-prepare_recipe(TEA, wants_condiments=False)
+prepare_recipe(TEA, wants_condiments=False)  # hook is off, so the condiment step is skipped
 # Boiling water
 # Steeping the tea
 # Pouring into cup
-# (no condiments: the hook argument was False)
 ```
 
 #### `C#`
@@ -923,11 +918,10 @@ PrepareRecipe(Tea);
 // Adding lemon
 
 Console.WriteLine("\n=== Making Tea (no condiments) ===");
-PrepareRecipe(Tea, wantsCondiments: false);
+PrepareRecipe(Tea, wantsCondiments: false);  // hook is off, so the condiment step is skipped
 // Boiling water
 // Steeping the tea
 // Pouring into cup
-// (no condiments: the hook argument was false)
 ```
 
 #### `TypeScript`
@@ -978,11 +972,10 @@ prepareRecipe(tea);
 // Adding lemon
 
 console.log("\n=== Making Tea (no condiments) ===");
-prepareRecipe(tea, false);
+prepareRecipe(tea, false);  // hook is off, so the condiment step is skipped
 // Boiling water
 // Steeping the tea
 // Pouring into cup
-// (no condiments: the hook argument was false)
 ```
 
 #### `Dart`
@@ -1031,11 +1024,10 @@ void main() {
   // Adding lemon
 
   print('\n=== Making Tea (no condiments) ===');
-  prepareRecipe(tea, wantsCondiments: false);
+  prepareRecipe(tea, wantsCondiments: false);  // hook is off, so the condiment step is skipped
   // Boiling water
   // Steeping the tea
   // Pouring into cup
-  // (no condiments: the hook argument was false)
 }
 ```
 
