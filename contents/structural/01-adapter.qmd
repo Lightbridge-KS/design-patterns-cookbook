@@ -505,6 +505,217 @@ void main() {
 
 :::
 
+## Modern Approach
+
+The target interface here has **one method**, `play(filename)`. When a target is a single operation, all four languages let you treat it as a **function type**. Then any method with a matching signature already fits: a bound method, method group, or tear-off *is* the adapter, and no wrapper class is needed.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — a single-method target becomes a function type and a method reference becomes the adapter. Multi-method targets still need adapter classes in C# and Dart.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class MusicPlayer(ABC)` with abstract `play()` | `type MusicPlayer = Callable[[str], None]` |
+| `class Mp3Player(MusicPlayer)` | `Mp3Player().play`: a bound method already fits |
+| `class WavPlayerAdapter(MusicPlayer)` wrapping `WavPlayer` | `WavPlayer().play_wav`: the bound method is the adapter |
+| `class OggPlayerAdapter(MusicPlayer)` wrapping `OggPlayer` | `OggPlayer().play_ogg` |
+| Adapter class for a multi-method target | `typing.Protocol` lets classes with matching method names fit without inheriting; mismatched names still need a small adapter class |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IMusicPlayer` with `Play()` | `using MusicPlayer = System.Action<string>;` |
+| `class Mp3Player : IMusicPlayer` | method group `new Mp3Player().Play` |
+| `class WavPlayerAdapter : IMusicPlayer` | method group `new WavPlayer().PlayWav` |
+| `class OggPlayerAdapter : IMusicPlayer` | method group `new OggPlayer().PlayOgg` |
+| Adapter class for a multi-method target | unchanged: nominal typing needs a class that implements the interface |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface MusicPlayer` with `play()` | `type MusicPlayer = (filename: string) => void` |
+| `class Mp3Player implements MusicPlayer` | arrow function `(f) => mp3.play(f)` |
+| `class WavPlayerAdapter implements MusicPlayer` | arrow function `(f) => wav.playWav(f)` |
+| `class OggPlayerAdapter implements MusicPlayer` | arrow function `(f) => ogg.playOgg(f)` |
+| Adapter class for a multi-method target | an object literal `{ play: …, stop: … }`: structural typing needs no class |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class MusicPlayer` with `play()` | `typedef MusicPlayer = void Function(String filename)` |
+| `class Mp3Player implements MusicPlayer` | tear-off `Mp3Player().play` |
+| `class WavPlayerAdapter implements MusicPlayer` | tear-off `WavPlayer().playWav` |
+| `class OggPlayerAdapter implements MusicPlayer` | tear-off `OggPlayer().playOgg` |
+| Adapter class for a multi-method target | unchanged: nominal typing needs a class that `implements` the interface |
+
+:::
+
+**Ecosystem:** no library needed. When the adaptee needs extra arguments, a lambda or Python's `functools.partial` fills them in at the call site.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — bound methods as values, `type` alias over collections.abc.Callable
+from collections.abc import Callable
+
+# Target interface → a function type
+type MusicPlayer = Callable[[str], None]
+
+
+# Native player and adaptees → unchanged classes, no base class
+class Mp3Player:
+    def play(self, filename: str) -> None:
+        print(f"Playing MP3: {filename}")
+
+
+class WavPlayer:
+    def play_wav(self, filename: str) -> None:
+        print(f"Playing WAV: {filename}")
+
+
+class OggPlayer:
+    def play_ogg(self, filename: str) -> None:
+        print(f"Playing OGG: {filename}")
+
+
+def play_music(player: MusicPlayer, filename: str) -> None:
+    player(filename)
+
+
+# --- Usage ---
+# A bound method already matches the function type: it IS the adapter
+play_music(Mp3Player().play, "song.mp3")  # Playing MP3: song.mp3
+play_music(WavPlayer().play_wav, "song.wav")  # Playing WAV: song.wav
+play_music(OggPlayer().play_ogg, "song.ogg")  # Playing OGG: song.ogg
+```
+
+#### `C#`
+
+```csharp
+// C# 10+ / .NET 6+ — Action<> delegates, method groups
+using MusicPlayer = System.Action<string>;  // target interface → a delegate type
+
+// Native player and adaptees → unchanged classes, no interface
+public class Mp3Player
+{
+    public void Play(string filename) => Console.WriteLine($"Playing MP3: {filename}");
+}
+
+public class WavPlayer
+{
+    public void PlayWav(string filename) => Console.WriteLine($"Playing WAV: {filename}");
+}
+
+public class OggPlayer
+{
+    public void PlayOgg(string filename) => Console.WriteLine($"Playing OGG: {filename}");
+}
+
+// --- Usage ---
+void PlayMusic(MusicPlayer player, string filename) => player(filename);
+
+// A method group already matches the delegate type: it IS the adapter
+PlayMusic(new Mp3Player().Play, "song.mp3");    // Playing MP3: song.mp3
+PlayMusic(new WavPlayer().PlayWav, "song.wav");  // Playing WAV: song.wav
+PlayMusic(new OggPlayer().PlayOgg, "song.ogg");  // Playing OGG: song.ogg
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — function types, arrow functions
+
+// Target interface → a function type
+type MusicPlayer = (filename: string) => void;
+
+// Native player and adaptees → unchanged classes, no interface
+class Mp3Player {
+  play(filename: string): void {
+    console.log(`Playing MP3: ${filename}`);
+  }
+}
+
+class WavPlayer {
+  playWav(filename: string): void {
+    console.log(`Playing WAV: ${filename}`);
+  }
+}
+
+class OggPlayer {
+  playOgg(filename: string): void {
+    console.log(`Playing OGG: ${filename}`);
+  }
+}
+
+function playMusic(player: MusicPlayer, filename: string): void {
+  player(filename);
+}
+
+// --- Usage ---
+const mp3 = new Mp3Player();
+const wav = new WavPlayer();
+const ogg = new OggPlayer();
+
+// An arrow function is the whole adapter. It also keeps `this` bound,
+// which a bare `wav.playWav` reference would lose.
+playMusic((f) => mp3.play(f), "song.mp3");     // Playing MP3: song.mp3
+playMusic((f) => wav.playWav(f), "song.wav");  // Playing WAV: song.wav
+playMusic((f) => ogg.playOgg(f), "song.ogg");  // Playing OGG: song.ogg
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — function types (typedef), method tear-offs
+
+// Target interface → a function type
+typedef MusicPlayer = void Function(String filename);
+
+// Native player and adaptees → unchanged classes, no interface
+class Mp3Player {
+  void play(String filename) => print("Playing MP3: $filename");
+}
+
+class WavPlayer {
+  void playWav(String filename) => print("Playing WAV: $filename");
+}
+
+class OggPlayer {
+  void playOgg(String filename) => print("Playing OGG: $filename");
+}
+
+void playMusic(MusicPlayer player, String filename) => player(filename);
+
+// --- Usage ---
+void main() {
+  // A method tear-off already matches the function type: it IS the adapter
+  playMusic(Mp3Player().play, "song.mp3");     // Playing MP3: song.mp3
+  playMusic(WavPlayer().playWav, "song.wav");  // Playing WAV: song.wav
+  playMusic(OggPlayer().playOgg, "song.ogg");  // Playing OGG: song.ogg
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer a function adapter when | Keep an adapter class when |
+|---|---|
+| The target is a single operation | The target has several methods (C# and Dart need a class; Python `Protocol` and TS object literals soften this) |
+| Only the name differs, or one lambda can fix the arguments | Adapting needs state, caching, or error translation across calls |
+| The client just calls the operation | The adapter must be registered by type in a DI container |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
