@@ -848,6 +848,392 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Today the hub is usually a generic **event bus** (publish/subscribe). TypeScript and Dart ship one in the standard library, and C# builds one from multicast delegates. Devices only publish named events, and they need no base class or hub reference. The catch is that an event bus is a *mediator without the brain*. The coordination rules (motion → light on → thermostat) don't disappear. They move into the subscriptions, so give them one clearly named home.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — a generic event bus replaces the hand-written hub and the colleague base class, but the coordination rules still need a home.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class SmartHomeHub` with `register()` / `notify()` | `EventBus` with `subscribe()` / `publish()` over a `defaultdict(list)` of callables |
+| `if event == …` + `isinstance(device, Light)` inside the hub | subscriptions: `bus.subscribe("motion_detected", lambda _: light.turn_on())` |
+| `class SmartDevice(ABC)` with a `_hub` back-reference | plain classes that receive a `publish` function |
+| `hub.register(device)` | none: devices only need `publish` |
+| `self.notify_hub("light_on")` | `self._publish("light_on", self.name)` |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `class SmartHomeHub` with `Register()` / `Notify()` | `EventBus` holding one multicast `Action<string>` per event name |
+| `if (eventType == …)` + `device is Light` inside the hub | subscriptions: `bus.Subscribe("motion_detected", _ => light.TurnOn())` |
+| `abstract class SmartDevice` with a `Hub` property | primary-constructor classes taking an `Action<string, string> publish` |
+| `hub.Register(device)` | none: devices only need `publish` |
+| `NotifyHub("light_on")` | `publish("light_on", name)` |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `class SmartHomeHub` with `register()` / `notify()` | built-in `EventTarget` + `CustomEvent` (subclassed to log each event) |
+| `if (event === …)` + `instanceof Light` inside the hub | listeners: `bus.addEventListener("motion_detected", () => light.turnOn())` |
+| `abstract class SmartDevice` with a `hub` field | plain classes that receive a `publish` function |
+| `hub.register(device)` | none: devices only need `publish` |
+| `this.notifyHub("light_on")` | `this.publish("light_on", this.name)` |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `class SmartHomeHub` with `register()` / `notify()` | `StreamController.broadcast()` (`dart:async`) wrapped in a small `EventBus` |
+| `if (event == …)` + `device is Light` inside the hub | subscriptions: `bus.subscribe("motion_detected", (_) => light.turnOn())` |
+| `abstract class SmartDevice` with a `_hub` field | plain classes that receive a `Publish` function |
+| `hub.register(device)` | none: devices only need `publish` |
+| synchronous `notify()` call | stream listeners run as microtasks, after the current code finishes |
+
+:::
+
+**Ecosystem:** .NET has MediatR (moved to a commercial license in 2025) and CommunityToolkit.Mvvm's `IMessenger` for UI apps. Python has `blinker`, TypeScript has RxJS `Subject`, and Dart has `event_bus` and Bloc. Across services, the same idea scales up to a message broker (RabbitMQ, Kafka).
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — callables in a defaultdict(list) as a tiny event bus
+from collections import defaultdict
+from collections.abc import Callable
+
+type Handler = Callable[[str], None]  # receives the sender's name
+type Publish = Callable[[str, str], None]  # (event, sender)
+
+
+# Mediator → a generic event bus: it routes events but knows no device types
+class EventBus:
+    def __init__(self) -> None:
+        self._handlers: defaultdict[str, list[Handler]] = defaultdict(list)
+
+    def subscribe(self, event: str, handler: Handler) -> None:
+        self._handlers[event].append(handler)
+
+    def publish(self, event: str, sender: str) -> None:
+        print(f"Bus: '{event}' from {sender}")
+        for handler in self._handlers[event]:
+            handler(sender)
+
+
+# Colleagues → no base class, no hub reference: each gets a `publish` function
+class Light:
+    def __init__(self, name: str, publish: Publish) -> None:
+        self.name = name
+        self._publish = publish
+        self.is_on = False
+
+    def turn_on(self) -> None:
+        self.is_on = True
+        print(f"{self.name}: Light turned ON")
+        self._publish("light_on", self.name)
+
+
+class Thermostat:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.temperature = 20
+
+    def set_temperature(self, temp: int) -> None:
+        self.temperature = temp
+        print(f"{self.name}: Temperature set to {temp}°C")
+
+
+class MotionSensor:
+    def __init__(self, name: str, publish: Publish) -> None:
+        self.name = name
+        self._publish = publish
+
+    def detect_motion(self) -> None:
+        print(f"{self.name}: Motion detected!")
+        self._publish("motion_detected", self.name)
+
+
+# --- Usage ---
+bus = EventBus()
+light = Light("Living Room Light", bus.publish)
+thermostat = Thermostat("Main Thermostat")
+sensor = MotionSensor("Entry Sensor", bus.publish)
+
+# The coordination rules ("the brain") now live in the wiring
+bus.subscribe("motion_detected", lambda _: light.turn_on())
+bus.subscribe("light_on", lambda _: thermostat.set_temperature(22))
+
+print("--- Motion Detected ---")
+sensor.detect_motion()
+# --- Motion Detected ---
+# Entry Sensor: Motion detected!
+# Bus: 'motion_detected' from Entry Sensor
+# Living Room Light: Light turned ON
+# Bus: 'light_on' from Living Room Light
+# Main Thermostat: Temperature set to 22°C
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — multicast delegates (Action<T>), lambdas, primary constructors
+
+// Mediator → a generic event bus: it routes events but knows no device types
+public class EventBus
+{
+    private readonly Dictionary<string, Action<string>> _handlers = [];
+
+    // `+` combines delegates: one Action can call many handlers
+    public void Subscribe(string eventName, Action<string> handler) =>
+        _handlers[eventName] = _handlers.GetValueOrDefault(eventName) + handler;
+
+    public void Publish(string eventName, string sender)
+    {
+        Console.WriteLine($"Bus: '{eventName}' from {sender}");
+        _handlers.GetValueOrDefault(eventName)?.Invoke(sender);
+    }
+}
+
+// Colleagues → no base class, no hub reference: each gets a `publish` delegate
+public class Light(string name, Action<string, string> publish)
+{
+    public bool IsOn { get; private set; }
+
+    public void TurnOn()
+    {
+        IsOn = true;
+        Console.WriteLine($"{name}: Light turned ON");
+        publish("light_on", name);
+    }
+}
+
+public class Thermostat(string name)
+{
+    public int Temperature { get; private set; } = 20;
+
+    public void SetTemperature(int temp)
+    {
+        Temperature = temp;
+        Console.WriteLine($"{name}: Temperature set to {temp}°C");
+    }
+}
+
+public class MotionSensor(string name, Action<string, string> publish)
+{
+    public void DetectMotion()
+    {
+        Console.WriteLine($"{name}: Motion detected!");
+        publish("motion_detected", name);
+    }
+}
+
+// --- Usage ---
+var bus = new EventBus();
+var light = new Light("Living Room Light", bus.Publish);
+var thermostat = new Thermostat("Main Thermostat");
+var sensor = new MotionSensor("Entry Sensor", bus.Publish);
+
+// The coordination rules ("the brain") now live in the wiring
+bus.Subscribe("motion_detected", _ => light.TurnOn());
+bus.Subscribe("light_on", _ => thermostat.SetTemperature(22));
+
+Console.WriteLine("--- Motion Detected ---");
+sensor.DetectMotion();
+// --- Motion Detected ---
+// Entry Sensor: Motion detected!
+// Bus: 'motion_detected' from Entry Sensor
+// Living Room Light: Light turned ON
+// Bus: 'light_on' from Living Room Light
+// Main Thermostat: Temperature set to 22°C
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — built-in EventTarget + CustomEvent as the event bus
+
+type Publish = (type: string, sender: string) => void;
+
+// Mediator → the built-in EventTarget: it routes events but knows no device types
+class EventBus extends EventTarget {
+  publish: Publish = (type, sender) => {
+    console.log(`Bus: '${type}' from ${sender}`);
+    this.dispatchEvent(new CustomEvent(type, { detail: sender }));
+  };
+}
+
+// Colleagues → no base class, no hub reference: each gets a `publish` function
+class Light {
+  isOn = false;
+  private readonly name: string;
+  private readonly publish: Publish;
+
+  constructor(name: string, publish: Publish) {
+    this.name = name;
+    this.publish = publish;
+  }
+
+  turnOn(): void {
+    this.isOn = true;
+    console.log(`${this.name}: Light turned ON`);
+    this.publish("light_on", this.name);
+  }
+}
+
+class Thermostat {
+  temperature = 20;
+  private readonly name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  setTemperature(temp: number): void {
+    this.temperature = temp;
+    console.log(`${this.name}: Temperature set to ${temp}°C`);
+  }
+}
+
+class MotionSensor {
+  private readonly name: string;
+  private readonly publish: Publish;
+
+  constructor(name: string, publish: Publish) {
+    this.name = name;
+    this.publish = publish;
+  }
+
+  detectMotion(): void {
+    console.log(`${this.name}: Motion detected!`);
+    this.publish("motion_detected", this.name);
+  }
+}
+
+// --- Usage ---
+const bus = new EventBus();
+const light = new Light("Living Room Light", bus.publish);
+const thermostat = new Thermostat("Main Thermostat");
+const sensor = new MotionSensor("Entry Sensor", bus.publish);
+
+// The coordination rules ("the brain") now live in the wiring
+bus.addEventListener("motion_detected", () => light.turnOn());
+bus.addEventListener("light_on", () => thermostat.setTemperature(22));
+
+console.log("--- Motion Detected ---");
+sensor.detectMotion();
+// --- Motion Detected ---
+// Entry Sensor: Motion detected!
+// Bus: 'motion_detected' from Entry Sensor
+// Living Room Light: Light turned ON
+// Bus: 'light_on' from Living Room Light
+// Main Thermostat: Temperature set to 22°C
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — StreamController.broadcast (dart:async) as the event bus, records
+import 'dart:async';
+
+typedef Publish = void Function(String type, String sender);
+
+// Mediator → a broadcast stream: it routes events but knows no device types
+class EventBus {
+  final _events = StreamController<({String type, String sender})>.broadcast();
+
+  void publish(String type, String sender) {
+    print("Bus: '$type' from $sender");
+    _events.add((type: type, sender: sender));
+  }
+
+  void subscribe(String type, void Function(String sender) handler) {
+    _events.stream.where((e) => e.type == type).listen((e) => handler(e.sender));
+  }
+}
+
+// Colleagues → no base class, no hub reference: each gets a `publish` function
+class Light {
+  final String name;
+  final Publish _publish;
+  bool isOn = false;
+
+  Light(this.name, this._publish);
+
+  void turnOn() {
+    isOn = true;
+    print("$name: Light turned ON");
+    _publish("light_on", name);
+  }
+}
+
+class Thermostat {
+  final String name;
+  int temperature = 20;
+
+  Thermostat(this.name);
+
+  void setTemperature(int temp) {
+    temperature = temp;
+    print("$name: Temperature set to $temp°C");
+  }
+}
+
+class MotionSensor {
+  final String name;
+  final Publish _publish;
+
+  MotionSensor(this.name, this._publish);
+
+  void detectMotion() {
+    print("$name: Motion detected!");
+    _publish("motion_detected", name);
+  }
+}
+
+// --- Usage ---
+void main() {
+  final bus = EventBus();
+  final light = Light("Living Room Light", bus.publish);
+  final thermostat = Thermostat("Main Thermostat");
+  final sensor = MotionSensor("Entry Sensor", bus.publish);
+
+  // The coordination rules ("the brain") now live in the wiring
+  bus.subscribe("motion_detected", (_) => light.turnOn());
+  bus.subscribe("light_on", (_) => thermostat.setTemperature(22));
+
+  print("--- Motion Detected ---");
+  sensor.detectMotion();
+  // Stream listeners run as microtasks, right after main's synchronous code:
+  // --- Motion Detected ---
+  // Entry Sensor: Motion detected!
+  // Bus: 'motion_detected' from Entry Sensor
+  // Living Room Light: Light turned ON
+  // Bus: 'light_on' from Living Room Light
+  // Main Thermostat: Temperature set to 22°C
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer an event bus when | Keep a dedicated mediator class when |
+|---|---|
+| Rules are simple "when X happens, do Y" reactions | A rule depends on several devices' state at once ("lights on only if it's dark and someone is home") |
+| Publishers and subscribers should not know each other at all | You want the whole workflow readable, testable, and debuggable in one place |
+| Reactions are added often, by different modules or teams | Step ordering, error handling, or rollback across steps matters |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
