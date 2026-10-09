@@ -62,3 +62,4 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
 ## After Writting Content
 
 - After you writting a `.qmd` file in `contents/`, please update `_quarto.yml`
+- After writing or changing a `## Modern Approach` section, run `just verify <chapter.qmd>` (must print PASS) and `quarto render <chapter.qmd>` (no warnings). `just check` runs every example and renders the whole book.

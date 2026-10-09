@@ -180,3 +180,6 @@ cython_debug/
 
 # Playground (scratch, never committed)
 _playground/
+
+# Modern Approach example checks (scripts/verify_modern.py)
+.verify/

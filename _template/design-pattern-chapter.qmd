@@ -132,7 +132,7 @@ title: "[type-of-this-design-pattern]"
 - Language, stdlib, and first-party frameworks only — no 3rd-party packages.
 - First line is a comment naming the minimum version + feature, e.g. `# Python 3.12+ — closures, type alias`.
 - Separate definitions from usage with `# --- Usage ---` / `// --- Usage ---` (Dart: put it above `void main()`).
-- Each block must run as-is as a complete program; expected output goes in comments, identical across languages.
+- Each block must run as-is as a complete program; expected output goes in comments, identical across languages. Check with `just verify <chapter.qmd>`.
 - ⚪ verdicts: show only the modernized parts; omit unchanged siblings with a comment (e.g., "Radio has the same shape and is omitted here").]
 
 ::: {.panel-tabset}
