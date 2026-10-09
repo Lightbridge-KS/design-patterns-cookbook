@@ -457,30 +457,198 @@ void main() {
 
 :::
 
-## Summary
+## Modern Approach
 
-::: {.callout-tip appearance="simple" collapse="false"}
-**Singleton** ensures a class has only one instance with global access — useful for shared resources, but use sparingly due to testability concerns.
+The classic Singleton does two jobs: it shares one instance, and it *forbids* creating a second one. Each language already shares one instance for you. Python and TypeScript evaluate a module only once, C# runs a static initializer only once, and Dart initializes a top-level variable only once. Moving the "only one" rule out of the class leaves an ordinary class that tests can still construct.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟢 Replaces** — the language already provides "exactly one shared instance". The class stays ordinary, so tests can still create their own.
 :::
 
-### Key Benefits
+### Feature Map
 
-- **Single Instance**: Guarantees exactly one instance exists
-- **Global Access**: Easy access from anywhere in the codebase
-- **Lazy Initialization**: Instance created only when needed
-- **Controlled Access**: Centralized point for managing shared state
+::: {.panel-tabset}
+#### `Python`
 
-### When to Use
+| Classic | Modern |
+|---|---|
+| `_instance` class attribute + `__new__` override | `@cache` on a `get_logger()` function, or a module-level `logger = Logger()` |
+| `_initialized` flag to stop `__init__` running twice | Not needed: the cached function body runs once |
+| `Logger.get_instance()` | `get_logger()` |
+| Every `Logger()` call returns the shared instance | `Logger()` builds a fresh, isolated instance (handy in tests) |
 
-| ✅ Use When | ❌ Avoid When |
-|------------|--------------|
-| You need exactly one instance (logger, config) | You need multiple instances in tests |
-| The instance should be globally accessible | Dependency injection is available |
-| You want to control shared resource access | The class has mutable state that varies |
-| Instance creation is expensive | It's just for "convenience" (use DI instead) |
+#### `C#`
 
-::: {.callout-warning appearance="simple"}
-**Testability Warning**: Singletons make unit testing harder because you can't easily replace them with mocks. Consider using Dependency Injection instead, where the "singleton" lifetime is managed by the DI container.
+| Classic | Modern |
+|---|---|
+| `private static readonly Lazy<Logger> _instance` | `public static Logger Instance { get; } = new();`: the runtime runs it once, thread-safely |
+| `private Logger()` constructor | Public constructor: tests can create their own |
+| `sealed` to block subclass instances | Not needed |
+| `Logger.Instance` | unchanged |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `private static instance` + `getInstance()` | `export const logger = new Logger()`: a module body runs once |
+| `private constructor()` | Regular constructor |
+| `Logger.getInstance()` | `import { logger } from "./logger"` |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `static Logger? _instance` + `factory Logger()` | Top-level `final logger = Logger();` |
+| `Logger._internal()` private constructor | Regular constructor |
+| `_instance ??= Logger._internal()` lazy check | Built in: a top-level `final` is initialized on first read |
+
+:::
+
+**Ecosystem:** Python's `logging.getLogger(name)` is the standard library's own registry of per-name shared loggers. In .NET, DI registers a singleton lifetime (`services.AddSingleton<ILogger, FileLogger>()`, see below). In Dart and Flutter, `get_it` (`GetIt.I.registerSingleton`) and Riverpod providers own shared instances.
+
+### Modern Code
+
+The examples print to the console instead of writing `app.log`, which keeps them short and runnable.
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.9+ — functools.cache (or a module-level instance)
+from functools import cache
+
+
+# An ordinary class: no __new__ tricks, so tests can still construct it
+class Logger:
+    def __init__(self) -> None:
+        self._level = "INFO"
+
+    def log(self, message: str) -> None:
+        print(f"{self._level}: {message}")
+
+    def set_level(self, level: str) -> None:
+        self._level = level
+
+
+# The single instance → a cached factory, created on the first call
+@cache
+def get_logger() -> Logger:
+    return Logger()
+
+
+# Eager alternative: `logger = Logger()` at module level. Python runs a module
+# once and caches it in sys.modules, so every `import` shares that object.
+
+
+# --- Usage ---
+logger1 = get_logger()
+logger2 = get_logger()
+print(logger1 is logger2)  # True: same object
+
+logger1.set_level("DEBUG")
+get_logger().log("Application started")  # DEBUG: Application started
+
+# Tests can still build a fresh, isolated instance
+print(Logger() is logger1)  # False
+```
+
+#### `C#`
+
+```csharp
+// C# 9+ / .NET 5+ — static get-only property with an initializer
+
+// An ordinary class: public constructor, so tests can still construct it
+public class Logger
+{
+    // The single instance → the runtime runs this initializer once, thread-safely
+    public static Logger Instance { get; } = new();
+
+    private string _level = "INFO";
+
+    public void Log(string message) => Console.WriteLine($"{_level}: {message}");
+
+    public void SetLevel(string level) => _level = level;
+}
+
+// --- Usage ---
+var logger1 = Logger.Instance;
+var logger2 = Logger.Instance;
+Console.WriteLine(ReferenceEquals(logger1, logger2));  // True: same object
+
+logger1.SetLevel("DEBUG");
+Logger.Instance.Log("Application started");  // DEBUG: Application started
+
+// Tests can still build a fresh, isolated instance
+Console.WriteLine(ReferenceEquals(new Logger(), logger1));  // False
+```
+
+#### `TypeScript`
+
+```typescript
+// ES2015+ modules — a module body runs once, and every importer shares its exports
+
+// An ordinary class: public constructor, so tests can still construct it
+class Logger {
+  private level = "INFO";
+
+  log(message: string): void {
+    console.log(`${this.level}: ${message}`);
+  }
+
+  setLevel(level: string): void {
+    this.level = level;
+  }
+}
+
+// The single instance → a module-level constant. In a real project it lives in
+// logger.ts as `export const logger = new Logger();`, and every
+// `import { logger } from "./logger";` receives this same object.
+const logger = new Logger();
+
+// --- Usage ---
+// In a real app, these two would come from `import` statements in different files
+const logger1 = logger;
+const logger2 = logger;
+console.log(logger1 === logger2);  // true: same object
+
+logger1.setLevel("DEBUG");
+logger.log("Application started");  // DEBUG: Application started
+
+// Tests can still build a fresh, isolated instance
+console.log(new Logger() === logger1);  // false
+```
+
+#### `Dart`
+
+```dart
+// Dart 2.12+ — top-level `final` variables are initialized lazily, once
+
+// An ordinary class: public constructor, so tests can still construct it
+class Logger {
+  String _level = "INFO";
+
+  void log(String message) => print("$_level: $message");
+
+  void setLevel(String level) => _level = level;
+}
+
+// The single instance → a top-level final, created on first read
+final logger = Logger();
+
+// --- Usage ---
+void main() {
+  final logger1 = logger;
+  final logger2 = logger;
+  print(identical(logger1, logger2));  // true: same object
+
+  logger1.setLevel("DEBUG");
+  logger.log("Application started");  // DEBUG: Application started
+
+  // Tests can still build a fresh, isolated instance
+  print(identical(Logger(), logger1));  // false
+}
+```
+
 :::
 
 ### Alternative: Dependency Injection
@@ -722,3 +890,37 @@ void main() {
 :::
 
 **Key Insight**: The DI container (or manual wiring) ensures only one `FileLogger` instance exists (singleton behavior), but the code is **testable** because dependencies are explicit and replaceable.
+
+### Classic or Modern?
+
+| Prefer a module / static instance when | Keep the classic Singleton when |
+|---|---|
+| You need one *shared* instance, not a *ban* on a second one | A second instance would be a bug you must prevent, such as two handles to one device or a process-wide lock |
+| Tests should be able to create fresh, isolated instances | Callers must not be able to bypass the shared instance, even by mistake |
+| Your app has a DI container: give the class a singleton lifetime there (above) | The class lives in a library with no composition root, and it must own its only access point |
+
+## Summary
+
+::: {.callout-tip appearance="simple" collapse="false"}
+**Singleton** ensures a class has only one instance with global access — useful for shared resources, but use sparingly due to testability concerns.
+:::
+
+### Key Benefits
+
+- **Single Instance**: Guarantees exactly one instance exists
+- **Global Access**: Easy access from anywhere in the codebase
+- **Lazy Initialization**: Instance created only when needed
+- **Controlled Access**: Centralized point for managing shared state
+
+### When to Use
+
+| ✅ Use When | ❌ Avoid When |
+|------------|--------------|
+| You need exactly one instance (logger, config) | You need multiple instances in tests |
+| The instance should be globally accessible | Dependency injection is available |
+| You want to control shared resource access | The class has mutable state that varies |
+| Instance creation is expensive | It's just for "convenience" (use DI instead) |
+
+::: {.callout-warning appearance="simple"}
+**Testability Warning**: Singletons make unit testing harder because you can't easily replace them with mocks. Consider using Dependency Injection instead, where the "singleton" lifetime is managed by the DI container. See [Alternative: Dependency Injection](#alternative-dependency-injection) in the Modern Approach section.
+:::
