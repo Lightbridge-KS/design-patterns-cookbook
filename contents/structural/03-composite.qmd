@@ -577,6 +577,269 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Composite is the object-oriented way to model a tree: every node shares an interface and implements each operation itself. All four languages now support a **data-oriented** alternative. The tree becomes immutable data (a closed set of node types), and each operation becomes one function that uses **pattern matching** to handle files and folders.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — plain data plus pattern-matching functions replace the component interface. This is a different trade-off, not a strict upgrade: new operations get easy and new node types get harder.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class FileSystemItem(ABC)` with `get_name()` / `get_size()` | a `type FileSystemItem` alias for the union of `File` and `Folder` |
+| `class File(FileSystemItem)` with getters | `@dataclass(frozen=True) class File` |
+| `class Folder` with `add()` / `remove()` | `Folder("root", (...))`: the whole tree in one nested expression |
+| `get_size()` overridden in every class | one `get_size()` function using `match` |
+| A new operation means a new method in every class | a new function; `File` and `Folder` stay untouched |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IFileSystemItem` | `abstract record FileSystemItem(string Name)` |
+| `class File : IFileSystemItem` | `sealed record File(string Name, int Size)` |
+| `class Folder` with `Add()` / `Remove()` | `record Folder(string Name, params FileSystemItem[] Children)` |
+| `GetSize()` implemented in every class | one `switch` expression with type patterns; C# hierarchies are open, so without a `_` arm the compiler warns (CS8509) |
+| A new operation means a new method in every class | a new function; `File` and `Folder` stay untouched |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface FileSystemItem` | a union type tagged by `kind` |
+| `class File` / `class Folder` | object literals built by `file()` / `folder()` |
+| `add()` / `remove()` | `folder("root", ...children)`: the whole tree in one nested expression |
+| `getSize()` implemented in every class | one `switch (item.kind)`; the compiler checks every case returns |
+| A new operation means a new method in every class | a new function; the node types stay untouched |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class FileSystemItem` | `sealed class FileSystemItem`: the compiler knows every subtype |
+| `class File implements FileSystemItem` | `final class File` with a `const` constructor |
+| `class Folder` with `add()` / `remove()` | `const Folder("root", [...])`: the whole tree in one nested expression |
+| `getSize()` implemented in every class | one switch expression with object patterns, checked for exhaustiveness |
+| A new operation means a new method in every class | a new function; `File` and `Folder` stay untouched |
+
+:::
+
+**Ecosystem:** C# has no closed unions yet, so `OneOf` is a popular stand-in. In TypeScript, `ts-pattern` adds richer matching. In Dart, `freezed` generates sealed unions with `copyWith`.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — frozen dataclasses, `type` alias, structural pattern matching
+from dataclasses import dataclass
+
+# Component interface → a union of the node types
+type FileSystemItem = File | Folder
+
+
+# Leaf and composite → plain immutable data
+@dataclass(frozen=True)
+class File:
+    name: str
+    size: int
+
+
+@dataclass(frozen=True)
+class Folder:
+    name: str
+    children: tuple[FileSystemItem, ...] = ()
+
+
+# Operations → functions that match on the shape of each node
+def get_size(item: FileSystemItem) -> int:
+    match item:
+        case File(size=size):
+            return size
+        case Folder(children=children):
+            return sum(get_size(child) for child in children)
+
+
+# A new operation needs no change to File or Folder
+def count_files(item: FileSystemItem) -> int:
+    match item:
+        case File():
+            return 1
+        case Folder(children=children):
+            return sum(count_files(child) for child in children)
+
+
+# --- Usage ---
+# The whole tree is one nested expression
+projects = Folder("projects", (File("code.py", 50), Folder("data", (File("data.csv", 150),))))
+root = Folder("root", (File("doc.txt", 100), File("image.png", 200), projects))
+
+print(f"doc.txt size: {get_size(File('doc.txt', 100))}")  # doc.txt size: 100
+print(f"projects size: {get_size(projects)}")  # projects size: 200
+print(f"root size: {get_size(root)}")  # root size: 500
+print(f"root files: {count_files(root)}")  # root files: 4
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — records, switch expressions with type patterns
+using static FileSystem;
+
+// Leaf and composite → immutable records sharing an abstract base
+public abstract record FileSystemItem(string Name);
+public sealed record File(string Name, int Size) : FileSystemItem(Name);
+public sealed record Folder(string Name, params FileSystemItem[] Children) : FileSystemItem(Name);
+
+// Operations → functions that switch on the shape of each node
+public static class FileSystem
+{
+    public static int GetSize(FileSystemItem item) => item switch
+    {
+        File file => file.Size,
+        Folder folder => folder.Children.Sum(child => GetSize(child)),
+        _ => throw new ArgumentOutOfRangeException(nameof(item)),  // open hierarchy: no exhaustiveness check
+    };
+
+    // A new operation needs no change to File or Folder
+    public static int CountFiles(FileSystemItem item) => item switch
+    {
+        File => 1,
+        Folder folder => folder.Children.Sum(child => CountFiles(child)),
+        _ => throw new ArgumentOutOfRangeException(nameof(item)),
+    };
+}
+
+// --- Usage ---
+// The whole tree is one nested expression
+var projects = new Folder("projects", new File("code.py", 50), new Folder("data", new File("data.csv", 150)));
+var root = new Folder("root", new File("doc.txt", 100), new File("image.png", 200), projects);
+
+Console.WriteLine($"doc.txt size: {GetSize(new File("doc.txt", 100))}");  // doc.txt size: 100
+Console.WriteLine($"projects size: {GetSize(projects)}");                 // projects size: 200
+Console.WriteLine($"root size: {GetSize(root)}");                         // root size: 500
+Console.WriteLine($"root files: {CountFiles(root)}");                     // root files: 4
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — discriminated unions, exhaustive switch
+
+// Component interface → a union of plain data, tagged by `kind`
+type FileSystemItem =
+  | { readonly kind: "file"; readonly name: string; readonly size: number }
+  | { readonly kind: "folder"; readonly name: string; readonly children: readonly FileSystemItem[] };
+
+// Small constructors keep the tree literal readable
+const file = (name: string, size: number): FileSystemItem => ({ kind: "file", name, size });
+const folder = (name: string, ...children: FileSystemItem[]): FileSystemItem => ({
+  kind: "folder",
+  name,
+  children,
+});
+
+// Operations → functions that switch on `kind`
+function getSize(item: FileSystemItem): number {
+  switch (item.kind) {
+    case "file":
+      return item.size;
+    case "folder":
+      return item.children.reduce((sum, child) => sum + getSize(child), 0);
+  }
+}
+
+// A new operation needs no change to the node types
+function countFiles(item: FileSystemItem): number {
+  switch (item.kind) {
+    case "file":
+      return 1;
+    case "folder":
+      return item.children.reduce((sum, child) => sum + countFiles(child), 0);
+  }
+}
+
+// --- Usage ---
+// The whole tree is one nested expression
+const projects = folder("projects", file("code.py", 50), folder("data", file("data.csv", 150)));
+const root = folder("root", file("doc.txt", 100), file("image.png", 200), projects);
+
+console.log(`doc.txt size: ${getSize(file("doc.txt", 100))}`);  // doc.txt size: 100
+console.log(`projects size: ${getSize(projects)}`);             // projects size: 200
+console.log(`root size: ${getSize(root)}`);                     // root size: 500
+console.log(`root files: ${countFiles(root)}`);                 // root files: 4
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — sealed classes, switch expressions with exhaustiveness checking
+
+// Component interface → a sealed class: the compiler knows every subtype
+sealed class FileSystemItem {
+  final String name;
+  const FileSystemItem(this.name);
+}
+
+// Leaf and composite → immutable data
+final class File extends FileSystemItem {
+  final int size;
+  const File(super.name, this.size);
+}
+
+final class Folder extends FileSystemItem {
+  final List<FileSystemItem> children;
+  const Folder(super.name, this.children);
+}
+
+// Operations → functions with exhaustive switch expressions
+int getSize(FileSystemItem item) => switch (item) {
+      File(:final size) => size,
+      Folder(:final children) => children.fold(0, (sum, child) => sum + getSize(child)),
+    };
+
+// A new operation needs no change to File or Folder
+int countFiles(FileSystemItem item) => switch (item) {
+      File() => 1,
+      Folder(:final children) => children.fold(0, (sum, child) => sum + countFiles(child)),
+    };
+
+// --- Usage ---
+void main() {
+  // The whole tree is one nested (compile-time constant) expression
+  const projects = Folder("projects", [
+    File("code.py", 50),
+    Folder("data", [File("data.csv", 150)]),
+  ]);
+  const root = Folder("root", [File("doc.txt", 100), File("image.png", 200), projects]);
+
+  print("doc.txt size: ${getSize(const File('doc.txt', 100))}");  // doc.txt size: 100
+  print("projects size: ${getSize(projects)}");                    // projects size: 200
+  print("root size: ${getSize(root)}");                            // root size: 500
+  print("root files: ${countFiles(root)}");                        // root files: 4
+}
+```
+
+:::
+
+### Classic or Modern?
+
+This is the **expression problem**: each style makes one kind of change cheap.
+
+| Prefer data + pattern matching when | Keep the Composite classes when |
+|---|---|
+| You add new *operations* often (size, count, render, search) | You add new *node types* often (symlinks, archives, remote folders) |
+| The set of node types is small and closed | Other code must add node types without editing yours |
+| The tree is built once and read many times | Nodes change in place (`add` / `remove` on a live tree) |
+| You want the compiler to flag a missing case (Dart `sealed`, TS unions) | Each node carries its own state and behavior |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
