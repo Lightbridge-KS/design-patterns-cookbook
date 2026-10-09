@@ -665,6 +665,404 @@ void main() {
 
 :::
 
+## Modern Approach
+
+The classic proxy repeats the same check in every method. Three of the four languages can generate a proxy at runtime instead. JavaScript has a built-in `Proxy` object, .NET has `DispatchProxy`, and Python has `__getattr__`. With these you write the access check **once** and it guards every method of any object. Dart has no runtime reflection in AOT builds (including Flutter), so its proxy stays hand-written.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — a dynamic proxy writes the check once for every method, and the rules become a data table; Dart keeps the hand-written proxy.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Document(ABC)` subject interface | not needed: `protect()` returns the target's own type |
+| `class DocumentProxy` with a check in each method | `_Guard.__getattr__`: one check for every method of any object |
+| Permission rules inside `read()` / `save()` | a policy table: `{"read": {"admin", "user"}, "save": {"admin"}}` |
+| `SecretDocument` | unchanged |
+| Virtual proxy (lazy loading, not shown) | `functools.cached_property` |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IDocument` | unchanged: `DispatchProxy` can only implement interfaces |
+| `class DocumentProxy : IDocument` with a check in each method | `Protected<T> : DispatchProxy`: one `Invoke` for every method of any interface |
+| Permission rules inside `Read()` / `Save()` | a policy dictionary keyed by method name |
+| `SecretDocument` | unchanged |
+| Virtual proxy (lazy loading, not shown) | `Lazy<T>` |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface Document` | not needed: `protect()` returns `T` (and `Document` is already a DOM global) |
+| `class DocumentProxy implements Document` | built-in `new Proxy(target, { get })`: one trap for every method |
+| Permission rules inside `read()` / `save()` | `Policy<T>`: keys are type-checked against the target's methods |
+| `SecretDocument` | unchanged |
+| Virtual proxy (lazy loading, not shown) | no built-in: a getter that loads on first access |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Document` | unchanged |
+| `class DocumentProxy implements Document` | unchanged: no runtime reflection in AOT/Flutter, so no dynamic proxies |
+| Permission rules inside `read()` / `save()` | a policy map + one `_guard()` helper |
+| Virtual proxy (lazy loading, not shown) | a `late final` field, initialized on first access |
+
+:::
+
+**Ecosystem:** frameworks usually enforce access at the boundary instead, with ASP.NET Core `[Authorize]`, Django `@permission_required`, or FastAPI dependencies. Dynamic proxies power a lot of tooling: Castle.DynamicProxy sits under .NET mocking libraries such as Moq and NSubstitute, and Vue 3's reactivity is built on JavaScript's `Proxy`.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — __getattr__ delegation, PEP 695 generic function
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, cast
+
+
+@dataclass(frozen=True)
+class User:
+    name: str
+    role: str
+
+
+# Real subject → unchanged: business logic only
+class SecretDocument:
+    def __init__(self, content: str) -> None:
+        self._content = content
+
+    def read(self) -> str:
+        return self._content
+
+    def save(self, content: str) -> None:
+        self._content = content
+        print("Document updated")
+
+
+# Generic protection proxy → ONE check guards every method of ANY object
+class _Guard:
+    def __init__(self, target: object, user: User, policy: dict[str, set[str]]) -> None:
+        self._target, self._user, self._policy = target, user, policy
+
+    # Called for any attribute the guard itself doesn't have, i.e. every target method
+    def __getattr__(self, name: str) -> Callable[..., Any]:
+        method = getattr(self._target, name)
+
+        def guarded(*args: Any, **kwargs: Any) -> Any:
+            if self._user.role not in self._policy.get(name, set()):
+                raise PermissionError(f"{name} access denied for {self._user.name}")
+            print(f"{self._user.name} is calling {name}()")
+            return method(*args, **kwargs)
+
+        return guarded
+
+
+def protect[T](target: T, user: User, policy: dict[str, set[str]]) -> T:
+    # The guard behaves like T, but the type checker has to take our word for it
+    return cast(T, _Guard(target, user, policy))
+
+
+# --- Usage ---
+secret_doc = SecretDocument("Top Secret Content")
+policy = {"read": {"admin", "user"}, "save": {"admin"}}
+
+admin_doc = protect(secret_doc, User("Alice", "admin"), policy)
+user_doc = protect(secret_doc, User("Bob", "user"), policy)
+
+print(admin_doc.read())
+# Alice is calling read()
+# Top Secret Content
+
+admin_doc.save("Updated by admin")
+# Alice is calling save()
+# Document updated
+
+print(user_doc.read())
+# Bob is calling read()
+# Updated by admin
+
+try:
+    user_doc.save("Hacked!")
+except PermissionError as e:
+    print(f"Blocked: {e}")
+# Blocked: save access denied for Bob
+```
+
+#### `C#`
+
+```csharp
+// .NET 8+ — System.Reflection.DispatchProxy (the runtime generates the proxy class)
+#:property PublishAot=false
+// ↑ only for .NET 10 file-based apps (`dotnet run main.cs`): they default to Native AOT,
+//   which can't generate code at runtime. Drop this line in a regular .csproj project.
+using System.Reflection;
+
+public record User(string Name, string Role);
+
+// Subject interface → unchanged: DispatchProxy can only implement interfaces
+public interface IDocument
+{
+    string Read();
+    void Save(string content);
+}
+
+// Real subject → unchanged: business logic only
+public class SecretDocument(string content) : IDocument
+{
+    private string _content = content;
+
+    public string Read() => _content;
+
+    public void Save(string content)
+    {
+        _content = content;
+        Console.WriteLine("Document updated");
+    }
+}
+
+// Generic protection proxy → ONE Invoke guards every method of ANY interface
+public class Protected<T> : DispatchProxy where T : class
+{
+    private T _target = null!;
+    private User _user = null!;
+    private Dictionary<string, string[]> _policy = null!;
+
+    public static T Wrap(T target, User user, Dictionary<string, string[]> policy)
+    {
+        T proxy = Create<T, Protected<T>>();
+        var guard = (Protected<T>)(object)proxy;
+        (guard._target, guard._user, guard._policy) = (target, user, policy);
+        return proxy;
+    }
+
+    protected override object? Invoke(MethodInfo? method, object?[]? args)
+    {
+        var name = method!.Name;
+        if (!_policy.GetValueOrDefault(name, []).Contains(_user.Role))
+            throw new UnauthorizedAccessException($"{name} access denied for {_user.Name}");
+        Console.WriteLine($"{_user.Name} is calling {name}()");
+        return method.Invoke(_target, args);
+    }
+}
+
+// --- Usage ---
+var secretDoc = new SecretDocument("Top Secret Content");
+var policy = new Dictionary<string, string[]> { ["Read"] = ["admin", "user"], ["Save"] = ["admin"] };
+
+var adminDoc = Protected<IDocument>.Wrap(secretDoc, new User("Alice", "admin"), policy);
+var userDoc = Protected<IDocument>.Wrap(secretDoc, new User("Bob", "user"), policy);
+
+Console.WriteLine(adminDoc.Read());
+// Alice is calling Read()
+// Top Secret Content
+
+adminDoc.Save("Updated by admin");
+// Alice is calling Save()
+// Document updated
+
+Console.WriteLine(userDoc.Read());
+// Bob is calling Read()
+// Updated by admin
+
+try
+{
+    userDoc.Save("Hacked!");
+}
+catch (UnauthorizedAccessException e)
+{
+    Console.WriteLine($"Blocked: {e.Message}");
+}
+// Blocked: Save access denied for Bob
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — the built-in Proxy object with a `get` trap
+
+type User = { name: string; role: string };
+
+// Real subject → unchanged: business logic only
+class SecretDocument {
+  private content: string;
+
+  constructor(content: string) {
+    this.content = content;
+  }
+
+  read(): string {
+    return this.content;
+  }
+
+  save(content: string): void {
+    this.content = content;
+    console.log("Document updated");
+  }
+}
+
+// Policy keys are type-checked against the target's methods
+type Policy<T> = Partial<Record<keyof T, string[]>>;
+
+// Generic protection proxy → ONE trap guards every method of ANY object
+function protect<T extends object>(target: T, user: User, policy: Policy<T>): T {
+  return new Proxy(target, {
+    get(obj, prop, receiver) {
+      const value: unknown = Reflect.get(obj, prop, receiver);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        if (!(policy[prop as keyof T] ?? []).includes(user.role)) {
+          throw new Error(`${String(prop)} access denied for ${user.name}`);
+        }
+        console.log(`${user.name} is calling ${String(prop)}()`);
+        return value.apply(obj, args);  // call on the real target, not the proxy
+      };
+    },
+  });
+}
+
+// --- Usage ---
+const secretDoc = new SecretDocument("Top Secret Content");
+const policy: Policy<SecretDocument> = { read: ["admin", "user"], save: ["admin"] };
+
+const adminDoc = protect(secretDoc, { name: "Alice", role: "admin" }, policy);
+const userDoc = protect(secretDoc, { name: "Bob", role: "user" }, policy);
+
+console.log(adminDoc.read());
+// Alice is calling read()
+// Top Secret Content
+
+adminDoc.save("Updated by admin");
+// Alice is calling save()
+// Document updated
+
+console.log(userDoc.read());
+// Bob is calling read()
+// Updated by admin
+
+try {
+  userDoc.save("Hacked!");
+} catch (e) {
+  console.log(`Blocked: ${(e as Error).message}`);
+}
+// Blocked: save access denied for Bob
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — no dynamic proxies (no runtime reflection in AOT/Flutter): the proxy stays hand-written
+
+typedef User = ({String name, String role});
+
+class AccessDenied implements Exception {
+  final String message;
+  AccessDenied(this.message);
+
+  @override
+  String toString() => message;
+}
+
+// Subject interface → unchanged
+abstract interface class Document {
+  String read();
+  void save(String content);
+}
+
+// Real subject → unchanged: business logic only
+class SecretDocument implements Document {
+  String _content;
+
+  SecretDocument(this._content);
+
+  @override
+  String read() => _content;
+
+  @override
+  void save(String content) {
+    _content = content;
+    print("Document updated");
+  }
+}
+
+// Proxy → still one method per subject method, but the rules live in one policy map
+class DocumentProxy implements Document {
+  final Document _target;
+  final User _user;
+  final Map<String, Set<String>> _policy;
+
+  DocumentProxy(this._target, this._user, this._policy);
+
+  void _guard(String method) {
+    if (!(_policy[method] ?? const {}).contains(_user.role)) {
+      throw AccessDenied("$method access denied for ${_user.name}");
+    }
+    print("${_user.name} is calling $method()");
+  }
+
+  @override
+  String read() {
+    _guard("read");
+    return _target.read();
+  }
+
+  @override
+  void save(String content) {
+    _guard("save");
+    _target.save(content);
+  }
+}
+
+// --- Usage ---
+void main() {
+  final secretDoc = SecretDocument("Top Secret Content");
+  final policy = {"read": {"admin", "user"}, "save": {"admin"}};
+
+  final adminDoc = DocumentProxy(secretDoc, (name: "Alice", role: "admin"), policy);
+  final userDoc = DocumentProxy(secretDoc, (name: "Bob", role: "user"), policy);
+
+  print(adminDoc.read());
+  // Alice is calling read()
+  // Top Secret Content
+
+  adminDoc.save("Updated by admin");
+  // Alice is calling save()
+  // Document updated
+
+  print(userDoc.read());
+  // Bob is calling read()
+  // Updated by admin
+
+  try {
+    userDoc.save("Hacked!");
+  } on AccessDenied catch (e) {
+    print("Blocked: $e");
+  }
+  // Blocked: save access denied for Bob
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer a dynamic proxy when | Keep a hand-written proxy when |
+|---|---|
+| The same rule guards many methods, or many interfaces | Each method needs its own logic (different checks, rules based on arguments) |
+| Rules are data (a policy table) that may change | You want full static checking: Python's `cast` and C#'s reflection push errors to runtime |
+| You are writing infrastructure: mocking, logging, reactivity | A call is on a hot path, where reflection-based dispatch costs more than a direct call |
+| | You target Dart / Flutter or .NET Native AOT, where runtime reflection or code generation isn't available |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
