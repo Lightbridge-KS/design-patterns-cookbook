@@ -724,6 +724,318 @@ void main() {
 
 :::
 
+## Modern Approach
+
+All four languages ship the iterator protocol as part of the language. Implement it once and `for` loops, spreads, and lazy pipelines work on your collection. **Generators** (`yield`) write the iterator classes for you: the traversal state lives in local variables, and the compiler or runtime builds the `has_next()` / `next()` machinery.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟢 Replaces** — the iterator interface is built into every language, and a generator replaces each concrete iterator class.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class SongIterator(ABC)` with `has_next()` / `next()` | built-in protocol: `__iter__()` / `__next__()` (`collections.abc.Iterator`) |
+| `SequentialIterator` with an `_index` field | `__iter__` as a generator: `yield from self._songs` |
+| `ReverseIterator` | `__reversed__` generator, used by `reversed(playlist)` |
+| `while it.has_next(): it.next()` | `for song in playlist:` |
+| Independent `_index` per iterator object | each `iter()` call starts a fresh generator |
+| Filtering or limiting needs another iterator class | `itertools.islice`, generator expressions |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface ISongIterator` with `HasNext()` / `Next()` | built-in `IEnumerable<T>` / `IEnumerator<T>` |
+| `SequentialIterator` with an `_index` field | `GetEnumerator()` returning the list's enumerator |
+| `ReverseIterator` | `Reversed()` with `yield return`: the compiler builds the state machine |
+| `while (it.HasNext()) it.Next()` | `foreach (var song in playlist)` |
+| Independent `_index` per iterator object | each `foreach` gets a fresh enumerator |
+| Filtering or limiting needs another iterator class | LINQ: `playlist.Take(2).Select(…)` |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface SongIterator` with `hasNext()` / `next()` | built-in `Iterable<T>` protocol: `[Symbol.iterator]()` |
+| `SequentialIterator` with an `index` field | `*[Symbol.iterator]()` generator: `yield* this.songs` |
+| `ReverseIterator` | `*reversed()` generator |
+| `while (it.hasNext()) it.next()` | `for (const song of playlist)` |
+| Independent `index` per iterator object | each `for...of` starts a fresh generator |
+| Filtering or limiting needs another iterator class | ES2025 iterator helpers: `Iterator.from(playlist).take(2).map(…)` |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class SongIterator` with `hasNext()` / `next()` | built-in `Iterable<T>` / `Iterator<T>` (`moveNext()` / `current`) |
+| `SequentialIterator` with an `_index` field | `Playlist extends Iterable<Song>` + an `iterator` getter |
+| `ReverseIterator` | `reversed` getter written with `sync*` / `yield` |
+| `while (it.hasNext()) it.next()` | `for (final song in playlist)` |
+| Independent `_index` per iterator object | each `for` loop gets a fresh iterator |
+| Filtering or limiting needs another iterator class | inherited lazy `Iterable` methods: `take(2).map(…)` |
+
+:::
+
+**Ecosystem:** Python `more-itertools` and Dart `package:collection` add extra lazy operations. When items are *pushed* to you over time instead of *pulled*, reach for Rx (RxPY, Rx.NET, RxJS) or Dart `Stream`; see the Observer chapter.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — generators (`yield`), __iter__ / __reversed__, itertools
+from collections.abc import Iterator
+from dataclasses import dataclass
+from itertools import islice
+
+
+@dataclass(frozen=True)
+class Song:
+    title: str
+    artist: str
+
+
+class Playlist:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._songs: list[Song] = []  # still private
+
+    def add_song(self, song: Song) -> None:
+        self._songs.append(song)
+
+    # Sequential iterator → a generator; `for song in playlist` just works
+    def __iter__(self) -> Iterator[Song]:
+        yield from self._songs
+
+    # Reverse iterator → a generator; local `i` replaces the `_index` field
+    def __reversed__(self) -> Iterator[Song]:
+        for i in range(len(self._songs) - 1, -1, -1):
+            yield self._songs[i]
+
+
+# --- Usage ---
+playlist = Playlist("Rock Classics")
+playlist.add_song(Song("Bohemian Rhapsody", "Queen"))
+playlist.add_song(Song("Stairway to Heaven", "Led Zeppelin"))
+playlist.add_song(Song("Hotel California", "Eagles"))
+
+print("Playing in order:")
+for song in playlist:
+    print(f"  ♪ {song.title} - {song.artist}")
+# Playing in order:
+#   ♪ Bohemian Rhapsody - Queen
+#   ♪ Stairway to Heaven - Led Zeppelin
+#   ♪ Hotel California - Eagles
+
+print("\nPlaying in reverse:")
+for song in reversed(playlist):
+    print(f"  ♪ {song.title} - {song.artist}")
+# Playing in reverse:
+#   ♪ Hotel California - Eagles
+#   ♪ Stairway to Heaven - Led Zeppelin
+#   ♪ Bohemian Rhapsody - Queen
+
+# Lazy pipelines come free: take 2 without copying the list
+up_next = ", ".join(song.title for song in islice(playlist, 2))
+print(f"\nUp next: {up_next}")
+# Up next: Bohemian Rhapsody, Stairway to Heaven
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — IEnumerable<T>, `yield return`, foreach, LINQ
+public record Song(string Title, string Artist);
+
+public class Playlist(string name) : IEnumerable<Song>
+{
+    private readonly List<Song> _songs = [];  // still private
+
+    public string Name { get; } = name;
+
+    public void AddSong(Song song) => _songs.Add(song);
+
+    // Sequential iterator → hand out the list's enumerator; `foreach` and LINQ just work
+    public IEnumerator<Song> GetEnumerator() => _songs.GetEnumerator();
+
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+
+    // Reverse iterator → `yield return`; local `i` replaces the `_index` field
+    public IEnumerable<Song> Reversed()
+    {
+        for (var i = _songs.Count - 1; i >= 0; i--)
+            yield return _songs[i];
+    }
+}
+
+// --- Usage ---
+var playlist = new Playlist("Rock Classics");
+playlist.AddSong(new Song("Bohemian Rhapsody", "Queen"));
+playlist.AddSong(new Song("Stairway to Heaven", "Led Zeppelin"));
+playlist.AddSong(new Song("Hotel California", "Eagles"));
+
+Console.WriteLine("Playing in order:");
+foreach (var song in playlist)
+    Console.WriteLine($"  ♪ {song.Title} - {song.Artist}");
+// Playing in order:
+//   ♪ Bohemian Rhapsody - Queen
+//   ♪ Stairway to Heaven - Led Zeppelin
+//   ♪ Hotel California - Eagles
+
+Console.WriteLine("\nPlaying in reverse:");
+foreach (var song in playlist.Reversed())
+    Console.WriteLine($"  ♪ {song.Title} - {song.Artist}");
+// Playing in reverse:
+//   ♪ Hotel California - Eagles
+//   ♪ Stairway to Heaven - Led Zeppelin
+//   ♪ Bohemian Rhapsody - Queen
+
+// Lazy pipelines come free: take 2 without copying the list
+var upNext = string.Join(", ", playlist.Take(2).Select(song => song.Title));
+Console.WriteLine($"\nUp next: {upNext}");
+// Up next: Bohemian Rhapsody, Stairway to Heaven
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.6+ / ES2025 — generators, Symbol.iterator, iterator helpers
+type Song = { readonly title: string; readonly artist: string };
+
+class Playlist implements Iterable<Song> {
+  private songs: Song[] = [];  // still private
+  readonly name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  addSong(song: Song): void {
+    this.songs.push(song);
+  }
+
+  // Sequential iterator → a generator; `for...of` and spread just work
+  *[Symbol.iterator](): Generator<Song> {
+    yield* this.songs;
+  }
+
+  // Reverse iterator → a generator; local `i` replaces the `index` field
+  *reversed(): Generator<Song> {
+    for (let i = this.songs.length - 1; i >= 0; i--) {
+      yield this.songs[i];
+    }
+  }
+}
+
+// --- Usage ---
+const playlist = new Playlist("Rock Classics");
+playlist.addSong({ title: "Bohemian Rhapsody", artist: "Queen" });
+playlist.addSong({ title: "Stairway to Heaven", artist: "Led Zeppelin" });
+playlist.addSong({ title: "Hotel California", artist: "Eagles" });
+
+console.log("Playing in order:");
+for (const song of playlist) {
+  console.log(`  ♪ ${song.title} - ${song.artist}`);
+}
+// Playing in order:
+//   ♪ Bohemian Rhapsody - Queen
+//   ♪ Stairway to Heaven - Led Zeppelin
+//   ♪ Hotel California - Eagles
+
+console.log("\nPlaying in reverse:");
+for (const song of playlist.reversed()) {
+  console.log(`  ♪ ${song.title} - ${song.artist}`);
+}
+// Playing in reverse:
+//   ♪ Hotel California - Eagles
+//   ♪ Stairway to Heaven - Led Zeppelin
+//   ♪ Bohemian Rhapsody - Queen
+
+// Lazy pipelines come free: take 2 without copying the list
+const upNext = Iterator.from(playlist).take(2).map((song) => song.title).toArray();
+console.log(`\nUp next: ${upNext.join(", ")}`);
+// Up next: Bohemian Rhapsody, Stairway to Heaven
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — Iterable<T>, sync* generators, lazy Iterable methods
+class Song {
+  final String title;
+  final String artist;
+
+  const Song(this.title, this.artist);
+}
+
+class Playlist extends Iterable<Song> {
+  final String name;
+  final List<Song> _songs = [];  // still private
+
+  Playlist(this.name);
+
+  void addSong(Song song) => _songs.add(song);
+
+  // Sequential iterator → one getter; for-in, take, map, where come free
+  @override
+  Iterator<Song> get iterator => _songs.iterator;
+
+  // Reverse iterator → a sync* generator; local `i` replaces the `_index` field
+  Iterable<Song> get reversed sync* {
+    for (var i = _songs.length - 1; i >= 0; i--) {
+      yield _songs[i];
+    }
+  }
+}
+
+// --- Usage ---
+void main() {
+  final playlist = Playlist("Rock Classics");
+  playlist.addSong(const Song("Bohemian Rhapsody", "Queen"));
+  playlist.addSong(const Song("Stairway to Heaven", "Led Zeppelin"));
+  playlist.addSong(const Song("Hotel California", "Eagles"));
+
+  print("Playing in order:");
+  for (final song in playlist) {
+    print("  ♪ ${song.title} - ${song.artist}");
+  }
+  // Playing in order:
+  //   ♪ Bohemian Rhapsody - Queen
+  //   ♪ Stairway to Heaven - Led Zeppelin
+  //   ♪ Hotel California - Eagles
+
+  print("\nPlaying in reverse:");
+  for (final song in playlist.reversed) {
+    print("  ♪ ${song.title} - ${song.artist}");
+  }
+  // Playing in reverse:
+  //   ♪ Hotel California - Eagles
+  //   ♪ Stairway to Heaven - Led Zeppelin
+  //   ♪ Bohemian Rhapsody - Queen
+
+  // Lazy pipelines come free: take 2 without copying the list
+  final upNext = playlist.take(2).map((song) => song.title).join(", ");
+  print("\nUp next: $upNext");
+  // Up next: Bohemian Rhapsody, Stairway to Heaven
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer the built-in protocol when | Keep explicit iterator classes when |
+|---|---|
+| Clients just need to loop over the collection | The iterator needs extra operations such as `peek()`, `remove()`, `reset()`, or moving backward |
+| Traversals are orderings or filters (forward, reverse, shuffled) | The position must be saved and resumed later, like a database cursor or a pagination token |
+| You want lazy pipelines (`take`, `map`, `filter`) for free | The traversal crosses an API boundary where callers need a named, documented cursor type |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
@@ -737,17 +1049,6 @@ void main() {
 - **Multiple Traversals**: Different iterators for different strategies (forward, reverse, filtered)
 - **Independent State**: Multiple iterators can traverse simultaneously
 - **Uniform Interface**: Same `hasNext()`/`next()` pattern regardless of collection type
-
-### Language Built-in Iterators
-
-Most languages provide built-in iterator support:
-
-| Language | Iterator Protocol |
-|----------|-------------------|
-| **Python** | `__iter__()`, `__next__()` — enables `for item in collection` |
-| **C#** | `IEnumerable<T>`, `IEnumerator<T>` — enables `foreach` |
-| **TypeScript/JS** | `Symbol.iterator`, `next()` — enables `for...of` |
-| **Dart** | `Iterable<T>`, `Iterator<T>` — enables `for (var item in collection)` |
 
 ### When to Use
 
