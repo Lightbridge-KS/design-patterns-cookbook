@@ -578,6 +578,268 @@ void main() {
 
 :::
 
+## Modern Approach
+
+The flyweight factory is a cache that returns the same object for the same arguments. Modern languages have that built in. Python memoizes a function with `@cache`, C# has `ConcurrentDictionary.GetOrAdd`, and Dart's compiler shares every equal `const` value automatically. You still decide what is intrinsic (shared) and what is extrinsic (per character); only the factory disappears.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — the factory class collapses into a memo cache (or the Dart compiler), but splitting intrinsic from extrinsic state is still your design work.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class CharacterStyle` with a hand-written `__init__` | `@dataclass(frozen=True, slots=True)`: immutable and hashable |
+| `class StyleFactory` with a `_cache` dict and string keys | `@cache def get_style(...)`: the memo cache is the factory |
+| `StyleFactory.get_style_count()` | not needed: count distinct `id()`s to prove sharing |
+| `class Character` | `@dataclass(frozen=True, slots=True)`: `__slots__` keeps 10,010 objects small |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `class CharacterStyle` with constructor + properties | `record CharacterStyle(string Font, int Size, string Color)` |
+| `StyleFactory` with a `Dictionary`, `TryGetValue`, and a string key | `ConcurrentDictionary.GetOrAdd` with a tuple key (thread-safe) |
+| `class Character`: one heap object per character | `readonly record struct Character`: stored inline in the list |
+| `ReferenceEquals` to prove sharing | unchanged: a record's `==` compares values, so it can't prove sharing |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `class CharacterStyle` | a frozen object literal typed `Readonly<{…}>` |
+| `class StyleFactory` with a static `Map` | a module-level `Map` + `getStyle()` function (JavaScript has no value types, so the cache stays) |
+| `class Character` | a plain object typed `Readonly<{…}>` + a `render()` function |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `CharacterStyle(...)` constructor | `const CharacterStyle(...)`: equal `const` expressions are one object |
+| `StyleFactory` for styles known at compile time | not needed: the compiler canonicalizes `const` values |
+| `StyleFactory` for styles known only at runtime | `Map.putIfAbsent` keyed by a record `(font, size, color)` |
+| `class Character` | a record typedef + an `extension` providing `render()` |
+
+:::
+
+**Ecosystem:** strings already get this treatment from the runtime, via Python's `sys.intern()` and .NET's `string.Intern()`. Flutter leans on Dart's `const` canonicalization the same way: `const SizedBox(height: 8)` written in a thousand places is one object.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.10+ — @functools.cache, @dataclass(frozen=True, slots=True)
+from dataclasses import dataclass
+from functools import cache
+
+
+# Flyweight → an immutable value object (intrinsic state)
+@dataclass(frozen=True, slots=True)
+class CharacterStyle:
+    font: str
+    size: int
+    color: str
+
+    def render(self, char: str, row: int, col: int) -> None:
+        print(f"'{char}' at ({row},{col}) [{self.font}, {self.size}pt, {self.color}]")
+
+
+# Flyweight factory → a memoized function: same arguments, same object
+@cache
+def get_style(font: str, size: int, color: str) -> CharacterStyle:
+    return CharacterStyle(font, size, color)
+
+
+# Context → extrinsic state + a shared reference
+@dataclass(frozen=True, slots=True)
+class Character:
+    char: str
+    style: CharacterStyle
+    row: int
+    col: int
+
+    def render(self) -> None:
+        self.style.render(self.char, self.row, self.col)
+
+
+# --- Usage ---
+text = "Hello World! " * 770
+characters = [
+    Character(char, get_style("Arial", 12, "black"), i // 80, i % 80)
+    for i, char in enumerate(text)
+]
+
+# Count distinct objects by identity: the proof that all characters share one style
+print(f"Created {len(characters)} characters")
+print(f"Using only {len({id(c.style) for c in characters})} style object(s)!")
+# Created 10010 characters
+# Using only 1 style object(s)!
+
+characters[0].render()  # 'H' at (0,0) [Arial, 12pt, black]
+characters[1].render()  # 'e' at (0,1) [Arial, 12pt, black]
+print(f"Same style? {characters[0].style is characters[1].style}")
+# Same style? True
+```
+
+#### `C#`
+
+```csharp
+// C# 10+ / .NET 8+ — records, record structs, ConcurrentDictionary.GetOrAdd
+using System.Collections.Concurrent;
+
+// Flyweight → a record: immutable intrinsic state in one line
+public record CharacterStyle(string Font, int Size, string Color)
+{
+    public void Render(char c, int row, int col) =>
+        Console.WriteLine($"'{c}' at ({row},{col}) [{Font}, {Size}pt, {Color}]");
+}
+
+// Flyweight factory → a thread-safe memo cache keyed by a tuple
+public static class Styles
+{
+    private static readonly ConcurrentDictionary<(string Font, int Size, string Color), CharacterStyle> Cache = new();
+
+    public static CharacterStyle Get(string font, int size, string color) =>
+        Cache.GetOrAdd((font, size, color), key => new CharacterStyle(key.Font, key.Size, key.Color));
+}
+
+// Context → a readonly record struct: stored inline in the list, no heap object per character
+public readonly record struct Character(char Char, CharacterStyle Style, int Row, int Col)
+{
+    public void Render() => Style.Render(Char, Row, Col);
+}
+
+// --- Usage ---
+var text = string.Concat(Enumerable.Repeat("Hello World! ", 770));
+var characters = text
+    .Select((c, i) => new Character(c, Styles.Get("Arial", 12, "black"), i / 80, i % 80))
+    .ToList();
+
+// Count distinct objects by identity: the proof that all characters share one style
+// (plain Distinct() would use record value equality and report 1 even without sharing)
+var styleObjects = characters.Select(c => c.Style).Distinct(ReferenceEqualityComparer.Instance).Count();
+Console.WriteLine($"Created {characters.Count} characters");
+Console.WriteLine($"Using only {styleObjects} style object(s)!");
+// Created 10010 characters
+// Using only 1 style object(s)!
+
+characters[0].Render();  // 'H' at (0,0) [Arial, 12pt, black]
+characters[1].Render();  // 'e' at (0,1) [Arial, 12pt, black]
+Console.WriteLine($"Same style? {ReferenceEquals(characters[0].Style, characters[1].Style)}");
+// Same style? True
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — readonly object types, Object.freeze, a module-level Map cache
+
+// Flyweight → a frozen, readonly value
+type CharacterStyle = Readonly<{ font: string; size: number; color: string }>;
+
+// Context → extrinsic state + a shared reference
+type Character = Readonly<{ char: string; style: CharacterStyle; row: number; col: number }>;
+
+// Flyweight factory → a function over a Map (JavaScript has no value types, so the cache stays)
+const styles = new Map<string, CharacterStyle>();
+
+const getStyle = (font: string, size: number, color: string): CharacterStyle => {
+  const key = `${font}_${size}_${color}`;
+  if (!styles.has(key)) styles.set(key, Object.freeze({ font, size, color }));
+  return styles.get(key)!;
+};
+
+const render = ({ char, style, row, col }: Character): void =>
+  console.log(`'${char}' at (${row},${col}) [${style.font}, ${style.size}pt, ${style.color}]`);
+
+// --- Usage ---
+const text = "Hello World! ".repeat(770);
+const characters: Character[] = [...text].map((char, i) => ({
+  char,
+  style: getStyle("Arial", 12, "black"),
+  row: Math.floor(i / 80),
+  col: i % 80,
+}));
+
+// Count distinct objects by identity: the proof that all characters share one style
+console.log(`Created ${characters.length} characters`);
+console.log(`Using only ${new Set(characters.map((c) => c.style)).size} style object(s)!`);
+// Created 10010 characters
+// Using only 1 style object(s)!
+
+render(characters[0]);  // 'H' at (0,0) [Arial, 12pt, black]
+render(characters[1]);  // 'e' at (0,1) [Arial, 12pt, black]
+console.log(`Same style? ${characters[0].style === characters[1].style}`);
+// Same style? true
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — const constructors (canonicalized by the compiler), records, extensions
+
+// Flyweight → a const-constructible value (intrinsic state)
+class CharacterStyle {
+  final String font;
+  final int size;
+  final String color;
+
+  const CharacterStyle(this.font, this.size, this.color);
+
+  void render(String char, int row, int col) =>
+      print("'$char' at ($row,$col) [$font, ${size}pt, $color]");
+}
+
+// Context → extrinsic state as a record, with render() added by an extension
+typedef Character = ({String char, CharacterStyle style, int row, int col});
+
+extension on Character {
+  void render() => style.render(char, row, col);
+}
+
+// --- Usage ---
+void main() {
+  final text = "Hello World! " * 770;
+
+  // No factory: every equal `const` expression is the SAME object, guaranteed by the compiler.
+  // (Styles known only at runtime need a cache: `styles.putIfAbsent((font, size, color), ...)`.)
+  final characters = <Character>[
+    for (var i = 0; i < text.length; i++)
+      (char: text[i], style: const CharacterStyle("Arial", 12, "black"), row: i ~/ 80, col: i % 80),
+  ];
+
+  // Count distinct objects by identity: the proof that all characters share one style
+  final styleObjects = Set<CharacterStyle>.identity()..addAll(characters.map((c) => c.style));
+  print("Created ${characters.length} characters");
+  print("Using only ${styleObjects.length} style object(s)!");
+  // Created 10010 characters
+  // Using only 1 style object(s)!
+
+  characters[0].render();  // 'H' at (0,0) [Arial, 12pt, black]
+  characters[1].render();  // 'e' at (0,1) [Arial, 12pt, black]
+
+  // Even a separately written const expression is the same object
+  print("Same style? ${identical(characters[0].style, const CharacterStyle("Arial", 12, "black"))}");
+  // Same style? true
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer the built-ins when | Keep an explicit factory when |
+|---|---|
+| Flyweights are immutable values identified by their fields | The pool needs weak references so unused flyweights can be collected |
+| A memo cache (or Dart `const`) covers the lookup | Creation must run exactly once under concurrency (`GetOrAdd` may call its factory twice) |
+| You only need sharing, not pool management | You need to preload, inspect, or report on the pool |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
