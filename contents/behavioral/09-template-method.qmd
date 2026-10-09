@@ -760,6 +760,296 @@ plainTea.prepareRecipe();
 
 :::
 
+## Modern Approach
+
+The classic solution uses inheritance only to vary a few steps of a fixed algorithm. With first-class functions you can pass those steps in instead. The template method becomes an ordinary function, the abstract steps become function-typed fields of a small record, and the hook becomes a default argument. `Coffee` and `Tea` stop being subclasses and become plain values.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — the skeleton becomes a function and the steps become arguments. Frameworks still use the classic form for lifecycle hooks.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Beverage(ABC)` with `prepare_recipe()` | `def prepare_recipe(recipe, wants_condiments=True)` |
+| `_boil_water()` / `_pour_in_cup()` concrete methods | plain lines inside `prepare_recipe()` |
+| abstract `_brew()` / `_add_condiments()` | `Recipe` dataclass with two `Callable` fields |
+| hook `_customer_wants_condiments()` | default argument `wants_condiments=True` |
+| `class Coffee(Beverage)` / `class Tea(Beverage)` | values `COFFEE` / `TEA` |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Beverage` with `PrepareRecipe()` | `static void PrepareRecipe(Recipe recipe, bool wantsCondiments = true)` |
+| private `BoilWater()` / `PourInCup()` | plain lines inside `PrepareRecipe()` |
+| `protected abstract void Brew()` / `AddCondiments()` | `record Recipe(Action Brew, Action AddCondiments)` |
+| `protected virtual bool CustomerWantsCondiments()` | optional parameter `wantsCondiments = true` |
+| `class Coffee : Beverage` / `class Tea : Beverage` | `static readonly` values `Coffee` / `Tea` |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Beverage` with `prepareRecipe()` | `function prepareRecipe(recipe: Recipe, wantsCondiments = true)` |
+| private `boilWater()` / `pourInCup()` | plain lines inside `prepareRecipe()` |
+| `protected abstract brew()` / `addCondiments()` | `interface Recipe` with two function properties |
+| hook `customerWantsCondiments()` | default parameter `wantsCondiments = true` |
+| `class Coffee extends Beverage` / `class Tea extends Beverage` | object literals `coffee` / `tea` |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Beverage` with `prepareRecipe()` | `void prepareRecipe(Recipe recipe, {bool wantsCondiments = true})` |
+| private `_boilWater()` / `_pourInCup()` | plain lines inside `prepareRecipe()` |
+| abstract `brew()` / `addCondiments()` | `typedef Recipe = ({void Function() brew, void Function() addCondiments})` |
+| hook `customerWantsCondiments()` | optional named parameter `wantsCondiments: true` |
+| `class Coffee extends Beverage` / `class Tea extends Beverage` | record values `coffee` / `tea` |
+
+:::
+
+**Ecosystem:** no library replaces this pattern. Frameworks still use the classic form wherever *they* call *you* through lifecycle hooks: `unittest.TestCase.setUp` / `tearDown` (Python), `BackgroundService.ExecuteAsync` (ASP.NET Core), and `State.initState` / `build` / `dispose` (Flutter).
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.10+ — first-class functions, frozen dataclass, default arguments
+from collections.abc import Callable
+from dataclasses import dataclass
+
+
+# Abstract steps → a record of functions
+@dataclass(frozen=True)
+class Recipe:
+    brew: Callable[[], None]
+    add_condiments: Callable[[], None]
+
+
+# Template method → a plain function that owns the fixed sequence
+def prepare_recipe(recipe: Recipe, wants_condiments: bool = True) -> None:
+    print("Boiling water")
+    recipe.brew()
+    print("Pouring into cup")
+    if wants_condiments:  # hook → a default argument
+        recipe.add_condiments()
+
+
+# Concrete subclasses → values
+COFFEE = Recipe(
+    brew=lambda: print("Dripping coffee through filter"),
+    add_condiments=lambda: print("Adding sugar and milk"),
+)
+TEA = Recipe(
+    brew=lambda: print("Steeping the tea"),
+    add_condiments=lambda: print("Adding lemon"),
+)
+
+
+# --- Usage ---
+print("=== Making Coffee ===")
+prepare_recipe(COFFEE)
+# Boiling water
+# Dripping coffee through filter
+# Pouring into cup
+# Adding sugar and milk
+
+print("\n=== Making Tea (with lemon) ===")
+prepare_recipe(TEA)
+# Boiling water
+# Steeping the tea
+# Pouring into cup
+# Adding lemon
+
+print("\n=== Making Tea (no condiments) ===")
+prepare_recipe(TEA, wants_condiments=False)
+# Boiling water
+# Steeping the tea
+# Pouring into cup
+# (no condiments: the hook argument was False)
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — Action delegates, positional records, optional parameters
+using static Beverages;
+
+// Abstract steps → a record of delegates
+public record Recipe(Action Brew, Action AddCondiments);
+
+public static class Beverages
+{
+    // Template method → a static method that owns the fixed sequence
+    public static void PrepareRecipe(Recipe recipe, bool wantsCondiments = true)
+    {
+        Console.WriteLine("Boiling water");
+        recipe.Brew();
+        Console.WriteLine("Pouring into cup");
+        if (wantsCondiments)  // hook → an optional parameter
+            recipe.AddCondiments();
+    }
+
+    // Concrete subclasses → values
+    public static readonly Recipe Coffee = new(
+        Brew: () => Console.WriteLine("Dripping coffee through filter"),
+        AddCondiments: () => Console.WriteLine("Adding sugar and milk"));
+
+    public static readonly Recipe Tea = new(
+        Brew: () => Console.WriteLine("Steeping the tea"),
+        AddCondiments: () => Console.WriteLine("Adding lemon"));
+}
+
+// --- Usage ---
+Console.WriteLine("=== Making Coffee ===");
+PrepareRecipe(Coffee);
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+Console.WriteLine("\n=== Making Tea (with lemon) ===");
+PrepareRecipe(Tea);
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+Console.WriteLine("\n=== Making Tea (no condiments) ===");
+PrepareRecipe(Tea, wantsCondiments: false);
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// (no condiments: the hook argument was false)
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — function-typed properties, default parameters
+
+// Abstract steps → an object type of functions
+interface Recipe {
+  brew: () => void;
+  addCondiments: () => void;
+}
+
+// Template method → a plain function that owns the fixed sequence
+function prepareRecipe(recipe: Recipe, wantsCondiments = true): void {
+  console.log("Boiling water");
+  recipe.brew();
+  console.log("Pouring into cup");
+  if (wantsCondiments) {  // hook → a default parameter
+    recipe.addCondiments();
+  }
+}
+
+// Concrete subclasses → values
+const coffee: Recipe = {
+  brew: () => console.log("Dripping coffee through filter"),
+  addCondiments: () => console.log("Adding sugar and milk"),
+};
+
+const tea: Recipe = {
+  brew: () => console.log("Steeping the tea"),
+  addCondiments: () => console.log("Adding lemon"),
+};
+
+// --- Usage ---
+console.log("=== Making Coffee ===");
+prepareRecipe(coffee);
+// Boiling water
+// Dripping coffee through filter
+// Pouring into cup
+// Adding sugar and milk
+
+console.log("\n=== Making Tea (with lemon) ===");
+prepareRecipe(tea);
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// Adding lemon
+
+console.log("\n=== Making Tea (no condiments) ===");
+prepareRecipe(tea, false);
+// Boiling water
+// Steeping the tea
+// Pouring into cup
+// (no condiments: the hook argument was false)
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — records of closures, optional named parameters
+
+// Abstract steps → a record type of functions
+typedef Recipe = ({void Function() brew, void Function() addCondiments});
+
+// Template method → a plain function that owns the fixed sequence
+void prepareRecipe(Recipe recipe, {bool wantsCondiments = true}) {
+  print('Boiling water');
+  recipe.brew();
+  print('Pouring into cup');
+  if (wantsCondiments) {  // hook → an optional named parameter
+    recipe.addCondiments();
+  }
+}
+
+// Concrete subclasses → values
+final Recipe coffee = (
+  brew: () => print('Dripping coffee through filter'),
+  addCondiments: () => print('Adding sugar and milk'),
+);
+
+final Recipe tea = (
+  brew: () => print('Steeping the tea'),
+  addCondiments: () => print('Adding lemon'),
+);
+
+// --- Usage ---
+void main() {
+  print('=== Making Coffee ===');
+  prepareRecipe(coffee);
+  // Boiling water
+  // Dripping coffee through filter
+  // Pouring into cup
+  // Adding sugar and milk
+
+  print('\n=== Making Tea (with lemon) ===');
+  prepareRecipe(tea);
+  // Boiling water
+  // Steeping the tea
+  // Pouring into cup
+  // Adding lemon
+
+  print('\n=== Making Tea (no condiments) ===');
+  prepareRecipe(tea, wantsCondiments: false);
+  // Boiling water
+  // Steeping the tea
+  // Pouring into cup
+  // (no condiments: the hook argument was false)
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer a function + step arguments when | Keep the abstract base class when |
+|---|---|
+| Variants differ only in a few small steps | Steps share state through `self` / `this`: one step sets a field, another reads it |
+| You want to build or swap variants at runtime or in tests | A framework calls you, and its lifecycle hooks (`setUp`, `initState`, `ExecuteAsync`) are the API |
+| You don't want an inheritance hierarchy | There are many steps with defaults, and virtual methods document them in one place |
+| The hook is a simple flag or callback | Subclasses need protected helpers from the base class |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
