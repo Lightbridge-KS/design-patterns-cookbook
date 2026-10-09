@@ -848,6 +848,349 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Model the player's state as one **immutable value** and the memento disappears into it. Every state is already a snapshot. Saving returns the current value with no copy, restoring is one assignment, and the caretaker is a plain list. The trade-off is encapsulation: a snapshot is now readable by anyone, though nobody can change it.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — immutable state makes every state its own memento, but the originator still decides what that state contains.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class GameSave` copying `_health`, `_level`, `_x`, `_y` | `@dataclass(frozen=True) class PlayerState`: the state *is* the snapshot |
+| Four private fields on `Player` | one `_state` field, replaced via `dataclasses.replace()` |
+| `save()` copies fields into a new `GameSave` | `save()` returns `self._state`: it's immutable, so no copy |
+| `restore()` copies fields back | `restore()` assigns one reference |
+| `class SaveManager` (caretaker) | a plain `list[PlayerState]` |
+| State "hidden" by the `_` naming convention | readable by anyone, but writes raise `FrozenInstanceError` |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `class GameSave` with `internal` getters | `record PlayerState(int Health = 100, …)` |
+| Four private fields on `Player` | one `_state` field, replaced with a `with` expression |
+| `Save()` copies into `new GameSave(…)` | `Save()` returns `_state`: it's immutable, so no copy |
+| `Restore()` copies fields back | `Restore()` assigns one reference |
+| `class SaveManager` (caretaker) | a plain `List<PlayerState>` |
+| `internal` hides state outside the assembly | public, but `init`-only properties reject writes |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `class GameSave` with private fields + `getState()` | `type PlayerState = Readonly<{ … }>` |
+| Four private fields on `Player` | one `state` field, replaced with object spread |
+| `save()` copies into `new GameSave(…)` | `save()` returns `this.state`: it's immutable, so no copy |
+| `restore()` copies fields back | `restore()` assigns one reference |
+| `class SaveManager` (caretaker) | a plain `PlayerState[]` |
+| `getState()` exposes the state anyway | readable; `readonly` blocks writes at compile time (add `Object.freeze` for runtime) |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `class GameSave` with private fields + public getters | immutable `PlayerState` with `final` fields + `copyWith()` |
+| Four private fields on `Player` | one `_state` field, replaced via `copyWith()` |
+| `save()` copies into `GameSave(…)` | `save()` returns `_state`: it's immutable, so no copy |
+| `restore()` copies fields back | `restore()` assigns one reference |
+| `class SaveManager` (caretaker) | a plain `List<PlayerState>` |
+| Public getters expose the state anyway | readable, but `final` fields reject writes |
+
+:::
+
+**Ecosystem:** Immer (`produceWithPatches` / `applyPatches`) stores undo history as small patches instead of full snapshots, and Redux-style stores keep past states for time travel. Dart's `freezed` generates `copyWith`. To persist a save to disk, serialize the snapshot (`json`, `System.Text.Json`, `JSON.stringify`, `json_serializable`).
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.10+ — frozen dataclass snapshots, dataclasses.replace
+from dataclasses import dataclass, replace
+
+
+# Memento → the player's state itself, as an immutable value
+@dataclass(frozen=True)
+class PlayerState:
+    health: int = 100
+    level: int = 1
+    x: int = 0
+    y: int = 0
+
+
+# Originator → holds one state value and swaps it on every change
+class Player:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._state = PlayerState()
+
+    def save(self) -> PlayerState:
+        print(f"{self.name}: Game saved!")
+        return self._state  # no copy needed: nobody can mutate it
+
+    def restore(self, snapshot: PlayerState) -> None:
+        self._state = snapshot
+        print(f"{self.name}: Game loaded")
+
+    def take_damage(self, amount: int) -> None:
+        self._state = replace(self._state, health=self._state.health - amount)
+        print(f"{self.name} took {amount} damage. Health: {self._state.health}")
+
+    def move(self, x: int, y: int) -> None:
+        self._state = replace(self._state, x=x, y=y)
+        print(f"{self.name} moved to ({x}, {y})")
+
+    def get_status(self) -> str:
+        s = self._state
+        return f"{self.name} [Lv.{s.level}] HP:{s.health} Pos:({s.x},{s.y})"
+
+
+# --- Usage ---
+player = Player("Hero")
+saves: list[PlayerState] = []  # Caretaker → a plain list
+
+player.move(10, 20)
+player.take_damage(30)
+print(player.get_status())  # Hero [Lv.1] HP:70 Pos:(10,20)
+
+saves.append(player.save())  # Hero: Game saved!
+
+player.move(50, 50)
+player.take_damage(80)
+print(player.get_status())  # Hero [Lv.1] HP:-10 Pos:(50,50)
+
+player.restore(saves[0])  # Hero: Game loaded
+print(player.get_status())  # Hero [Lv.1] HP:70 Pos:(10,20)
+
+# The caretaker CAN read a snapshot, but can't change it
+print(f"Slot 0 health: {saves[0].health}")  # Slot 0 health: 70
+# saves[0].health = 999  → FrozenInstanceError: cannot assign to field 'health'
+```
+
+#### `C#`
+
+```csharp
+// C# 10+ / .NET 8+ — positional record snapshots, `with` expressions
+
+// Memento → the player's state itself, as an immutable record
+public record PlayerState(int Health = 100, int Level = 1, int X = 0, int Y = 0);
+
+// Originator → holds one state value and swaps it on every change
+public class Player(string name)
+{
+    private PlayerState _state = new();
+
+    public PlayerState Save()
+    {
+        Console.WriteLine($"{name}: Game saved!");
+        return _state;  // no copy needed: nobody can mutate it
+    }
+
+    public void Restore(PlayerState snapshot)
+    {
+        _state = snapshot;
+        Console.WriteLine($"{name}: Game loaded");
+    }
+
+    public void TakeDamage(int amount)
+    {
+        _state = _state with { Health = _state.Health - amount };
+        Console.WriteLine($"{name} took {amount} damage. Health: {_state.Health}");
+    }
+
+    public void Move(int x, int y)
+    {
+        _state = _state with { X = x, Y = y };
+        Console.WriteLine($"{name} moved to ({x}, {y})");
+    }
+
+    public string GetStatus() =>
+        $"{name} [Lv.{_state.Level}] HP:{_state.Health} Pos:({_state.X},{_state.Y})";
+}
+
+// --- Usage ---
+var player = new Player("Hero");
+var saves = new List<PlayerState>();  // Caretaker → a plain list
+
+player.Move(10, 20);
+player.TakeDamage(30);
+Console.WriteLine(player.GetStatus());  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+saves.Add(player.Save());  // Hero: Game saved!
+
+player.Move(50, 50);
+player.TakeDamage(80);
+Console.WriteLine(player.GetStatus());  // Hero [Lv.1] HP:-10 Pos:(50,50)
+
+player.Restore(saves[0]);  // Hero: Game loaded
+Console.WriteLine(player.GetStatus());  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+// The caretaker CAN read a snapshot, but can't change it
+Console.WriteLine($"Slot 0 health: {saves[0].Health}");  // Slot 0 health: 70
+// saves[0].Health = 999;  → CS8852: Init-only property or indexer 'PlayerState.Health' can only be assigned in an object initializer…
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — readonly snapshot types, object spread
+
+// Memento → the player's state itself, as an immutable value
+type PlayerState = Readonly<{ health: number; level: number; x: number; y: number }>;
+
+// Originator → holds one state value and swaps it on every change
+class Player {
+  readonly name: string;
+  private state: PlayerState = { health: 100, level: 1, x: 0, y: 0 };
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  save(): PlayerState {
+    console.log(`${this.name}: Game saved!`);
+    return this.state;  // no copy needed: nobody can mutate it
+  }
+
+  restore(snapshot: PlayerState): void {
+    this.state = snapshot;
+    console.log(`${this.name}: Game loaded`);
+  }
+
+  takeDamage(amount: number): void {
+    this.state = { ...this.state, health: this.state.health - amount };
+    console.log(`${this.name} took ${amount} damage. Health: ${this.state.health}`);
+  }
+
+  move(x: number, y: number): void {
+    this.state = { ...this.state, x, y };
+    console.log(`${this.name} moved to (${x}, ${y})`);
+  }
+
+  getStatus(): string {
+    const s = this.state;
+    return `${this.name} [Lv.${s.level}] HP:${s.health} Pos:(${s.x},${s.y})`;
+  }
+}
+
+// --- Usage ---
+const player = new Player("Hero");
+const saves: PlayerState[] = [];  // Caretaker → a plain array
+
+player.move(10, 20);
+player.takeDamage(30);
+console.log(player.getStatus());  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+saves.push(player.save());  // Hero: Game saved!
+
+player.move(50, 50);
+player.takeDamage(80);
+console.log(player.getStatus());  // Hero [Lv.1] HP:-10 Pos:(50,50)
+
+player.restore(saves[0]);  // Hero: Game loaded
+console.log(player.getStatus());  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+// The caretaker CAN read a snapshot, but can't change it
+console.log(`Slot 0 health: ${saves[0].health}`);  // Slot 0 health: 70
+// saves[0].health = 999;  → TS2540: Cannot assign to 'health' because it is a read-only property
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — immutable class with final fields + copyWith
+
+// Memento → the player's state itself, as an immutable value
+class PlayerState {
+  final int health;
+  final int level;
+  final int x;
+  final int y;
+
+  const PlayerState({this.health = 100, this.level = 1, this.x = 0, this.y = 0});
+
+  // Hand-written here; `freezed` generates it in real projects
+  PlayerState copyWith({int? health, int? level, int? x, int? y}) => PlayerState(
+        health: health ?? this.health,
+        level: level ?? this.level,
+        x: x ?? this.x,
+        y: y ?? this.y,
+      );
+}
+
+// Originator → holds one state value and swaps it on every change
+class Player {
+  final String name;
+  PlayerState _state = const PlayerState();
+
+  Player(this.name);
+
+  PlayerState save() {
+    print("$name: Game saved!");
+    return _state;  // no copy needed: nobody can mutate it
+  }
+
+  void restore(PlayerState snapshot) {
+    _state = snapshot;
+    print("$name: Game loaded");
+  }
+
+  void takeDamage(int amount) {
+    _state = _state.copyWith(health: _state.health - amount);
+    print("$name took $amount damage. Health: ${_state.health}");
+  }
+
+  void move(int x, int y) {
+    _state = _state.copyWith(x: x, y: y);
+    print("$name moved to ($x, $y)");
+  }
+
+  String getStatus() =>
+      "$name [Lv.${_state.level}] HP:${_state.health} Pos:(${_state.x},${_state.y})";
+}
+
+// --- Usage ---
+void main() {
+  final player = Player("Hero");
+  final saves = <PlayerState>[];  // Caretaker → a plain list
+
+  player.move(10, 20);
+  player.takeDamage(30);
+  print(player.getStatus());  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+  saves.add(player.save());  // Hero: Game saved!
+
+  player.move(50, 50);
+  player.takeDamage(80);
+  print(player.getStatus());  // Hero [Lv.1] HP:-10 Pos:(50,50)
+
+  player.restore(saves[0]);  // Hero: Game loaded
+  print(player.getStatus());  // Hero [Lv.1] HP:70 Pos:(10,20)
+
+  // The caretaker CAN read a snapshot, but can't change it
+  print("Slot 0 health: ${saves[0].health}");  // Slot 0 health: 70
+  // saves[0].health = 999;  → 'health' can't be used as a setter because it's final
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer immutable snapshots when | Keep a classic memento when |
+|---|---|
+| State is small, plain data | State holds things you can't share or copy cheaply: open files, sockets, large buffers |
+| You want undo/redo as a simple list of past states | The snapshot must stay opaque to the caretaker (a narrow interface), e.g. across a plugin API |
+| The object is already modeled as a value (Redux, Bloc, or Elm style) | Saves need a custom format or only a delta, e.g. save files that must survive version upgrades |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
