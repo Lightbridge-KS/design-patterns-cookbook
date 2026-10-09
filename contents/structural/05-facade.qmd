@@ -586,6 +586,313 @@ void main() {
 
 :::
 
+## Modern Approach
+
+A facade is a small public surface over a larger private one. No language feature replaces that idea, but modern **module systems** let the module boundary do the job. You hide the subsystems with the language's visibility rules and expose a single entry point. When the facade holds no state, that entry point can be a plain function instead of a class.
+
+::: {.callout-note appearance="simple"}
+**Verdict: ⚪ Still the idiom** — the facade stays, but the module can be the facade, and the class becomes optional.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Computer` holding `_cpu`, `_memory`, `_hard_drive` | `def start_computer()`: a module-level function |
+| `CPU`, `Memory`, `HardDrive`, importable by anyone | `_CPU`, `_Memory`, `_HardDrive`: private by convention, and `__all__` lists only the facade |
+| `Computer.BOOT_ADDRESS` class constants | module constants `_BOOT_ADDRESS`, … |
+| A package's public surface | `package/__init__.py` re-exports only the facade |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `public class CPU`, `Memory`, `HardDrive` | `file class CPU`, …: invisible outside this source file (C# 11) |
+| `public class Computer` with subsystem fields | `public static class Computer` with `Start()` |
+| A library's public surface | unchanged: `internal` subsystems + one `public` facade |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `class Computer` facade | `export function startComputer()`: the module's only export |
+| `CPU`, `Memory`, `HardDrive` | unexported classes, private to the module |
+| A package's public surface | a barrel `index.ts` re-exports only the facade |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `class Computer` facade | top-level `startComputer()` function |
+| `CPU`, `Memory`, `HardDrive` | `_CPU`, `_Memory`, `_HardDrive`: library-private |
+| A package's public surface | `export 'src/computer.dart' show startComputer;` |
+
+:::
+
+**Ecosystem:** no library needed, since visibility is a language feature. In .NET, `InternalsVisibleTo` lets a test project reach `internal` subsystems.
+
+### Modern Code
+
+Each block is one source file, so picture it as the `computer` module that clients import.
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.x — module privacy conventions (`_` prefix, `__all__`)
+# computer.py: the module itself is the facade
+
+__all__ = ["start_computer"]  # `from computer import *` exports only the facade
+
+_BOOT_ADDRESS = 0x0000
+_BOOT_SECTOR = 0
+_SECTOR_SIZE = 512
+
+
+# Subsystems → module-private by convention (leading underscore)
+class _CPU:
+    def freeze(self) -> None:
+        print("CPU: Freezing processor")
+
+    def jump(self, address: int) -> None:
+        print(f"CPU: Jumping to address {address}")
+
+    def execute(self) -> None:
+        print("CPU: Executing instructions")
+
+
+class _Memory:
+    def load(self, address: int, data: bytes) -> None:
+        print(f"Memory: Loading {len(data)} bytes at address {address}")
+
+
+class _HardDrive:
+    def read(self, sector: int, size: int) -> bytes:
+        print(f"HardDrive: Reading {size} bytes from sector {sector}")
+        return bytes(size)
+
+
+# Facade → a plain function: no class needed when it holds no state
+def start_computer() -> None:
+    cpu, memory, hard_drive = _CPU(), _Memory(), _HardDrive()
+    print("Computer: Starting...")
+    cpu.freeze()
+    boot_data = hard_drive.read(_BOOT_SECTOR, _SECTOR_SIZE)
+    memory.load(_BOOT_ADDRESS, boot_data)
+    cpu.jump(_BOOT_ADDRESS)
+    cpu.execute()
+    print("Computer: Ready!")
+
+
+# --- Usage ---
+# Client code: `from computer import start_computer`
+start_computer()
+# Computer: Starting...
+# CPU: Freezing processor
+# HardDrive: Reading 512 bytes from sector 0
+# Memory: Loading 512 bytes at address 0
+# CPU: Jumping to address 0
+# CPU: Executing instructions
+# Computer: Ready!
+```
+
+#### `C#`
+
+```csharp
+// C# 11+ / .NET 7+ — `file`-local types
+// Computer.cs: `file` types are invisible to every other source file
+
+// Subsystems → `file` access: only this file can use them
+file class CPU
+{
+    public void Freeze() => Console.WriteLine("CPU: Freezing processor");
+    public void Jump(long address) => Console.WriteLine($"CPU: Jumping to address {address}");
+    public void Execute() => Console.WriteLine("CPU: Executing instructions");
+}
+
+file class Memory
+{
+    public void Load(long address, byte[] data)
+        => Console.WriteLine($"Memory: Loading {data.Length} bytes at address {address}");
+}
+
+file class HardDrive
+{
+    public byte[] Read(long sector, int size)
+    {
+        Console.WriteLine($"HardDrive: Reading {size} bytes from sector {sector}");
+        return new byte[size];
+    }
+}
+
+// Facade → the one public entry point; a static class when it holds no state
+public static class Computer
+{
+    private const long BootAddress = 0x0000;
+    private const long BootSector = 0;
+    private const int SectorSize = 512;
+
+    public static void Start()
+    {
+        var (cpu, memory, hardDrive) = (new CPU(), new Memory(), new HardDrive());
+        Console.WriteLine("Computer: Starting...");
+        cpu.Freeze();
+        var bootData = hardDrive.Read(BootSector, SectorSize);
+        memory.Load(BootAddress, bootData);
+        cpu.Jump(BootAddress);
+        cpu.Execute();
+        Console.WriteLine("Computer: Ready!");
+    }
+}
+
+// --- Usage ---
+// Client code in another file sees only `Computer`
+Computer.Start();
+// Computer: Starting...
+// CPU: Freezing processor
+// HardDrive: Reading 512 bytes from sector 0
+// Memory: Loading 512 bytes at address 0
+// CPU: Jumping to address 0
+// CPU: Executing instructions
+// Computer: Ready!
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x / ES modules — only exported names are visible to importers
+// computer.ts: the module itself is the facade
+
+// Subsystems → not exported, so other modules can't import them
+class CPU {
+  freeze(): void {
+    console.log("CPU: Freezing processor");
+  }
+
+  jump(address: number): void {
+    console.log(`CPU: Jumping to address ${address}`);
+  }
+
+  execute(): void {
+    console.log("CPU: Executing instructions");
+  }
+}
+
+class Memory {
+  load(address: number, data: Uint8Array): void {
+    console.log(`Memory: Loading ${data.length} bytes at address ${address}`);
+  }
+}
+
+class HardDrive {
+  read(sector: number, size: number): Uint8Array {
+    console.log(`HardDrive: Reading ${size} bytes from sector ${sector}`);
+    return new Uint8Array(size);
+  }
+}
+
+const BOOT_ADDRESS = 0x0000;
+const BOOT_SECTOR = 0;
+const SECTOR_SIZE = 512;
+
+// Facade → the module's only export.
+// (In computer.ts this line reads `export function startComputer()`.
+// It is left unexported here so the snippet runs as a single script.)
+function startComputer(): void {
+  const cpu = new CPU();
+  const memory = new Memory();
+  const hardDrive = new HardDrive();
+  console.log("Computer: Starting...");
+  cpu.freeze();
+  const bootData = hardDrive.read(BOOT_SECTOR, SECTOR_SIZE);
+  memory.load(BOOT_ADDRESS, bootData);
+  cpu.jump(BOOT_ADDRESS);
+  cpu.execute();
+  console.log("Computer: Ready!");
+}
+
+// --- Usage ---
+// Client code: import { startComputer } from "./computer";
+startComputer();
+// Computer: Starting...
+// CPU: Freezing processor
+// HardDrive: Reading 512 bytes from sector 0
+// Memory: Loading 512 bytes at address 0
+// CPU: Jumping to address 0
+// CPU: Executing instructions
+// Computer: Ready!
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — library privacy (`_` prefix)
+// computer.dart: names starting with `_` are invisible outside this library
+import 'dart:typed_data';
+
+const _bootAddress = 0x0000;
+const _bootSector = 0;
+const _sectorSize = 512;
+
+// Subsystems → library-private
+class _CPU {
+  void freeze() => print("CPU: Freezing processor");
+  void jump(int address) => print("CPU: Jumping to address $address");
+  void execute() => print("CPU: Executing instructions");
+}
+
+class _Memory {
+  void load(int address, Uint8List data) {
+    print("Memory: Loading ${data.length} bytes at address $address");
+  }
+}
+
+class _HardDrive {
+  Uint8List read(int sector, int size) {
+    print("HardDrive: Reading $size bytes from sector $sector");
+    return Uint8List(size);
+  }
+}
+
+// Facade → the library's one public name: a plain function when it holds no state
+void startComputer() {
+  final cpu = _CPU(), memory = _Memory(), hardDrive = _HardDrive();
+  print("Computer: Starting...");
+  cpu.freeze();
+  final bootData = hardDrive.read(_bootSector, _sectorSize);
+  memory.load(_bootAddress, bootData);
+  cpu.jump(_bootAddress);
+  cpu.execute();
+  print("Computer: Ready!");
+}
+
+// --- Usage ---
+// Client code: import 'computer.dart';
+void main() {
+  startComputer();
+  // Computer: Starting...
+  // CPU: Freezing processor
+  // HardDrive: Reading 512 bytes from sector 0
+  // Memory: Loading 512 bytes at address 0
+  // CPU: Jumping to address 0
+  // CPU: Executing instructions
+  // Computer: Ready!
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer a module-level facade when | Keep a facade class when |
+|---|---|
+| The facade holds no state between calls | The facade owns subsystem instances that live across calls (a running computer) |
+| You want the compiler or linter to hide the subsystems (`file`, `_`, no `export`) | Advanced clients still need direct access to the subsystems (the classic facade doesn't hide them) |
+| One entry point per package or library is enough | Clients need several configured facades, or a mock facade in tests (inject an interface) |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
