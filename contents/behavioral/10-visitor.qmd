@@ -932,6 +932,352 @@ for (final shape in shapes) {
 
 :::
 
+## Modern Approach
+
+Visitor exists because classic OOP dispatches on only one object at a time. So `accept()` bounces the call back to pick the right `visit_*` method, which is double dispatch. **Pattern matching** does that dispatch directly: each operation becomes one function that matches on the shape's type. When the set of shapes is closed (a union type or a `sealed` class), the type checker also confirms that every shape is handled. The trade-off stays the same as Visitor: new operations are easy, new shapes are not. Only the double-dispatch boilerplate goes away.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟢 Replaces** — pattern matching over a closed set of types does the double dispatch for you, and most type checkers verify that every case is handled.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class ShapeVisitor(ABC)` with `visit_circle()`, … | gone: each operation is a plain function |
+| `accept()` on every shape (double dispatch) | gone: `match` dispatches on the shape's type |
+| `class Circle(Shape)` with read-only properties | `@dataclass(frozen=True) class Circle`, which also generates `__match_args__` for `case Circle(r)` |
+| `AreaCalculator` / `PerimeterCalculator` | `def area(shape)` / `def perimeter(shape)` |
+| abstract `visit_*` methods force every visitor to handle every shape | `type Shape` (a union of the three dataclasses) + `assert_never(shape)`: mypy errors when a shape is unhandled |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IShapeVisitor` with `VisitCircle()`, … | gone: each operation is a switch expression |
+| `Accept()` on every shape (double dispatch) | gone: `switch` dispatches on the shape's type |
+| `class Circle : IShape` | `record Circle(double Radius) : Shape`, with positional pattern `Circle(var r)` |
+| `AreaCalculator` / `PerimeterCalculator` | `ShapeOps.Area()` / `ShapeOps.Perimeter()` |
+| the interface forces every visitor to handle every shape | C# has no closed class hierarchies today: without a `_` arm the compiler warns CS8509, and with one it can't flag a new shape |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface ShapeVisitor` with `visitCircle()`, … | gone: each operation is a plain function |
+| `accept()` on every shape (double dispatch) | gone: `switch (shape.kind)` narrows to the right type |
+| `class Circle implements Shape` | `type Circle = { kind: "Circle"; radius: number }` |
+| `AreaCalculator` / `PerimeterCalculator` | `area(shape)` / `perimeter(shape)` |
+| the interface forces every visitor to handle every shape | discriminated union `Shape` + `assertNever(shape)`: compile error when a `kind` is unhandled |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class ShapeVisitor` with `visitCircle()`, … | gone: each operation is a switch expression |
+| `accept()` on every shape (double dispatch) | gone: object patterns such as `Circle(:final radius)` |
+| `abstract class Shape` | `sealed class Shape`: the compiler knows every subtype |
+| `AreaCalculator` / `PerimeterCalculator` | `area(shape)` / `perimeter(shape)` |
+| the abstract visitor forces every visitor to handle every shape | built in: a `switch` that misses a subtype of a `sealed` class is a compile error |
+
+:::
+
+**Ecosystem:** Python's stdlib `functools.singledispatch` registers one implementation per type, even from other modules. `ts-pattern` (TypeScript) adds `.exhaustive()` matching. `OneOf` and `Dunet` give C# closed unions today. `freezed` (Dart) generates sealed unions with `copyWith`.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — dataclasses, match with class patterns, `type` union, assert_never
+import math
+from dataclasses import dataclass
+from typing import assert_never
+
+
+# Elements → plain data: no accept() method
+@dataclass(frozen=True)
+class Circle:
+    radius: float
+
+
+@dataclass(frozen=True)
+class Rectangle:
+    width: float
+    height: float
+
+
+@dataclass(frozen=True)
+class Triangle:
+    a: float
+    b: float
+    c: float
+
+
+# The closed set of shapes, as a type
+type Shape = Circle | Rectangle | Triangle
+
+
+# Each visitor → one function that matches on the shape's type
+def area(shape: Shape) -> float:
+    match shape:
+        case Circle(r):
+            return math.pi * r**2
+        case Rectangle(w, h):
+            return w * h
+        case Triangle(a, b, c):
+            s = (a + b + c) / 2
+            return math.sqrt(s * (s - a) * (s - b) * (s - c))
+        case _:
+            assert_never(shape)  # mypy: error if a Shape is left unhandled
+
+
+def perimeter(shape: Shape) -> float:
+    match shape:
+        case Circle(r):
+            return 2 * math.pi * r
+        case Rectangle(w, h):
+            return 2 * (w + h)
+        case Triangle(a, b, c):
+            return a + b + c
+        case _:
+            assert_never(shape)
+
+
+# --- Usage ---
+shapes: list[Shape] = [Circle(5), Rectangle(4, 6), Triangle(3, 4, 5)]
+
+print("=== Areas ===")
+for shape in shapes:
+    print(f"{type(shape).__name__}: {area(shape):.2f}")
+# Circle: 78.54
+# Rectangle: 24.00
+# Triangle: 6.00
+
+print("\n=== Perimeters ===")
+for shape in shapes:
+    print(f"{type(shape).__name__}: {perimeter(shape):.2f}")
+# Circle: 31.42
+# Rectangle: 20.00
+# Triangle: 12.00
+
+# New operation? Write one more function. No shape class changes.
+```
+
+#### `C#`
+
+```csharp
+// C# 9+ / .NET 8+ — records, switch expressions with positional patterns
+
+// Elements → plain data: no Accept() method
+public abstract record Shape;
+public record Circle(double Radius) : Shape;
+public record Rectangle(double Width, double Height) : Shape;
+public record Triangle(double A, double B, double C) : Shape;
+
+public static class ShapeOps
+{
+    // Each visitor → one switch expression on the shape's type.
+    // C# can't know Shape has only three subtypes, so a `_` arm is needed.
+    public static double Area(Shape shape) => shape switch
+    {
+        Circle(var r) => Math.PI * r * r,
+        Rectangle(var w, var h) => w * h,
+        Triangle(var a, var b, var c) => Heron(a, b, c),
+        _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+    };
+
+    public static double Perimeter(Shape shape) => shape switch
+    {
+        Circle(var r) => 2 * Math.PI * r,
+        Rectangle(var w, var h) => 2 * (w + h),
+        Triangle(var a, var b, var c) => a + b + c,
+        _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+    };
+
+    private static double Heron(double a, double b, double c)
+    {
+        var s = (a + b + c) / 2;
+        return Math.Sqrt(s * (s - a) * (s - b) * (s - c));
+    }
+}
+
+// --- Usage ---
+Shape[] shapes = [new Circle(5), new Rectangle(4, 6), new Triangle(3, 4, 5)];
+
+Console.WriteLine("=== Areas ===");
+foreach (var shape in shapes)
+    Console.WriteLine($"{shape.GetType().Name}: {ShapeOps.Area(shape):F2}");
+// Circle: 78.54
+// Rectangle: 24.00
+// Triangle: 6.00
+
+Console.WriteLine("\n=== Perimeters ===");
+foreach (var shape in shapes)
+    Console.WriteLine($"{shape.GetType().Name}: {ShapeOps.Perimeter(shape):F2}");
+// Circle: 31.42
+// Rectangle: 20.00
+// Triangle: 12.00
+
+// New operation? Write one more switch expression. No shape class changes.
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — discriminated unions, narrowing, exhaustive switch with `never`
+
+// Elements → plain data tagged with a `kind`: no accept() method
+type Circle = { kind: "Circle"; radius: number };
+type Rectangle = { kind: "Rectangle"; width: number; height: number };
+type Triangle = { kind: "Triangle"; a: number; b: number; c: number };
+
+// The closed set of shapes, as a type
+type Shape = Circle | Rectangle | Triangle;
+
+function assertNever(shape: never): never {
+  throw new Error(`Unhandled shape: ${JSON.stringify(shape)}`);
+}
+
+// Each visitor → one function that switches on the tag
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "Circle":
+      return Math.PI * shape.radius ** 2;
+    case "Rectangle":
+      return shape.width * shape.height;
+    case "Triangle": {
+      const { a, b, c } = shape;
+      const s = (a + b + c) / 2;
+      return Math.sqrt(s * (s - a) * (s - b) * (s - c));
+    }
+    default:
+      return assertNever(shape);  // compile error if a kind is left unhandled
+  }
+}
+
+function perimeter(shape: Shape): number {
+  switch (shape.kind) {
+    case "Circle":
+      return 2 * Math.PI * shape.radius;
+    case "Rectangle":
+      return 2 * (shape.width + shape.height);
+    case "Triangle":
+      return shape.a + shape.b + shape.c;
+    default:
+      return assertNever(shape);
+  }
+}
+
+// --- Usage ---
+const shapes: Shape[] = [
+  { kind: "Circle", radius: 5 },
+  { kind: "Rectangle", width: 4, height: 6 },
+  { kind: "Triangle", a: 3, b: 4, c: 5 },
+];
+
+console.log("=== Areas ===");
+for (const shape of shapes) {
+  console.log(`${shape.kind}: ${area(shape).toFixed(2)}`);
+}
+// Circle: 78.54
+// Rectangle: 24.00
+// Triangle: 6.00
+
+console.log("\n=== Perimeters ===");
+for (const shape of shapes) {
+  console.log(`${shape.kind}: ${perimeter(shape).toFixed(2)}`);
+}
+// Circle: 31.42
+// Rectangle: 20.00
+// Triangle: 12.00
+
+// New operation? Write one more function. No shape type changes.
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — sealed classes, exhaustive switch expressions, object patterns
+import 'dart:math';
+
+// Elements → plain data: no accept() method. `sealed` closes the hierarchy
+sealed class Shape {}
+
+class Circle extends Shape {
+  final double radius;
+  Circle(this.radius);
+}
+
+class Rectangle extends Shape {
+  final double width, height;
+  Rectangle(this.width, this.height);
+}
+
+class Triangle extends Shape {
+  final double a, b, c;
+  Triangle(this.a, this.b, this.c);
+}
+
+// Each visitor → one switch expression, with no default arm and no helper.
+// Drop the Triangle arm and the compiler reports: "The type 'Shape' is not
+// exhaustively matched by the switch cases since it doesn't match 'Triangle()'."
+double area(Shape shape) => switch (shape) {
+      Circle(:final radius) => pi * radius * radius,
+      Rectangle(:final width, :final height) => width * height,
+      Triangle(:final a, :final b, :final c) => _heron(a, b, c),
+    };
+
+double perimeter(Shape shape) => switch (shape) {
+      Circle(:final radius) => 2 * pi * radius,
+      Rectangle(:final width, :final height) => 2 * (width + height),
+      Triangle(:final a, :final b, :final c) => a + b + c,
+    };
+
+double _heron(double a, double b, double c) {
+  final s = (a + b + c) / 2;
+  return sqrt(s * (s - a) * (s - b) * (s - c));
+}
+
+// --- Usage ---
+void main() {
+  final shapes = <Shape>[Circle(5), Rectangle(4, 6), Triangle(3, 4, 5)];
+
+  print('=== Areas ===');
+  for (final shape in shapes) {
+    print('${shape.runtimeType}: ${area(shape).toStringAsFixed(2)}');
+  }
+  // Circle: 78.54
+  // Rectangle: 24.00
+  // Triangle: 6.00
+
+  print('\n=== Perimeters ===');
+  for (final shape in shapes) {
+    print('${shape.runtimeType}: ${perimeter(shape).toStringAsFixed(2)}');
+  }
+  // Circle: 31.42
+  // Rectangle: 20.00
+  // Triangle: 12.00
+
+  // New operation? Write one more switch expression. No shape class changes.
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer pattern matching when | Keep the Visitor when |
+|---|---|
+| The set of shapes is closed and you own it | Shapes come from code you don't own, or plug-ins add new ones |
+| You add operations more often than shapes (Visitor's trade-off, minus `accept()`) | The language can't check exhaustiveness, and you want an interface to force every visitor to handle every shape (C# today) |
+| Each operation is a short expression per case | A visitor accumulates state while walking a large tree, as in compilers and AST tools |
+| Elements are plain data with public fields | Elements must keep their internals private, since patterns need public fields |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
