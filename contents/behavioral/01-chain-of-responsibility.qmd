@@ -698,6 +698,340 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Every modern web framework already implements this pattern, with a smaller shape: a middleware is a **function** `(request, next) => response`. The `next` link becomes a parameter instead of a stored field. The chain is a plain list, folded from the right so each middleware wraps the one after it. Reordering the chain means reordering the list.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟢 Replaces** — middleware functions `(request, next) => response`, composed with a fold, are Chain of Responsibility without the class hierarchy.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Middleware(ABC)` with `handle()` + `set_next()` | `type Middleware = Callable[[Request, Handler], str]` |
+| `AuthMiddleware`, `LoggingMiddleware` classes | plain functions `auth`, `log` |
+| `RateLimitMiddleware.__init__` storing counts | `rate_limit(limit)`: a closure holds `counts` |
+| `self._next` + `handle_next()` | the `next_` parameter |
+| `auth.set_next(logging).set_next(rate_limit)` | `pipeline([auth, log, rate_limit(3)], endpoint)` via `functools.reduce` |
+| Default response inside `handle_next()` | an explicit `endpoint` handler at the end of the chain |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Middleware` with `Handle()` + `SetNext()` | `using Middleware = Func<Request, Func<Request, string>, string>` |
+| `AuthMiddleware`, `LoggingMiddleware` classes | static methods `Auth`, `Log` (method groups convert to the delegate) |
+| `RateLimitMiddleware` fields | `RateLimit(limit)`: a lambda captures `counts` |
+| `_next` + `HandleNext()` | the `next` parameter |
+| `auth.SetNext(logging).SetNext(rateLimit)` | `Pipeline([Auth, Log, RateLimit(3)], Endpoint)` via LINQ `Aggregate` |
+| Default response inside `HandleNext()` | an explicit `Endpoint` handler at the end of the chain |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Middleware` with `handle()` + `setNext()` | `type Middleware = (request, next) => string` |
+| `AuthMiddleware`, `LoggingMiddleware` classes | arrow functions `auth`, `log` |
+| `RateLimitMiddleware` fields | `rateLimit(limit)`: a closure holds `counts` |
+| `private next` + `handleNext()` | the `next` parameter |
+| `auth.setNext(logging).setNext(rateLimit)` | `pipeline([auth, log, rateLimit(3)], endpoint)` via `reduceRight` |
+| `class Request` | `type HttpRequest` (`Request` is already a DOM global) |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Middleware` with `handle()` + `setNext()` | `typedef Middleware = String Function(Request, Handler)` |
+| `AuthMiddleware`, `LoggingMiddleware` classes | top-level functions `auth`, `log` (tear-offs) |
+| `RateLimitMiddleware` fields | `rateLimit(limit)`: a closure holds `counts` |
+| `_next` + `handleNext()` | the `next` parameter |
+| `auth.setNext(logging).setNext(rateLimit)` | `pipeline([auth, log, rateLimit(3)], endpoint)` via `fold` |
+| `class Request` | a record typedef |
+
+:::
+
+**Ecosystem:** this is the middleware signature of ASP.NET Core (`app.Use(async (context, next) => …)`), Express / Koa / Hono (`app.use((c, next) => …)`), Dart's `shelf` (`Pipeline().addMiddleware(…)`), and Python's ASGI stack (Starlette / FastAPI `@app.middleware("http")`).
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — middleware as functions, `type` aliases, functools.reduce
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import reduce
+
+
+@dataclass(frozen=True)
+class Request:
+    path: str
+    headers: dict[str, str]
+    user: str
+
+
+type Handler = Callable[[Request], str]  # request → response
+type Middleware = Callable[[Request, Handler], str]  # may call next_ to continue
+
+
+# Concrete handlers → plain functions
+def auth(request: Request, next_: Handler) -> str:
+    if "Authorization" not in request.headers:
+        return "401 Unauthorized"  # short-circuit: next_ is never called
+    print(f"[Auth] {request.user} authenticated")
+    return next_(request)
+
+
+def log(request: Request, next_: Handler) -> str:
+    print(f"[Log] {request.user} -> {request.path}")
+    return next_(request)
+
+
+def rate_limit(limit: int) -> Middleware:
+    counts: dict[str, int] = {}  # state lives in the closure
+
+    def middleware(request: Request, next_: Handler) -> str:
+        counts[request.user] = counts.get(request.user, 0) + 1
+        if counts[request.user] > limit:
+            return "429 Too Many Requests"
+        print(f"[RateLimit] {request.user}: {counts[request.user]}/{limit}")
+        return next_(request)
+
+    return middleware
+
+
+def endpoint(request: Request) -> str:
+    return f"200 OK: Handled {request.path}"
+
+
+# The chain → fold from the right: each middleware wraps the handler after it
+def pipeline(middlewares: list[Middleware], last: Handler) -> Handler:
+    def wrap(next_: Handler, middleware: Middleware) -> Handler:
+        return lambda request: middleware(request, next_)
+
+    return reduce(wrap, reversed(middlewares), last)
+
+
+# --- Usage ---
+app = pipeline([auth, log, rate_limit(3)], endpoint)
+
+print(app(Request("/api/data", {"Authorization": "Bearer token"}, "alice")))
+# [Auth] alice authenticated
+# [Log] alice -> /api/data
+# [RateLimit] alice: 1/3
+# 200 OK: Handled /api/data
+
+print(app(Request("/api/secret", {}, "bob")))
+# 401 Unauthorized
+
+# Reordering = reordering a list
+log_first = pipeline([log, auth], endpoint)
+print(log_first(Request("/api/secret", {}, "bob")))
+# [Log] bob -> /api/secret
+# 401 Unauthorized
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — delegates, method groups, LINQ Aggregate
+using Handler = System.Func<Request, string>;
+using Middleware = System.Func<Request, System.Func<Request, string>, string>;
+using static Middlewares;
+
+public record Request(string Path, Dictionary<string, string> Headers, string User);
+
+public static class Middlewares
+{
+    // Concrete handlers → plain static methods
+    public static string Auth(Request request, Handler next)
+    {
+        if (!request.Headers.ContainsKey("Authorization"))
+            return "401 Unauthorized";  // short-circuit: next is never called
+        Console.WriteLine($"[Auth] {request.User} authenticated");
+        return next(request);
+    }
+
+    public static string Log(Request request, Handler next)
+    {
+        Console.WriteLine($"[Log] {request.User} -> {request.Path}");
+        return next(request);
+    }
+
+    public static Middleware RateLimit(int limit)
+    {
+        var counts = new Dictionary<string, int>();  // state lives in the closure
+        return (request, next) =>
+        {
+            counts[request.User] = counts.GetValueOrDefault(request.User) + 1;
+            if (counts[request.User] > limit)
+                return "429 Too Many Requests";
+            Console.WriteLine($"[RateLimit] {request.User}: {counts[request.User]}/{limit}");
+            return next(request);
+        };
+    }
+
+    public static string Endpoint(Request request) => $"200 OK: Handled {request.Path}";
+
+    // The chain → fold from the right: each middleware wraps the handler after it
+    public static Handler Pipeline(Middleware[] middlewares, Handler last) =>
+        Enumerable.Reverse(middlewares)
+            .Aggregate(last, (next, middleware) => request => middleware(request, next));
+}
+
+// --- Usage ---
+var app = Pipeline([Auth, Log, RateLimit(3)], Endpoint);
+
+Console.WriteLine(app(new("/api/data", new() { ["Authorization"] = "Bearer token" }, "alice")));
+// [Auth] alice authenticated
+// [Log] alice -> /api/data
+// [RateLimit] alice: 1/3
+// 200 OK: Handled /api/data
+
+Console.WriteLine(app(new("/api/secret", new(), "bob")));
+// 401 Unauthorized
+
+// Reordering = reordering a list
+var logFirst = Pipeline([Log, Auth], Endpoint);
+Console.WriteLine(logFirst(new("/api/secret", new(), "bob")));
+// [Log] bob -> /api/secret
+// 401 Unauthorized
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — middleware as functions, Array.reduceRight
+
+// (named HttpRequest: `Request` is already a DOM global)
+type HttpRequest = { path: string; headers: Record<string, string>; user: string };
+type Handler = (request: HttpRequest) => string;
+type Middleware = (request: HttpRequest, next: Handler) => string;
+
+// Concrete handlers → plain functions
+const auth: Middleware = (request, next) => {
+  if (!("Authorization" in request.headers)) return "401 Unauthorized";  // short-circuit
+  console.log(`[Auth] ${request.user} authenticated`);
+  return next(request);
+};
+
+const log: Middleware = (request, next) => {
+  console.log(`[Log] ${request.user} -> ${request.path}`);
+  return next(request);
+};
+
+const rateLimit = (limit: number): Middleware => {
+  const counts = new Map<string, number>();  // state lives in the closure
+  return (request, next) => {
+    const count = (counts.get(request.user) ?? 0) + 1;
+    counts.set(request.user, count);
+    if (count > limit) return "429 Too Many Requests";
+    console.log(`[RateLimit] ${request.user}: ${count}/${limit}`);
+    return next(request);
+  };
+};
+
+const endpoint: Handler = (request) => `200 OK: Handled ${request.path}`;
+
+// The chain → fold from the right: each middleware wraps the handler after it
+const pipeline = (middlewares: Middleware[], last: Handler): Handler =>
+  middlewares.reduceRight<Handler>((next, middleware) => (request) => middleware(request, next), last);
+
+// --- Usage ---
+const app = pipeline([auth, log, rateLimit(3)], endpoint);
+
+console.log(app({ path: "/api/data", headers: { Authorization: "Bearer token" }, user: "alice" }));
+// [Auth] alice authenticated
+// [Log] alice -> /api/data
+// [RateLimit] alice: 1/3
+// 200 OK: Handled /api/data
+
+console.log(app({ path: "/api/secret", headers: {}, user: "bob" }));
+// 401 Unauthorized
+
+// Reordering = reordering a list
+const logFirst = pipeline([log, auth], endpoint);
+console.log(logFirst({ path: "/api/secret", headers: {}, user: "bob" }));
+// [Log] bob -> /api/secret
+// 401 Unauthorized
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — function typedefs, records, closures, Iterable.fold
+
+typedef Request = ({String path, Map<String, String> headers, String user});
+typedef Handler = String Function(Request request);
+typedef Middleware = String Function(Request request, Handler next);
+
+// Concrete handlers → plain top-level functions
+String auth(Request request, Handler next) {
+  if (!request.headers.containsKey("Authorization")) {
+    return "401 Unauthorized";  // short-circuit: next is never called
+  }
+  print("[Auth] ${request.user} authenticated");
+  return next(request);
+}
+
+String log(Request request, Handler next) {
+  print("[Log] ${request.user} -> ${request.path}");
+  return next(request);
+}
+
+Middleware rateLimit(int limit) {
+  final counts = <String, int>{};  // state lives in the closure
+  return (request, next) {
+    final count = counts.update(request.user, (c) => c + 1, ifAbsent: () => 1);
+    if (count > limit) return "429 Too Many Requests";
+    print("[RateLimit] ${request.user}: $count/$limit");
+    return next(request);
+  };
+}
+
+String endpoint(Request request) => "200 OK: Handled ${request.path}";
+
+// The chain → fold from the right: each middleware wraps the handler after it
+Handler pipeline(List<Middleware> middlewares, Handler last) => middlewares.reversed
+    .fold<Handler>(last, (next, middleware) => (request) => middleware(request, next));
+
+// --- Usage ---
+void main() {
+  final app = pipeline([auth, log, rateLimit(3)], endpoint);
+
+  print(app((path: "/api/data", headers: {"Authorization": "Bearer token"}, user: "alice")));
+  // [Auth] alice authenticated
+  // [Log] alice -> /api/data
+  // [RateLimit] alice: 1/3
+  // 200 OK: Handled /api/data
+
+  print(app((path: "/api/secret", headers: {}, user: "bob")));
+  // 401 Unauthorized
+
+  // Reordering = reordering a list
+  final logFirst = pipeline([log, auth], endpoint);
+  print(logFirst((path: "/api/secret", headers: {}, user: "bob")));
+  // [Log] bob -> /api/secret
+  // 401 Unauthorized
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer middleware functions when | Keep handler classes when |
+|---|---|
+| Each handler is one decision plus a call to `next` | Handlers need several methods, rich configuration, or injected services (e.g., ASP.NET Core `IMiddleware` classes resolved from DI) |
+| The chain is assembled once, at startup | Handlers must be inserted, removed, or inspected at runtime |
+| Async pipelines: `(request, next) => Promise` composes the same way | Exactly one handler must claim each request (a lookup table or router is simpler) |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
