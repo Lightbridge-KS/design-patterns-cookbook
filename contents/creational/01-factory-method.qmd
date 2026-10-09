@@ -483,6 +483,269 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Each concrete creator above exists only to override one method that calls one constructor. Modern languages let you pass that constructor around as a value. A class is already callable in Python, Dart has constructor tear-offs (`Truck.new`), and C# and TypeScript wrap it in a lambda. The creator hierarchy collapses into one class that receives its factory.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — the creator subclasses disappear and the factory method becomes a function you pass in. The product interface stays.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Logistics(ABC)` with abstract `create_transport()` | `Logistics(create_transport)`: the factory is a constructor argument |
+| `RoadLogistics` / `SeaLogistics` subclasses | `Logistics(Truck)` / `Logistics(Ship)`: a class is already a no-arg factory |
+| Choosing `RoadLogistics()` or `SeaLogistics()` from config | registry dict `TRANSPORTS = {"road": Truck, "sea": Ship}` |
+| `Transport(ABC)`, `Truck`, `Ship` | unchanged |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Logistics` with abstract `CreateTransport()` | `class Logistics(Func<ITransport> createTransport)` (primary constructor) |
+| `RoadLogistics` / `SeaLogistics` subclasses | `new Logistics(() => new Truck())`: C# can't pass a constructor directly, so a lambda wraps it |
+| Choosing `RoadLogistics` or `SeaLogistics` from config | `Dictionary<string, Func<ITransport>>` registry |
+| `ITransport`, `Truck`, `Ship` | unchanged |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Logistics` with abstract `createTransport()` | `Logistics` receives a `() => Transport` in its constructor |
+| `RoadLogistics` / `SeaLogistics` subclasses | `new Logistics(() => new Truck())` |
+| Choosing `RoadLogistics` or `SeaLogistics` from config | `{ road: …, sea: … } satisfies Record<string, TransportFactory>`: a mistyped key is a compile error |
+| `Transport`, `Truck`, `Ship` | unchanged |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Logistics` with abstract `createTransport()` | `Logistics(this._createTransport)`: the factory is a constructor argument |
+| `RoadLogistics` / `SeaLogistics` subclasses | `Logistics(Truck.new)`: a constructor tear-off is already a factory |
+| Choosing `RoadLogistics` or `SeaLogistics` from config | `Map<String, TransportFactory>` registry of tear-offs |
+| `Transport`, `Truck`, `Ship` | unchanged |
+
+:::
+
+**Ecosystem:** in .NET apps, DI keyed services (.NET 8+, `AddKeyedTransient<ITransport, Truck>("road")`) build the registry for you, and `IServiceProvider` acts as a general-purpose factory. Python packages can add entries to a registry from outside through entry points (see [Microkernel](../plugins-arch/microkernel-registry-manifest-first.qmd)).
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — classes are callables, `type` alias over Callable, dict registry
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+
+
+# Products → unchanged
+class Transport(ABC):
+    @abstractmethod
+    def deliver(self) -> None: ...
+
+
+class Truck(Transport):
+    def deliver(self) -> None:
+        print("Delivering by land in a truck")
+
+
+class Ship(Transport):
+    def deliver(self) -> None:
+        print("Delivering by sea in a ship")
+
+
+# Factory method → a function type (any no-arg class already fits it)
+type TransportFactory = Callable[[], Transport]
+
+
+# Creator → one class that receives its factory: no RoadLogistics / SeaLogistics
+class Logistics:
+    def __init__(self, create_transport: TransportFactory) -> None:
+        self._create_transport = create_transport
+
+    def plan_delivery(self) -> None:
+        transport = self._create_transport()
+        transport.deliver()
+
+
+# Picking a product by name → a registry instead of an if/else chain
+TRANSPORTS: dict[str, TransportFactory] = {"road": Truck, "sea": Ship}
+
+
+# --- Usage ---
+Logistics(Truck).plan_delivery()  # Delivering by land in a truck
+
+mode = "sea"  # e.g., read from config
+Logistics(TRANSPORTS[mode]).plan_delivery()  # Delivering by sea in a ship
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — Func<T> delegates, primary constructors
+
+// Products → unchanged
+public interface ITransport
+{
+    void Deliver();
+}
+
+public class Truck : ITransport
+{
+    public void Deliver() => Console.WriteLine("Delivering by land in a truck");
+}
+
+public class Ship : ITransport
+{
+    public void Deliver() => Console.WriteLine("Delivering by sea in a ship");
+}
+
+// Creator → one class that receives its factory: no RoadLogistics / SeaLogistics
+public class Logistics(Func<ITransport> createTransport)
+{
+    public void PlanDelivery()
+    {
+        ITransport transport = createTransport();
+        transport.Deliver();
+    }
+}
+
+// Picking a product by name → a registry instead of an if/else chain
+public static class Transports
+{
+    public static readonly Dictionary<string, Func<ITransport>> ByMode = new()
+    {
+        ["road"] = () => new Truck(),
+        ["sea"] = () => new Ship(),
+    };
+}
+
+// --- Usage ---
+new Logistics(() => new Truck()).PlanDelivery();  // Delivering by land in a truck
+
+var mode = "sea";  // e.g., read from config
+new Logistics(Transports.ByMode[mode]).PlanDelivery();  // Delivering by sea in a ship
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — function types, `satisfies` for a typed registry
+
+// Products → unchanged
+interface Transport {
+  deliver(): void;
+}
+
+class Truck implements Transport {
+  deliver(): void {
+    console.log("Delivering by land in a truck");
+  }
+}
+
+class Ship implements Transport {
+  deliver(): void {
+    console.log("Delivering by sea in a ship");
+  }
+}
+
+// Factory method → a function type
+type TransportFactory = () => Transport;
+
+// Creator → one class that receives its factory: no RoadLogistics / SeaLogistics
+class Logistics {
+  private createTransport: TransportFactory;
+
+  constructor(createTransport: TransportFactory) {
+    this.createTransport = createTransport;
+  }
+
+  planDelivery(): void {
+    const transport = this.createTransport();
+    transport.deliver();
+  }
+}
+
+// Picking a product by name → a registry instead of an if/else chain
+const transports = {
+  road: () => new Truck(),
+  sea: () => new Ship(),
+} satisfies Record<string, TransportFactory>;
+
+// --- Usage ---
+new Logistics(() => new Truck()).planDelivery();  // Delivering by land in a truck
+
+const mode: keyof typeof transports = "sea";  // e.g., read from config; "air" won't compile
+new Logistics(transports[mode]).planDelivery();  // Delivering by sea in a ship
+```
+
+#### `Dart`
+
+```dart
+// Dart 2.15+ — constructor tear-offs (`Truck.new`), function typedefs
+
+// Products → unchanged
+abstract class Transport {
+  void deliver();
+}
+
+class Truck implements Transport {
+  @override
+  void deliver() => print("Delivering by land in a truck");
+}
+
+class Ship implements Transport {
+  @override
+  void deliver() => print("Delivering by sea in a ship");
+}
+
+// Factory method → a function type
+typedef TransportFactory = Transport Function();
+
+// Creator → one class that receives its factory: no RoadLogistics / SeaLogistics
+class Logistics {
+  final TransportFactory _createTransport;
+
+  Logistics(this._createTransport);
+
+  void planDelivery() {
+    final transport = _createTransport();
+    transport.deliver();
+  }
+}
+
+// Picking a product by name → a registry of constructor tear-offs
+final Map<String, TransportFactory> transports = {
+  "road": Truck.new,
+  "sea": Ship.new,
+};
+
+// --- Usage ---
+void main() {
+  Logistics(Truck.new).planDelivery();  // Delivering by land in a truck
+
+  const mode = "sea";  // e.g., read from config
+  Logistics(transports[mode]!).planDelivery();  // Delivering by sea in a ship
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer an injected factory when | Keep Factory Method subclasses when |
+|---|---|
+| The subclasses exist only to override one creation method | Each creator subclass also overrides other steps of the workflow |
+| The product is picked from config or user input | A framework exposes `create_*()` as one of several hooks that users override |
+| Tests should pass a fake factory (`lambda: FakeTransport()`) | Creating the product needs state that lives in the creator subclass |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
