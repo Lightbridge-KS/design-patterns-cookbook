@@ -797,6 +797,475 @@ void main() {
 
 :::
 
+## Modern Approach
+
+A command object is "something to run, plus how to reverse it". In all four languages that is just **two closures**. The command interface becomes a small record of two functions. Each concrete command becomes a factory that captures its arguments, and the text a delete removes is kept in a variable both closures share. The editor's history stacks stay exactly as they were.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — each command becomes a pair of closures with no class per command, while the invoker and its undo/redo stacks stay.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Command(ABC)` with `execute()` / `undo()` | `class Command(NamedTuple)` holding two callables |
+| `class TypeCommand(Command)` | `type_text(doc, text, position)` returning two lambdas |
+| `DeleteCommand._deleted_text` field | a `nonlocal` variable shared by both closures |
+| A new class for every one-off action | `Command(lambda: …, lambda: …)` inline |
+| `Editor` with `_history` / `_redo_stack` | unchanged |
+| `Document` | unchanged |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface ICommand` with `Execute()` / `Undo()` | `record Command(Action Execute, Action Undo)` |
+| `class TypeCommand : ICommand` | `Commands.TypeText(...)` returning two lambdas |
+| `DeleteCommand._deletedText` field | a local variable captured by both lambdas |
+| A new class for every one-off action | `new Command(() => …, () => …)` inline |
+| `Editor` with `Stack<ICommand>` history | unchanged (`Stack<Command>`) |
+| `Document` | unchanged |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface Command` with `execute()` / `undo()` | unchanged: object literals satisfy it, no class needed |
+| `class TypeCommand implements Command` | `typeText(...)` returning an object literal of two arrow functions |
+| `DeleteCommand.deletedText` field | a `let` variable captured by both closures |
+| A new class for every one-off action | `{ execute: () => …, undo: () => … }` inline |
+| `Editor` with `history` / `redoStack` | unchanged |
+| `class Document` | `class TextDocument` (`Document` is already a DOM global) |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Command` with `execute()` / `undo()` | `typedef Command = ({void Function() execute, void Function() undo})` |
+| `class TypeCommand implements Command` | `typeText(...)` returning a record of two closures |
+| `DeleteCommand._deletedText` field | a local `var` captured by both closures |
+| A new class for every one-off action | `(execute: () => …, undo: () => …)` inline |
+| `Editor` with `_history` / `_redoStack` | unchanged |
+| `Document` | unchanged |
+
+:::
+
+**Ecosystem:** UI frameworks ship their own command types. CommunityToolkit.Mvvm's `[RelayCommand]` generates `ICommand`s from plain methods, and Flutter pairs `Intent` with `Action`. When commands must travel (queues, CQRS), libraries in the MediatR style keep them as serializable data objects with separate handlers.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.10+ — closures, NamedTuple of callables, `nonlocal`
+from collections.abc import Callable
+from typing import NamedTuple
+
+
+# Receiver → unchanged
+class Document:
+    def __init__(self) -> None:
+        self._content = ""
+
+    def insert(self, position: int, text: str) -> None:
+        self._content = self._content[:position] + text + self._content[position:]
+
+    def delete(self, position: int, length: int) -> str:
+        deleted = self._content[position : position + length]
+        self._content = self._content[:position] + self._content[position + length :]
+        return deleted
+
+    def get_content(self) -> str:
+        return self._content
+
+
+# Command interface → a pair of functions
+class Command(NamedTuple):
+    execute: Callable[[], object]
+    undo: Callable[[], object]
+
+
+# Concrete commands → factories that capture their arguments
+def type_text(doc: Document, text: str, position: int) -> Command:
+    return Command(
+        execute=lambda: doc.insert(position, text),
+        undo=lambda: doc.delete(position, len(text)),
+    )
+
+
+def delete_text(doc: Document, position: int, length: int) -> Command:
+    deleted = ""  # shared by both closures: set by execute, read by undo
+
+    def execute() -> None:
+        nonlocal deleted
+        deleted = doc.delete(position, length)
+
+    return Command(execute, undo=lambda: doc.insert(position, deleted))
+
+
+# Invoker → unchanged: it only ever calls execute() and undo()
+class Editor:
+    def __init__(self) -> None:
+        self.document = Document()
+        self._history: list[Command] = []
+        self._redo_stack: list[Command] = []
+
+    def execute_command(self, command: Command) -> None:
+        command.execute()
+        self._history.append(command)
+        self._redo_stack.clear()
+
+    def undo(self) -> None:
+        if self._history:
+            command = self._history.pop()
+            command.undo()
+            self._redo_stack.append(command)
+
+    def redo(self) -> None:
+        if self._redo_stack:
+            command = self._redo_stack.pop()
+            command.execute()
+            self._history.append(command)
+
+    def get_content(self) -> str:
+        return self.document.get_content()
+
+
+# --- Usage ---
+editor = Editor()
+doc = editor.document
+
+editor.execute_command(type_text(doc, "Hello", 0))
+editor.execute_command(type_text(doc, " World", 5))
+print(f"Content: '{editor.get_content()}'")  # Content: 'Hello World'
+
+editor.execute_command(delete_text(doc, 5, 6))
+print(f"After delete: '{editor.get_content()}'")  # After delete: 'Hello'
+
+editor.undo()
+print(f"After undo: '{editor.get_content()}'")  # After undo: 'Hello World'
+
+editor.redo()
+print(f"After redo: '{editor.get_content()}'")  # After redo: 'Hello'
+
+# A one-off command needs no class: just two lambdas
+editor.execute_command(Command(lambda: doc.insert(0, ">> "), lambda: doc.delete(0, 3)))
+print(f"One-off: '{editor.get_content()}'")  # One-off: '>> Hello'
+
+editor.undo()
+print(f"After undo: '{editor.get_content()}'")  # After undo: 'Hello'
+```
+
+#### `C#`
+
+```csharp
+// C# 10+ / .NET 8+ — records of delegates, lambdas, closures
+
+// Receiver → unchanged
+public class Document
+{
+    private string _content = "";
+
+    public void Insert(int position, string text) => _content = _content.Insert(position, text);
+
+    public string Delete(int position, int length)
+    {
+        var deleted = _content.Substring(position, length);
+        _content = _content.Remove(position, length);
+        return deleted;
+    }
+
+    public string GetContent() => _content;
+}
+
+// Command interface → a record holding two delegates
+public record Command(Action Execute, Action Undo);
+
+// Concrete commands → factories that capture their arguments
+public static class Commands
+{
+    public static Command TypeText(Document doc, string text, int position) =>
+        new(() => doc.Insert(position, text), () => doc.Delete(position, text.Length));
+
+    public static Command DeleteText(Document doc, int position, int length)
+    {
+        var deleted = "";  // shared by both lambdas: set by Execute, read by Undo
+        return new(() => deleted = doc.Delete(position, length), () => doc.Insert(position, deleted));
+    }
+}
+
+// Invoker → unchanged: it only ever calls Execute() and Undo()
+public class Editor
+{
+    public Document Document { get; } = new();
+    private readonly Stack<Command> _history = new();
+    private readonly Stack<Command> _redoStack = new();
+
+    public void ExecuteCommand(Command command)
+    {
+        command.Execute();
+        _history.Push(command);
+        _redoStack.Clear();
+    }
+
+    public void Undo()
+    {
+        if (_history.TryPop(out var command))
+        {
+            command.Undo();
+            _redoStack.Push(command);
+        }
+    }
+
+    public void Redo()
+    {
+        if (_redoStack.TryPop(out var command))
+        {
+            command.Execute();
+            _history.Push(command);
+        }
+    }
+
+    public string GetContent() => Document.GetContent();
+}
+
+// --- Usage ---
+var editor = new Editor();
+var doc = editor.Document;
+
+editor.ExecuteCommand(Commands.TypeText(doc, "Hello", 0));
+editor.ExecuteCommand(Commands.TypeText(doc, " World", 5));
+Console.WriteLine($"Content: '{editor.GetContent()}'");  // Content: 'Hello World'
+
+editor.ExecuteCommand(Commands.DeleteText(doc, 5, 6));
+Console.WriteLine($"After delete: '{editor.GetContent()}'");  // After delete: 'Hello'
+
+editor.Undo();
+Console.WriteLine($"After undo: '{editor.GetContent()}'");  // After undo: 'Hello World'
+
+editor.Redo();
+Console.WriteLine($"After redo: '{editor.GetContent()}'");  // After redo: 'Hello'
+
+// A one-off command needs no class: just two lambdas
+editor.ExecuteCommand(new Command(() => doc.Insert(0, ">> "), () => doc.Delete(0, 3)));
+Console.WriteLine($"One-off: '{editor.GetContent()}'");  // One-off: '>> Hello'
+
+editor.Undo();
+Console.WriteLine($"After undo: '{editor.GetContent()}'");  // After undo: 'Hello'
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — object literals of closures
+
+// Receiver → unchanged (named TextDocument: `Document` is already a DOM global)
+class TextDocument {
+  private content = "";
+
+  insert(position: number, text: string): void {
+    this.content = this.content.slice(0, position) + text + this.content.slice(position);
+  }
+
+  delete(position: number, length: number): string {
+    const deleted = this.content.slice(position, position + length);
+    this.content = this.content.slice(0, position) + this.content.slice(position + length);
+    return deleted;
+  }
+
+  getContent(): string {
+    return this.content;
+  }
+}
+
+// Command interface → unchanged, but object literals satisfy it
+interface Command {
+  execute(): void;
+  undo(): void;
+}
+
+// Concrete commands → factories that capture their arguments
+const typeText = (doc: TextDocument, text: string, position: number): Command => ({
+  execute: () => doc.insert(position, text),
+  undo: () => doc.delete(position, text.length),
+});
+
+const deleteText = (doc: TextDocument, position: number, length: number): Command => {
+  let deleted = "";  // shared by both closures: set by execute, read by undo
+  return {
+    execute: () => {
+      deleted = doc.delete(position, length);
+    },
+    undo: () => doc.insert(position, deleted),
+  };
+};
+
+// Invoker → unchanged: it only ever calls execute() and undo()
+class Editor {
+  readonly document = new TextDocument();
+  private history: Command[] = [];
+  private redoStack: Command[] = [];
+
+  executeCommand(command: Command): void {
+    command.execute();
+    this.history.push(command);
+    this.redoStack = [];
+  }
+
+  undo(): void {
+    const command = this.history.pop();
+    if (!command) return;
+    command.undo();
+    this.redoStack.push(command);
+  }
+
+  redo(): void {
+    const command = this.redoStack.pop();
+    if (!command) return;
+    command.execute();
+    this.history.push(command);
+  }
+
+  getContent(): string {
+    return this.document.getContent();
+  }
+}
+
+// --- Usage ---
+const editor = new Editor();
+const doc = editor.document;
+
+editor.executeCommand(typeText(doc, "Hello", 0));
+editor.executeCommand(typeText(doc, " World", 5));
+console.log(`Content: '${editor.getContent()}'`);  // Content: 'Hello World'
+
+editor.executeCommand(deleteText(doc, 5, 6));
+console.log(`After delete: '${editor.getContent()}'`);  // After delete: 'Hello'
+
+editor.undo();
+console.log(`After undo: '${editor.getContent()}'`);  // After undo: 'Hello World'
+
+editor.redo();
+console.log(`After redo: '${editor.getContent()}'`);  // After redo: 'Hello'
+
+// A one-off command needs no class: just two arrow functions
+editor.executeCommand({ execute: () => doc.insert(0, ">> "), undo: () => doc.delete(0, 3) });
+console.log(`One-off: '${editor.getContent()}'`);  // One-off: '>> Hello'
+
+editor.undo();
+console.log(`After undo: '${editor.getContent()}'`);  // After undo: 'Hello'
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — records of closures
+
+// Receiver → unchanged
+class Document {
+  String _content = "";
+
+  void insert(int position, String text) {
+    _content = _content.substring(0, position) + text + _content.substring(position);
+  }
+
+  String delete(int position, int length) {
+    final deleted = _content.substring(position, position + length);
+    _content = _content.substring(0, position) + _content.substring(position + length);
+    return deleted;
+  }
+
+  String getContent() => _content;
+}
+
+// Command interface → a record of two functions
+typedef Command = ({void Function() execute, void Function() undo});
+
+// Concrete commands → factories that capture their arguments
+Command typeText(Document doc, String text, int position) => (
+      execute: () => doc.insert(position, text),
+      undo: () => doc.delete(position, text.length),
+    );
+
+Command deleteText(Document doc, int position, int length) {
+  var deleted = "";  // shared by both closures: set by execute, read by undo
+  return (
+    execute: () => deleted = doc.delete(position, length),
+    undo: () => doc.insert(position, deleted),
+  );
+}
+
+// Invoker → unchanged: it only ever calls execute() and undo()
+class Editor {
+  final Document document = Document();
+  final List<Command> _history = [];
+  final List<Command> _redoStack = [];
+
+  void executeCommand(Command command) {
+    command.execute();
+    _history.add(command);
+    _redoStack.clear();
+  }
+
+  void undo() {
+    if (_history.isEmpty) return;
+    final command = _history.removeLast();
+    command.undo();
+    _redoStack.add(command);
+  }
+
+  void redo() {
+    if (_redoStack.isEmpty) return;
+    final command = _redoStack.removeLast();
+    command.execute();
+    _history.add(command);
+  }
+
+  String getContent() => document.getContent();
+}
+
+// --- Usage ---
+void main() {
+  final editor = Editor();
+  final doc = editor.document;
+
+  editor.executeCommand(typeText(doc, "Hello", 0));
+  editor.executeCommand(typeText(doc, " World", 5));
+  print("Content: '${editor.getContent()}'");  // Content: 'Hello World'
+
+  editor.executeCommand(deleteText(doc, 5, 6));
+  print("After delete: '${editor.getContent()}'");  // After delete: 'Hello'
+
+  editor.undo();
+  print("After undo: '${editor.getContent()}'");  // After undo: 'Hello World'
+
+  editor.redo();
+  print("After redo: '${editor.getContent()}'");  // After redo: 'Hello'
+
+  // A one-off command needs no class: just two closures
+  editor.executeCommand((execute: () => doc.insert(0, ">> "), undo: () => doc.delete(0, 3)));
+  print("One-off: '${editor.getContent()}'");  // One-off: '>> Hello'
+
+  editor.undo();
+  print("After undo: '${editor.getContent()}'");  // After undo: 'Hello'
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer closures when | Keep command classes when |
+|---|---|
+| Commands live in memory only, for undo/redo | Commands must be serialized: saved, sent over a network, or replayed after a restart |
+| Each command is a few lines | Commands need a name or metadata for menus, logging, or an audit trail |
+| One-off actions shouldn't need a new type | Commands are queued and handled elsewhere (CQRS: the command is data, a handler runs it) |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
