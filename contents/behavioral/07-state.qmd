@@ -999,6 +999,445 @@ doc.reject();                 // Cannot reject: already published
 
 :::
 
+## Modern Approach
+
+In the classic solution, the workflow is spread across three state classes and twelve methods. When states carry little behavior of their own, modern languages let you write the whole workflow as **data**. States become an enum or a union of string literals. The transitions become one table or one `switch` expression keyed by `(state, action)`. The type checker makes sure every state is handled.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — a small workflow fits in one transition table, and class-per-state is still worth it when each state has rich behavior.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `DraftState`, `ReviewState`, `PublishedState` classes | `class State(Enum)` with three members |
+| `submit()` / `approve()` / `reject()` in each state class | one `TRANSITIONS` dict: `(state, action) → (next state, message)` |
+| "Cannot …" message in every blocked method | `blocked_reason(state)`: `match` + `assert_never`, so mypy flags a new `State` left unhandled |
+| `doc.set_state(ReviewState())` inside a state class | `self.state = next_state` in one place, `Document._fire()` |
+| `get_name()` on each state | `State.value` |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `DraftState`, `ReviewState`, `PublishedState` classes | `enum DocState { Draft, Review, Published }` |
+| `Submit()` / `Approve()` / `Reject()` in each state class | one `switch` expression on the tuple `(state, action)` |
+| "Cannot …" message in every blocked method | `BlockedReason(state)` switch expression. C# enums are open (any `int` fits), so the compiler wants a `_` arm (warning CS8524) and then can't flag a new state |
+| `doc.SetState(new ReviewState())` inside a state class | `State = next` in one place, `Document.Fire()` |
+| `Name` property on each state | `DocState` prints its own name |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `DraftState`, `ReviewState`, `PublishedState` classes | `type State`: a union of the string literals `"Draft"`, `"Review"`, `"Published"` |
+| `submit()` / `approve()` / `reject()` in each state class | one `transitions` table keyed by a template literal type `` `${State}:${Action}` ``, so a typo in a key is a compile error |
+| "Cannot …" message in every blocked method | `blockedReason: Record<State, string>`, which must list every state |
+| `doc.setState(new ReviewState())` inside a state class | `this.state = next` in one place, `fire()` |
+| `getName()` on each state | the state *is* its name |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `DraftState`, `ReviewState`, `PublishedState` classes | enhanced `enum DocState` whose values carry their own label and blocked reason |
+| `submit()` / `approve()` / `reject()` in each state class | one `switch` expression on the record `(state, action)` |
+| "Cannot …" message in every blocked method | `state.blockedReason`: the enum constructor forces every value to supply it |
+| `doc.setState(ReviewState())` inside a state class | `state = next` in one place, `_fire()` |
+| `name` getter on each state | `state.label` |
+
+:::
+
+**Ecosystem:** state-machine libraries add guards, entry/exit actions, and diagrams on top of the same table idea: `transitions` and `python-statemachine` (Python), Stateless (.NET), XState (TypeScript), and `bloc` (Dart/Flutter).
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — Enum, Literal type alias, match + typing.assert_never
+from enum import Enum
+from typing import Literal, assert_never
+
+
+class State(Enum):
+    DRAFT = "Draft"
+    REVIEW = "Review"
+    PUBLISHED = "Published"
+
+
+type Action = Literal["submit", "approve", "reject"]
+
+# The whole workflow in one table: (state, action) → (next state, message)
+TRANSITIONS: dict[tuple[State, Action], tuple[State, str]] = {
+    (State.DRAFT, "submit"): (State.REVIEW, "Document submitted for review"),
+    (State.REVIEW, "approve"): (State.PUBLISHED, "Document approved and published!"),
+    (State.REVIEW, "reject"): (State.DRAFT, "Document rejected, back to draft"),
+}
+
+
+# Why actions are blocked: mypy reports an error if a new State is left unhandled
+def blocked_reason(state: State) -> str:
+    match state:
+        case State.DRAFT:
+            return "document not submitted"
+        case State.REVIEW:
+            return "document is under review"
+        case State.PUBLISHED:
+            return "document is published"
+        case _:
+            assert_never(state)
+
+
+class Document:
+    def __init__(self, title: str) -> None:
+        self.title = title
+        self.content = ""
+        self.state = State.DRAFT
+
+    def edit(self, content: str) -> None:
+        # Editing is a guard, not a transition: the state stays the same
+        if self.state is not State.DRAFT:
+            print(f"Cannot edit: {blocked_reason(self.state)}")
+            return
+        self.content = content
+        print(f"Document edited: {content[:20]}...")
+
+    def submit(self) -> None:
+        self._fire("submit")
+
+    def approve(self) -> None:
+        self._fire("approve")
+
+    def reject(self) -> None:
+        self._fire("reject")
+
+    def _fire(self, action: Action) -> None:
+        match TRANSITIONS.get((self.state, action)):
+            case (next_state, message):
+                self.state = next_state
+                print(message)
+            case None:
+                print(f"Cannot {action}: {blocked_reason(self.state)}")
+
+
+# --- Usage ---
+doc = Document("My Article")
+print(f"State: {doc.state.value}")  # State: Draft
+
+# Draft state: can edit and submit
+doc.edit("Hello, World!")     # Document edited: Hello, World!...
+doc.approve()                 # Cannot approve: document not submitted
+
+doc.submit()                  # Document submitted for review
+print(f"State: {doc.state.value}")  # State: Review
+
+# Review state: can approve or reject
+doc.edit("New content")       # Cannot edit: document is under review
+doc.reject()                  # Document rejected, back to draft
+print(f"State: {doc.state.value}")  # State: Draft
+
+# Back to draft: can edit again
+doc.edit("Revised content")   # Document edited: Revised content...
+doc.submit()                  # Document submitted for review
+doc.approve()                 # Document approved and published!
+print(f"State: {doc.state.value}")  # State: Published
+
+# Published state: all actions blocked
+doc.edit("More changes")      # Cannot edit: document is published
+doc.reject()                  # Cannot reject: document is published
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — enum + switch expressions with tuple patterns, primary constructor
+using static DocState;
+
+public enum DocState { Draft, Review, Published }
+
+public class Document(string title)
+{
+    public string Title => title;
+    public string Content { get; private set; } = "";
+    public DocState State { get; private set; } = Draft;
+
+    // The whole workflow in one expression: (state, action) → (next state, message)
+    private static (DocState Next, string Message)? Transition(DocState state, string action) =>
+        (state, action) switch
+        {
+            (Draft, "submit") => (Review, "Document submitted for review"),
+            (Review, "approve") => (Published, "Document approved and published!"),
+            (Review, "reject") => (Draft, "Document rejected, back to draft"),
+            _ => null,
+        };
+
+    // Why actions are blocked. C# enums are open (any int fits), so without the `_` arm
+    // the compiler warns CS8524 even when every named state is handled
+    private static string BlockedReason(DocState state) => state switch
+    {
+        Draft => "document not submitted",
+        Review => "document is under review",
+        Published => "document is published",
+        _ => throw new ArgumentOutOfRangeException(nameof(state)),
+    };
+
+    public void Edit(string content)
+    {
+        // Editing is a guard, not a transition: the state stays the same
+        if (State != Draft)
+        {
+            Console.WriteLine($"Cannot edit: {BlockedReason(State)}");
+            return;
+        }
+        Content = content;
+        Console.WriteLine($"Document edited: {content[..Math.Min(20, content.Length)]}...");
+    }
+
+    public void Submit() => Fire("submit");
+
+    public void Approve() => Fire("approve");
+
+    public void Reject() => Fire("reject");
+
+    private void Fire(string action)
+    {
+        if (Transition(State, action) is (DocState next, string message))
+        {
+            State = next;
+            Console.WriteLine(message);
+        }
+        else
+        {
+            Console.WriteLine($"Cannot {action}: {BlockedReason(State)}");
+        }
+    }
+}
+
+// --- Usage ---
+var doc = new Document("My Article");
+Console.WriteLine($"State: {doc.State}");  // State: Draft
+
+// Draft state: can edit and submit
+doc.Edit("Hello, World!");    // Document edited: Hello, World!...
+doc.Approve();                // Cannot approve: document not submitted
+
+doc.Submit();                 // Document submitted for review
+Console.WriteLine($"State: {doc.State}");  // State: Review
+
+// Review state: can approve or reject
+doc.Edit("New content");      // Cannot edit: document is under review
+doc.Reject();                 // Document rejected, back to draft
+Console.WriteLine($"State: {doc.State}");  // State: Draft
+
+// Back to draft: can edit again
+doc.Edit("Revised content");  // Document edited: Revised content...
+doc.Submit();                 // Document submitted for review
+doc.Approve();                // Document approved and published!
+Console.WriteLine($"State: {doc.State}");  // State: Published
+
+// Published state: all actions blocked
+doc.Edit("More changes");     // Cannot edit: document is published
+doc.Reject();                 // Cannot reject: document is published
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — string-literal unions, template literal types, Record<State, …>
+
+type State = "Draft" | "Review" | "Published";
+type Action = "submit" | "approve" | "reject";
+
+// The whole workflow in one table: "state:action" → [next state, message]
+// (keys are type-checked: "Reveiw:approve" is a compile error)
+const transitions: Partial<Record<`${State}:${Action}`, [State, string]>> = {
+  "Draft:submit": ["Review", "Document submitted for review"],
+  "Review:approve": ["Published", "Document approved and published!"],
+  "Review:reject": ["Draft", "Document rejected, back to draft"],
+};
+
+// Why actions are blocked: Record<State, …> fails to compile if a state is missing
+const blockedReason: Record<State, string> = {
+  Draft: "document not submitted",
+  Review: "document is under review",
+  Published: "document is published",
+};
+
+// Named WorkflowDocument: a top-level `Document` would clash with the DOM's global type
+class WorkflowDocument {
+  title: string;
+  content = "";
+  state: State = "Draft";
+
+  constructor(title: string) {
+    this.title = title;
+  }
+
+  edit(content: string): void {
+    // Editing is a guard, not a transition: the state stays the same
+    if (this.state !== "Draft") {
+      console.log(`Cannot edit: ${blockedReason[this.state]}`);
+      return;
+    }
+    this.content = content;
+    console.log(`Document edited: ${content.slice(0, 20)}...`);
+  }
+
+  submit(): void {
+    this.fire("submit");
+  }
+
+  approve(): void {
+    this.fire("approve");
+  }
+
+  reject(): void {
+    this.fire("reject");
+  }
+
+  private fire(action: Action): void {
+    const transition = transitions[`${this.state}:${action}`];
+    if (!transition) {
+      console.log(`Cannot ${action}: ${blockedReason[this.state]}`);
+      return;
+    }
+    const [next, message] = transition;
+    this.state = next;
+    console.log(message);
+  }
+}
+
+// --- Usage ---
+const doc = new WorkflowDocument("My Article");
+console.log(`State: ${doc.state}`);  // State: Draft
+
+// Draft state: can edit and submit
+doc.edit("Hello, World!");    // Document edited: Hello, World!...
+doc.approve();                // Cannot approve: document not submitted
+
+doc.submit();                 // Document submitted for review
+console.log(`State: ${doc.state}`);  // State: Review
+
+// Review state: can approve or reject
+doc.edit("New content");      // Cannot edit: document is under review
+doc.reject();                 // Document rejected, back to draft
+console.log(`State: ${doc.state}`);  // State: Draft
+
+// Back to draft: can edit again
+doc.edit("Revised content");  // Document edited: Revised content...
+doc.submit();                 // Document submitted for review
+doc.approve();                // Document approved and published!
+console.log(`State: ${doc.state}`);  // State: Published
+
+// Published state: all actions blocked
+doc.edit("More changes");     // Cannot edit: document is published
+doc.reject();                 // Cannot reject: document is published
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — enhanced enum, records, switch expression on a record pattern
+
+// Each state carries its own data: the constructor forces every value to supply it
+enum DocState {
+  draft('Draft', 'document not submitted'),
+  review('Review', 'document is under review'),
+  published('Published', 'document is published');
+
+  const DocState(this.label, this.blockedReason);
+  final String label;
+  final String blockedReason;
+}
+
+// The whole workflow in one expression: (state, action) → (next state, message)
+(DocState, String)? transition(DocState state, String action) =>
+    switch ((state, action)) {
+      (DocState.draft, 'submit') => (DocState.review, 'Document submitted for review'),
+      (DocState.review, 'approve') => (DocState.published, 'Document approved and published!'),
+      (DocState.review, 'reject') => (DocState.draft, 'Document rejected, back to draft'),
+      _ => null,
+    };
+
+class Document {
+  final String title;
+  String content = '';
+  DocState state = DocState.draft;
+
+  Document(this.title);
+
+  void edit(String content) {
+    // Editing is a guard, not a transition: the state stays the same
+    if (state != DocState.draft) {
+      print('Cannot edit: ${state.blockedReason}');
+      return;
+    }
+    this.content = content;
+    print('Document edited: ${content.substring(0, content.length < 20 ? content.length : 20)}...');
+  }
+
+  void submit() => _fire('submit');
+
+  void approve() => _fire('approve');
+
+  void reject() => _fire('reject');
+
+  void _fire(String action) {
+    if (transition(state, action) case (final next, final message)) {
+      state = next;
+      print(message);
+    } else {
+      print('Cannot $action: ${state.blockedReason}');
+    }
+  }
+}
+
+// --- Usage ---
+void main() {
+  final doc = Document('My Article');
+  print('State: ${doc.state.label}');  // State: Draft
+
+  // Draft state: can edit and submit
+  doc.edit('Hello, World!');    // Document edited: Hello, World!...
+  doc.approve();                // Cannot approve: document not submitted
+
+  doc.submit();                 // Document submitted for review
+  print('State: ${doc.state.label}');  // State: Review
+
+  // Review state: can approve or reject
+  doc.edit('New content');      // Cannot edit: document is under review
+  doc.reject();                 // Document rejected, back to draft
+  print('State: ${doc.state.label}');  // State: Draft
+
+  // Back to draft: can edit again
+  doc.edit('Revised content');  // Document edited: Revised content...
+  doc.submit();                 // Document submitted for review
+  doc.approve();                // Document approved and published!
+  print('State: ${doc.state.label}');  // State: Published
+
+  // Published state: all actions blocked
+  doc.edit('More changes');     // Cannot edit: document is published
+  doc.reject();                 // Cannot reject: document is published
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer a transition table when | Keep state classes when |
+|---|---|
+| States differ mostly in which actions are allowed | Each state has rich behavior of its own (validation, side effects, timers) |
+| You want the whole workflow visible on one screen | Each state's logic is large enough to deserve its own file and tests |
+| The workflow may come from config or a database | You want the compiler to force every state to answer every action, which abstract methods do in all four languages |
+| You need to list, visualize, or audit transitions | States hold their own data, such as a reviewer name or a retry count |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
