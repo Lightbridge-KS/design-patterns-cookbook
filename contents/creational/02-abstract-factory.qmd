@@ -645,6 +645,326 @@ void main() {
 
 :::
 
+## Modern Approach
+
+Each concrete factory above is a class whose methods only call constructors. A product family is really just *a fixed set of constructors that belong together*. All four languages can hold that set in one small immutable value, such as a record or an object literal. Each theme then becomes a one-line preset instead of a class.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — a factory family becomes a record of constructors, so the factory classes disappear. The product interfaces stay.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class GameFactory(ABC)` with abstract `create_warrior()` / `create_building()` | `@dataclass(frozen=True) class GameFactory` with two callable fields |
+| `class MedievalFactory(GameFactory)` | preset `MEDIEVAL = GameFactory(create_warrior=Knight, create_building=Castle)` |
+| `def create_warrior(self): return Knight()` | `Knight` itself: a class is already a no-arg factory |
+| `Warrior`, `Building`, and the four products | unchanged |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IGameFactory` with `CreateWarrior()` / `CreateBuilding()` | `record GameFactory(Func<IWarrior> CreateWarrior, Func<IBuilding> CreateBuilding)` |
+| `class MedievalFactory : IGameFactory` | preset `Themes.Medieval = new(() => new Knight(), () => new Castle())` |
+| Calling `factory.CreateWarrior()` | unchanged: a delegate property is invoked like a method |
+| `IWarrior`, `IBuilding`, and the four products | unchanged |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface GameFactory` with `createWarrior()` / `createBuilding()` | unchanged |
+| `class MedievalFactory implements GameFactory` | `const medieval = { createWarrior: …, createBuilding: … } satisfies GameFactory` |
+| `new MedievalFactory()` | `medieval`: a plain object, no instantiation |
+| `Warrior`, `Building`, and the four products | unchanged |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class GameFactory` with `createWarrior()` / `createBuilding()` | `typedef GameFactory = ({Warrior Function() createWarrior, Building Function() createBuilding})` |
+| `class MedievalFactory implements GameFactory` | `const medieval = (createWarrior: Knight.new, createBuilding: Castle.new)` |
+| `Warrior createWarrior() => Knight();` | `Knight.new`: a constructor tear-off |
+| `Warrior`, `Building`, and the four products | unchanged |
+
+:::
+
+**Ecosystem:** DI containers swap a whole family at the composition root, for example by registering a different set of implementations per environment or theme. Flutter's `ThemeData` applies the same idea to styling: one value that bundles matching colors, fonts, and widget themes.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.10+ — frozen dataclass of callables; classes are callables
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
+
+
+# Products → unchanged
+class Warrior(ABC):
+    @abstractmethod
+    def attack(self) -> None: ...
+
+
+class Building(ABC):
+    @abstractmethod
+    def describe(self) -> None: ...
+
+
+class Knight(Warrior):
+    def attack(self) -> None:
+        print("Knight swings sword!")
+
+
+class Castle(Building):
+    def describe(self) -> None:
+        print("A medieval stone castle")
+
+
+class Robot(Warrior):
+    def attack(self) -> None:
+        print("Robot fires laser!")
+
+
+class Spaceship(Building):
+    def describe(self) -> None:
+        print("A futuristic spaceship base")
+
+
+# Abstract factory → a record of constructors
+@dataclass(frozen=True)
+class GameFactory:
+    create_warrior: Callable[[], Warrior]
+    create_building: Callable[[], Building]
+
+
+# Concrete factories → presets (a class is already a factory)
+MEDIEVAL = GameFactory(create_warrior=Knight, create_building=Castle)
+SCI_FI = GameFactory(create_warrior=Robot, create_building=Spaceship)
+
+
+def play_game(factory: GameFactory) -> None:
+    warrior = factory.create_warrior()
+    building = factory.create_building()
+
+    warrior.attack()
+    building.describe()
+
+
+# --- Usage ---
+# Products are still guaranteed to match: each preset is one family
+play_game(MEDIEVAL)  # Knight swings sword! / A medieval stone castle
+play_game(SCI_FI)  # Robot fires laser! / A futuristic spaceship base
+```
+
+#### `C#`
+
+```csharp
+// C# 10+ / .NET 8+ — positional record of Func<> delegates
+
+// Products → unchanged
+public interface IWarrior
+{
+    void Attack();
+}
+
+public interface IBuilding
+{
+    void Describe();
+}
+
+public class Knight : IWarrior
+{
+    public void Attack() => Console.WriteLine("Knight swings sword!");
+}
+
+public class Castle : IBuilding
+{
+    public void Describe() => Console.WriteLine("A medieval stone castle");
+}
+
+public class Robot : IWarrior
+{
+    public void Attack() => Console.WriteLine("Robot fires laser!");
+}
+
+public class Spaceship : IBuilding
+{
+    public void Describe() => Console.WriteLine("A futuristic spaceship base");
+}
+
+// Abstract factory → a record of constructors
+public record GameFactory(Func<IWarrior> CreateWarrior, Func<IBuilding> CreateBuilding);
+
+// Concrete factories → presets
+public static class Themes
+{
+    public static readonly GameFactory Medieval = new(() => new Knight(), () => new Castle());
+    public static readonly GameFactory SciFi = new(() => new Robot(), () => new Spaceship());
+}
+
+// --- Usage ---
+void PlayGame(GameFactory factory)
+{
+    var warrior = factory.CreateWarrior();  // a delegate property is called like a method
+    var building = factory.CreateBuilding();
+
+    warrior.Attack();
+    building.Describe();
+}
+
+// Products are still guaranteed to match: each preset is one family
+PlayGame(Themes.Medieval);  // Knight swings sword! / A medieval stone castle
+PlayGame(Themes.SciFi);     // Robot fires laser! / A futuristic spaceship base
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 4.9+ — object literals checked with `satisfies`
+
+// Products → unchanged
+interface Warrior {
+  attack(): void;
+}
+
+interface Building {
+  describe(): void;
+}
+
+class Knight implements Warrior {
+  attack(): void {
+    console.log("Knight swings sword!");
+  }
+}
+
+class Castle implements Building {
+  describe(): void {
+    console.log("A medieval stone castle");
+  }
+}
+
+class Robot implements Warrior {
+  attack(): void {
+    console.log("Robot fires laser!");
+  }
+}
+
+class Spaceship implements Building {
+  describe(): void {
+    console.log("A futuristic spaceship base");
+  }
+}
+
+// Abstract factory → unchanged interface
+interface GameFactory {
+  createWarrior(): Warrior;
+  createBuilding(): Building;
+}
+
+// Concrete factories → object literals instead of classes
+const medieval = {
+  createWarrior: () => new Knight(),
+  createBuilding: () => new Castle(),
+} satisfies GameFactory;
+
+const sciFi = {
+  createWarrior: () => new Robot(),
+  createBuilding: () => new Spaceship(),
+} satisfies GameFactory;
+
+function playGame(factory: GameFactory): void {
+  const warrior = factory.createWarrior();
+  const building = factory.createBuilding();
+
+  warrior.attack();
+  building.describe();
+}
+
+// --- Usage ---
+// Products are still guaranteed to match: each preset is one family
+playGame(medieval);  // Knight swings sword! / A medieval stone castle
+playGame(sciFi);     // Robot fires laser! / A futuristic spaceship base
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — records of constructor tear-offs
+
+// Products → unchanged
+abstract class Warrior {
+  void attack();
+}
+
+abstract class Building {
+  void describe();
+}
+
+class Knight implements Warrior {
+  @override
+  void attack() => print("Knight swings sword!");
+}
+
+class Castle implements Building {
+  @override
+  void describe() => print("A medieval stone castle");
+}
+
+class Robot implements Warrior {
+  @override
+  void attack() => print("Robot fires laser!");
+}
+
+class Spaceship implements Building {
+  @override
+  void describe() => print("A futuristic spaceship base");
+}
+
+// Abstract factory → a record type of constructors
+typedef GameFactory = ({
+  Warrior Function() createWarrior,
+  Building Function() createBuilding,
+});
+
+// Concrete factories → const presets of constructor tear-offs
+const GameFactory medieval = (createWarrior: Knight.new, createBuilding: Castle.new);
+const GameFactory sciFi = (createWarrior: Robot.new, createBuilding: Spaceship.new);
+
+void playGame(GameFactory factory) {
+  final warrior = factory.createWarrior();
+  final building = factory.createBuilding();
+
+  warrior.attack();
+  building.describe();
+}
+
+// --- Usage ---
+void main() {
+  // Products are still guaranteed to match: each preset is one family
+  playGame(medieval);  // Knight swings sword! / A medieval stone castle
+  playGame(sciFi);     // Robot fires laser! / A futuristic spaceship base
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer a record of constructors when | Keep factory classes when |
+|---|---|
+| Each factory method only calls a constructor | Creating a product needs logic or dependencies (config, connections) per family |
+| Families are a small, known set of presets | Families are plug-ins loaded at runtime and need a named type |
+| A new theme should be a one-line addition | The factory keeps shared state across the products it creates (a seed, a cache, an ID counter) |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
