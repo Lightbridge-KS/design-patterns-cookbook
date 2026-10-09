@@ -647,6 +647,276 @@ void main() {
 
 :::
 
+## Modern Approach
+
+In this coffee shop, each decorator only **adds data**: a name to the description and a price to the cost. A beverage can therefore be an immutable **value**, and each condiment a **function** from beverage to beverage. Stacking decorators becomes folding a list of functions over a base drink. One factory replaces the decorator base class and all of its subclasses.
+
+::: {.callout-warning appearance="simple"}
+**Name clash:** Python's `@decorator` and TypeScript's `@decorator` (TC39, TS 5.0+) are *not* this pattern. They wrap a function, method, or class **once, when it is defined**. The GoF Decorator wraps an **object at runtime**, so each order can stack condiments differently. Both share the "wrap and delegate" idea, but not the timing. Dart has no decorator syntax, because its annotations are metadata only.
+:::
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟡 Simplifies** — when layers only add data, a value plus condiment functions replaces the wrapper classes. Wrapping live behavior (logging, caching, retry around a service) still uses the classic pattern.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Beverage(ABC)` with `get_description()` / `get_cost()` | `@dataclass(frozen=True) class Beverage` with two fields |
+| `class Espresso(Beverage)`, `class Latte(Beverage)` | values: `espresso = Beverage("Espresso", 2.00)` |
+| `CondimentDecorator` + `Milk` / `Sugar` / `WhippedCream` | one `condiment(name, price)` factory returning a function |
+| `WhippedCream(Sugar(Milk(Espresso())))`, read inside out | `order(espresso, milk, sugar, whipped_cream)`: `reduce` folds left to right |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IBeverage` with `GetDescription()` / `GetCost()` | `record Beverage(string Description, decimal Cost)` |
+| `class Espresso : IBeverage`, `class Latte : IBeverage` | `static readonly` values `Espresso`, `Latte` |
+| `CondimentDecorator` + `Milk` / `Sugar` / `WhippedCream` | one `Condiment(name, price)` factory returning `Func<Beverage, Beverage>` built on a `with` expression |
+| `new WhippedCream(new Sugar(new Milk(new Espresso())))` | `Order(Espresso, Milk, Sugar, WhippedCream)`: LINQ `Aggregate` folds left to right |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface Beverage` with `getDescription()` / `getCost()` | `type Beverage = Readonly<{ description: string; cost: number }>` |
+| `class Espresso`, `class Latte` | object literals `espresso`, `latte` |
+| `CondimentDecorator` + `Milk` / `Sugar` / `WhippedCream` | one `condiment(name, price)` factory returning a `Condiment` function |
+| `new WhippedCream(new Sugar(new Milk(new Espresso())))` | `order(espresso, milk, sugar, whippedCream)`: `Array.reduce` folds left to right |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Beverage` with `getDescription()` / `getCost()` | record typedef `({String description, double cost})` |
+| `class Espresso implements Beverage`, `class Latte …` | `const` record values `espresso`, `latte` |
+| `CondimentDecorator` + `Milk` / `Sugar` / `WhippedCream` | one `condiment(name, price)` factory returning a `Condiment` function |
+| `WhippedCream(Sugar(Milk(Espresso())))` | `order(espresso, [milk, sugar, whippedCream])`: `fold` runs left to right |
+
+:::
+
+**Ecosystem:** to decorate *services* rather than values, .NET apps register wrappers in DI with Scrutor's `Decorate<>()`, and Polly builds resilience pipelines (retry, timeout) as stacked decorators. In Python, `functools.wraps` (stdlib) and `tenacity` serve function-level decorators.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — frozen dataclass, closures, functools.reduce
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from functools import reduce
+
+
+# Component → an immutable value instead of an interface
+@dataclass(frozen=True)
+class Beverage:
+    description: str
+    cost: float
+
+
+# Decorator → a function from Beverage to Beverage
+type Condiment = Callable[[Beverage], Beverage]
+
+
+# One factory replaces the decorator base class and all three subclasses
+def condiment(name: str, price: float) -> Condiment:
+    def add(beverage: Beverage) -> Beverage:
+        return replace(
+            beverage,
+            description=f"{beverage.description}, {name}",
+            cost=beverage.cost + price,
+        )
+
+    return add
+
+
+espresso = Beverage("Espresso", 2.00)
+latte = Beverage("Latte", 2.50)
+milk = condiment("Milk", 0.50)
+sugar = condiment("Sugar", 0.25)
+whipped_cream = condiment("WhippedCream", 0.75)
+
+
+# Stacking decorators → folding functions over a base beverage
+def order(start: Beverage, *condiments: Condiment) -> Beverage:
+    return reduce(lambda beverage, add: add(beverage), condiments, start)
+
+
+def show(beverage: Beverage) -> None:
+    print(f"{beverage.description}: ${beverage.cost:.2f}")
+
+
+# --- Usage ---
+show(order(espresso))
+# Espresso: $2.00
+
+show(order(espresso, milk))
+# Espresso, Milk: $2.50
+
+show(order(espresso, milk, sugar, whipped_cream))  # reads left to right
+# Espresso, Milk, Sugar, WhippedCream: $3.50
+
+show(order(latte, milk, milk))  # Double milk? No problem!
+# Latte, Milk, Milk: $3.50
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — records, `with` expressions, Func<> delegates, LINQ Aggregate
+using static Cafe;
+
+// Component → an immutable record instead of an interface
+public record Beverage(string Description, decimal Cost);
+
+public static class Cafe
+{
+    public static readonly Beverage Espresso = new("Espresso", 2.00m);
+    public static readonly Beverage Latte = new("Latte", 2.50m);
+
+    // Decorator → a function from Beverage to Beverage.
+    // One factory replaces the decorator base class and all three subclasses.
+    public static Func<Beverage, Beverage> Condiment(string name, decimal price) =>
+        beverage => beverage with
+        {
+            Description = $"{beverage.Description}, {name}",
+            Cost = beverage.Cost + price,
+        };
+
+    public static readonly Func<Beverage, Beverage> Milk = Condiment("Milk", 0.50m);
+    public static readonly Func<Beverage, Beverage> Sugar = Condiment("Sugar", 0.25m);
+    public static readonly Func<Beverage, Beverage> WhippedCream = Condiment("WhippedCream", 0.75m);
+
+    // Stacking decorators → folding functions over a base beverage
+    public static Beverage Order(Beverage start, params Func<Beverage, Beverage>[] condiments) =>
+        condiments.Aggregate(start, (beverage, add) => add(beverage));
+
+    public static void Show(Beverage beverage) =>
+        Console.WriteLine($"{beverage.Description}: ${beverage.Cost:F2}");
+}
+
+// --- Usage ---
+Show(Order(Espresso));
+// Espresso: $2.00
+
+Show(Order(Espresso, Milk));
+// Espresso, Milk: $2.50
+
+Show(Order(Espresso, Milk, Sugar, WhippedCream));  // reads left to right
+// Espresso, Milk, Sugar, WhippedCream: $3.50
+
+Show(Order(Latte, Milk, Milk));  // Double milk? No problem!
+// Latte, Milk, Milk: $3.50
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — readonly object types, higher-order functions, Array.reduce
+
+// Component → an immutable value instead of an interface
+type Beverage = Readonly<{ description: string; cost: number }>;
+
+// Decorator → a function from Beverage to Beverage
+type Condiment = (beverage: Beverage) => Beverage;
+
+// One factory replaces the decorator base class and all three subclasses
+const condiment = (name: string, price: number): Condiment => (beverage) => ({
+  description: `${beverage.description}, ${name}`,
+  cost: beverage.cost + price,
+});
+
+const espresso: Beverage = { description: "Espresso", cost: 2.0 };
+const latte: Beverage = { description: "Latte", cost: 2.5 };
+const milk = condiment("Milk", 0.5);
+const sugar = condiment("Sugar", 0.25);
+const whippedCream = condiment("WhippedCream", 0.75);
+
+// Stacking decorators → folding functions over a base beverage
+const order = (start: Beverage, ...condiments: Condiment[]): Beverage =>
+  condiments.reduce((beverage, add) => add(beverage), start);
+
+const show = (beverage: Beverage): void =>
+  console.log(`${beverage.description}: $${beverage.cost.toFixed(2)}`);
+
+// --- Usage ---
+show(order(espresso));
+// Espresso: $2.00
+
+show(order(espresso, milk));
+// Espresso, Milk: $2.50
+
+show(order(espresso, milk, sugar, whippedCream));  // reads left to right
+// Espresso, Milk, Sugar, WhippedCream: $3.50
+
+show(order(latte, milk, milk));  // Double milk? No problem!
+// Latte, Milk, Milk: $3.50
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — records, typedefs, higher-order functions, Iterable.fold
+
+// Component → an immutable record instead of an interface
+typedef Beverage = ({String description, double cost});
+
+// Decorator → a function from Beverage to Beverage
+typedef Condiment = Beverage Function(Beverage beverage);
+
+// One factory replaces the decorator base class and all three subclasses
+Condiment condiment(String name, double price) => (beverage) => (
+      description: "${beverage.description}, $name",
+      cost: beverage.cost + price,
+    );
+
+const Beverage espresso = (description: "Espresso", cost: 2.00);
+const Beverage latte = (description: "Latte", cost: 2.50);
+final milk = condiment("Milk", 0.50);
+final sugar = condiment("Sugar", 0.25);
+final whippedCream = condiment("WhippedCream", 0.75);
+
+// Stacking decorators → folding functions over a base beverage
+Beverage order(Beverage start, List<Condiment> condiments) =>
+    condiments.fold(start, (beverage, add) => add(beverage));
+
+void show(Beverage beverage) =>
+    print("${beverage.description}: \$${beverage.cost.toStringAsFixed(2)}");
+
+// --- Usage ---
+void main() {
+  show(order(espresso, []));
+  // Espresso: $2.00
+
+  show(order(espresso, [milk]));
+  // Espresso, Milk: $2.50
+
+  show(order(espresso, [milk, sugar, whippedCream]));  // reads left to right
+  // Espresso, Milk, Sugar, WhippedCream: $3.50
+
+  show(order(latte, [milk, milk]));  // Double milk? No problem!
+  // Latte, Milk, Milk: $3.50
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer values + functions when | Keep decorator objects when |
+|---|---|
+| Each layer only adds data (a name, a price) | Each layer wraps live behavior: logging, caching, retry, or access checks around a service |
+| The result can be computed once | Every call must pass through each layer (the inner object can change) |
+| You want the list of layers as data, to show, save, or reorder | A layer keeps private state between calls (a cache, a counter) |
+| Layers are picked at runtime from data, like an order form | A DI container must hand out the decorated service |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
