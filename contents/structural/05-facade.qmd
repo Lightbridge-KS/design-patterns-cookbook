@@ -57,7 +57,7 @@ class Memory:
 class HardDrive:
     def read(self, sector: int, size: int) -> bytes:
         print(f"HardDrive: Reading {size} bytes from sector {sector}")
-        return b"boot_data"
+        return bytes(size)
 
 # Client must coordinate everything manually
 BOOT_ADDRESS = 0x0000
@@ -333,7 +333,7 @@ class Memory:
 class HardDrive:
     def read(self, sector: int, size: int) -> bytes:
         print(f"HardDrive: Reading {size} bytes from sector {sector}")
-        return b"boot_data"
+        return bytes(size)
 
 # Facade
 class Computer:
@@ -525,7 +525,7 @@ computer.start()
 # Computer: Starting...
 # CPU: Freezing processor
 # HardDrive: Reading 512 bytes from sector 0
-# Memory: Loading 9 bytes at address 0
+# Memory: Loading 512 bytes at address 0
 # CPU: Jumping to address 0
 # CPU: Executing instructions
 # Computer: Ready!
