@@ -177,3 +177,6 @@ cython_debug/
 #.idea/
 
 **/*.quarto_ipynb
+
+# Playground (scratch, never committed)
+_playground/
