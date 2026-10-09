@@ -86,3 +86,79 @@ Define **how objects interact** and distribute responsibilities.
 | **Strategy** | Define interchangeable algorithms |
 | **Template Method** | Define algorithm skeleton, defer steps to subclasses |
 | **Visitor** | Add operations without modifying classes |
+
+## Patterns vs Language Features
+
+The GoF catalog was written in 1994, for C++ and Smalltalk. Since then, mainstream languages have absorbed many of its patterns into ordinary features: first-class functions, generators, records, pattern matching, and built-in events. Peter Norvig noticed the trend early: in his 1996 talk [*Design Patterns in Dynamic Languages*](https://norvig.com/design-patterns/), 16 of the 23 patterns became simpler or disappeared in Lisp and Dylan.
+
+So every pattern chapter in this book ends with a **Modern Approach** section. It rewrites the same example with today's Python, C#, TypeScript, and Dart, and gives one of three verdicts:
+
+| Verdict | Meaning | Count |
+|---|---|---|
+| 🟢 **Replaces** | A language feature *is* the pattern, and the classes disappear | 7 |
+| 🟡 **Simplifies** | Features remove most of the classes, but the design idea remains | 13 |
+| ⚪ **Still the idiom** | Nothing replaces it; modern syntax only trims the boilerplate | 2 |
+
+A handful of feature families do most of the work:
+
+```{mermaid}
+flowchart LR
+    FN["First-class functions<br/>& closures"]
+    VAL["Immutable values<br/>& non-destructive copies"]
+    PM["Pattern matching<br/>over closed types"]
+    EV["Built-in events<br/>& streams"]
+    GEN["Generators"]
+    MOD["Modules"]
+    MEMO["Memoization"]
+    DYN["Dynamic proxies"]
+
+    FN --> Strategy & Command & CoR["Chain of Responsibility"] & TM["Template Method"] & Adapter & Decorator & FM["Factory Method"] & AF["Abstract Factory"]
+    VAL --> Builder & Prototype & Memento
+    PM --> Visitor & Composite & State
+    EV --> Observer & Mediator
+    GEN --> Iterator
+    MOD --> Singleton & Facade
+    MEMO --> Flyweight
+    DYN --> Proxy
+```
+
+Only **Bridge** has no feature behind it. Holding an interface reference and delegating to it *is* composition, which is already the modern idiom.
+
+### Creational
+
+| Pattern | Verdict | Python | C# | TypeScript | Dart |
+|---|---|---|---|---|---|
+| [Factory Method](../creational/01-factory-method.qmd#modern-approach) | 🟡 | classes as callables, dict registry | `Func<T>` | registry checked with `satisfies` | tear-offs (`Truck.new`) |
+| [Abstract Factory](../creational/02-abstract-factory.qmd#modern-approach) | 🟡 | frozen dataclass of callables | record of `Func<>`s | object literal + `satisfies` | record of tear-offs |
+| [Builder](../creational/03-builder.qmd#modern-approach) | 🟡 | `@dataclass(kw_only=True)` + `replace()` | `required` / `init` + `with` | readonly object + spread | named params + `copyWith()` |
+| [Prototype](../creational/04-prototype.qmd#modern-approach) | 🟢 | `copy.replace()` | `record` + `with` | object spread | `copyWith()` |
+| [Singleton](../creational/05-singleton.qmd#modern-approach) | 🟢 | `@functools.cache` / module instance | static get-only property | ES module export | top-level `final` |
+
+### Structural
+
+| Pattern | Verdict | Python | C# | TypeScript | Dart |
+|---|---|---|---|---|---|
+| [Adapter](../structural/01-adapter.qmd#modern-approach) | 🟡 | bound methods as callables | method groups as `Action<>` | arrow functions | method tear-offs |
+| [Bridge](../structural/02-bridge.qmd#modern-approach) | ⚪ | `typing.Protocol` | primary constructors, `field` | object-literal devices | `interface` class modifier |
+| [Composite](../structural/03-composite.qmd#modern-approach) | 🟡 | dataclass tree + `match` | records + switch expressions | discriminated unions | `sealed` + switch |
+| [Decorator](../structural/04-decorator.qmd#modern-approach) | 🟡 | closures + `reduce` | `Func<>` + `Aggregate` | higher-order functions + `reduce` | records + `fold` |
+| [Facade](../structural/05-facade.qmd#modern-approach) | ⚪ | `_` prefix, `__all__` | `file`-local types | unexported names | `_` library privacy |
+| [Flyweight](../structural/06-flyweight.qmd#modern-approach) | 🟡 | `@functools.cache` | `ConcurrentDictionary.GetOrAdd` | `Map` cache | `const` constructors |
+| [Proxy](../structural/07-proxy.qmd#modern-approach) | 🟡 | `__getattr__` | `DispatchProxy` | built-in `Proxy` | unchanged (hand-written) |
+
+### Behavioral
+
+| Pattern | Verdict | Python | C# | TypeScript | Dart |
+|---|---|---|---|---|---|
+| [Chain of Responsibility](../behavioral/01-chain-of-responsibility.qmd#modern-approach) | 🟢 | middleware functions + `reduce` | delegates + `Aggregate` | middleware functions + `reduceRight` | middleware functions + `fold` |
+| [Command](../behavioral/02-command.qmd#modern-approach) | 🟡 | `NamedTuple` of closures | record of delegates | object literal of closures | record of closures |
+| [Iterator](../behavioral/03-iterator.qmd#modern-approach) | 🟢 | generators (`yield`) | `yield return` | `function*` + iterator helpers | `sync*` |
+| [Mediator](../behavioral/04-mediator.qmd#modern-approach) | 🟡 | dict of callbacks | multicast delegates | `EventTarget` | `StreamController.broadcast` |
+| [Memento](../behavioral/05-memento.qmd#modern-approach) | 🟡 | frozen dataclass + `replace()` | `record` + `with` | readonly object + spread | `copyWith()` |
+| [Observer](../behavioral/06-observer.qmd#modern-approach) | 🟢 | list of callbacks | `event` | `EventTarget` + `AbortController` | broadcast `Stream` |
+| [State](../behavioral/07-state.qmd#modern-approach) | 🟡 | `Enum` + transition dict | enum + tuple-pattern switch | literal unions + `Record` | enhanced enum + record switch |
+| [Strategy](../behavioral/08-strategy.qmd#modern-approach) | 🟢 | closures | `Func<>` | function types | function typedefs |
+| [Template Method](../behavioral/09-template-method.qmd#modern-approach) | 🟡 | functions + default arguments | `Action` + optional parameters | function-typed properties | records of closures |
+| [Visitor](../behavioral/10-visitor.qmd#modern-approach) | 🟢 | `match` + `assert_never` | switch expressions | unions + `never` check | `sealed` + exhaustive switch |
+
+The pattern names stay useful even when the code shrinks to a function. "Pass a strategy" or "add a middleware" still tells a reader what the code is for.
