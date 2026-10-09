@@ -639,6 +639,290 @@ void main() {
 
 :::
 
+## Modern Approach
+
+The classic solution hand-writes `clone()` in every class. Modern languages generate it. Python dataclasses support `copy.replace()`, C# records support `with`, and TypeScript copies plain data with object spread. Each of these copies and modifies in one expression. Because the shapes become immutable values, a copy can never accidentally share changes with its original.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟢 Replaces** — the language writes the clone for you, and immutable values make copy-and-modify safe. Dart is the exception: its `copyWith` is a convention you write yourself or generate.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Shape(ABC)` with abstract `clone()` | `@dataclass(frozen=True, kw_only=True) class Shape`: nothing abstract left |
+| `clone()` in every subclass via `copy.deepcopy(self)` | `copy.replace(shape, **changes)` (3.13), supported by every dataclass |
+| Clone, then mutate: `circle_copy.x = 100` | Copy and modify in one call: `copy.replace(circle, x=100)` |
+| Deep copy of nested mutable state | `copy.deepcopy()` (unchanged) |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Shape : ICloneable` with `Clone()` | `abstract record Shape`: the compiler writes the clone |
+| `(Circle)MemberwiseClone()` in each subclass | `circle with { X = 100, Color = "green" }` |
+| Cast after cloning: `(Circle)circle.Clone()` | No cast: `with` keeps the static type, and keeps the runtime type through a `Shape` reference |
+| Mutable `{ get; set; }` properties | `{ get; init; }`: a copy can't be changed afterwards |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Shape` with abstract `clone()` | `Circle` / `Rectangle` as plain data types with a `kind` tag |
+| `new Circle(this.x, …)` inside each `clone()` | Object spread: `{ ...circle, x: 100 }` |
+| `toString()` on each class | A `describe(shape)` function over the union |
+| Deep copy of nested data | `structuredClone()`, which returns plain objects: class instances lose their methods |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `Shape clone()` | `Shape copyWith({int? x, int? y, String? color})` |
+| `Circle._clone(...)` private constructor | Not needed: `copyWith` calls the public `const` constructor |
+| Clone, then mutate: `circleCopy.x = 100` | `circle.copyWith(x: 100, color: "green")` on immutable values |
+| Hand-written `clone()` per class | Hand-written `copyWith()` here; `freezed` generates it |
+
+:::
+
+**Ecosystem:** in Dart, `freezed` generates `copyWith`, `==`, and `toString`. In TypeScript, Immer (`produce`) copies nested state while sharing unchanged parts. In Python, Pydantic models offer `model_copy(update=…)`.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.13+ — frozen dataclasses + copy.replace()
+import copy
+from dataclasses import dataclass
+
+
+# Prototype → an immutable dataclass: no clone() to write
+@dataclass(frozen=True, kw_only=True)
+class Shape:
+    x: int = 0
+    y: int = 0
+    color: str = "white"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Circle(Shape):
+    radius: int = 0
+
+    def __str__(self) -> str:
+        return f"Circle(x={self.x}, y={self.y}, radius={self.radius}, color={self.color})"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Rectangle(Shape):
+    width: int = 0
+    height: int = 0
+
+    def __str__(self) -> str:
+        return f"Rectangle(x={self.x}, y={self.y}, {self.width}x{self.height}, color={self.color})"
+
+
+# --- Usage ---
+circle = Circle(x=10, y=20, color="red", radius=50)
+rectangle = Rectangle(x=0, y=0, color="blue", width=100, height=50)
+
+# Clone and modify in one step; the original is untouched
+circle_copy = copy.replace(circle, x=100, color="green")
+print(f"Original: {circle}")  # Original: Circle(x=10, y=20, radius=50, color=red)
+print(f"Copy: {circle_copy}")  # Copy: Circle(x=100, y=20, radius=50, color=green)
+
+# Clone without knowing the concrete type: copy.replace() keeps it
+shapes: list[Shape] = [circle, rectangle]
+for shape in shapes:
+    print(copy.replace(shape, color="black"))
+# Circle(x=10, y=20, radius=50, color=black)
+# Rectangle(x=0, y=0, 100x50, color=black)
+```
+
+#### `C#`
+
+```csharp
+// C# 9+ / .NET 5+ — records + `with` expressions
+
+// Prototype → an immutable record: the compiler writes the clone
+public abstract record Shape
+{
+    public int X { get; init; }
+    public int Y { get; init; }
+    public string Color { get; init; } = "white";
+}
+
+public record Circle : Shape
+{
+    public int Radius { get; init; }
+
+    public override string ToString() => $"Circle(x={X}, y={Y}, radius={Radius}, color={Color})";
+}
+
+public record Rectangle : Shape
+{
+    public int Width { get; init; }
+    public int Height { get; init; }
+
+    public override string ToString() => $"Rectangle(x={X}, y={Y}, {Width}x{Height}, color={Color})";
+}
+
+// --- Usage ---
+var circle = new Circle { X = 10, Y = 20, Color = "red", Radius = 50 };
+var rectangle = new Rectangle { X = 0, Y = 0, Color = "blue", Width = 100, Height = 50 };
+
+// Clone and modify in one step; the original is untouched
+var circleCopy = circle with { X = 100, Color = "green" };
+Console.WriteLine($"Original: {circle}");  // Original: Circle(x=10, y=20, radius=50, color=red)
+Console.WriteLine($"Copy: {circleCopy}");  // Copy: Circle(x=100, y=20, radius=50, color=green)
+
+// Clone without knowing the concrete type: `with` keeps the runtime type
+List<Shape> shapes = [circle, rectangle];
+foreach (var shape in shapes)
+    Console.WriteLine(shape with { Color = "black" });
+// Circle(x=10, y=20, radius=50, color=black)
+// Rectangle(x=0, y=0, 100x50, color=black)
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — plain data types + object spread
+
+// Prototype → plain immutable data; a tagged union replaces the class hierarchy
+type Circle = {
+  readonly kind: "circle";
+  readonly x: number;
+  readonly y: number;
+  readonly color: string;
+  readonly radius: number;
+};
+
+type Rectangle = {
+  readonly kind: "rectangle";
+  readonly x: number;
+  readonly y: number;
+  readonly color: string;
+  readonly width: number;
+  readonly height: number;
+};
+
+type Shape = Circle | Rectangle;
+
+const describe = (s: Shape): string =>
+  s.kind === "circle"
+    ? `Circle(x=${s.x}, y=${s.y}, radius=${s.radius}, color=${s.color})`
+    : `Rectangle(x=${s.x}, y=${s.y}, ${s.width}x${s.height}, color=${s.color})`;
+
+// --- Usage ---
+const circle: Circle = { kind: "circle", x: 10, y: 20, color: "red", radius: 50 };
+const rectangle: Rectangle = { kind: "rectangle", x: 0, y: 0, color: "blue", width: 100, height: 50 };
+
+// Clone and modify in one step; the original is untouched
+const circleCopy: Circle = { ...circle, x: 100, color: "green" };
+console.log(`Original: ${describe(circle)}`);  // Original: Circle(x=10, y=20, radius=50, color=red)
+console.log(`Copy: ${describe(circleCopy)}`);  // Copy: Circle(x=100, y=20, radius=50, color=green)
+
+// Clone without knowing the concrete type: spread keeps the `kind` tag
+const shapes: Shape[] = [circle, rectangle];
+for (const shape of shapes) {
+  console.log(describe({ ...shape, color: "black" }));
+}
+// Circle(x=10, y=20, radius=50, color=black)
+// Rectangle(x=0, y=0, 100x50, color=black)
+
+// Spread is shallow. structuredClone() copies nested data deeply, but it returns
+// plain objects: a class instance comes back without its prototype or methods.
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — immutable classes, const constructors, copyWith
+
+// Prototype → immutable values; copyWith is clone-and-modify in one call
+abstract class Shape {
+  final int x;
+  final int y;
+  final String color;
+
+  const Shape({this.x = 0, this.y = 0, this.color = "white"});
+
+  // Callers can copy any Shape without knowing its concrete type
+  Shape copyWith({int? x, int? y, String? color});
+}
+
+class Circle extends Shape {
+  final int radius;
+
+  const Circle({super.x, super.y, super.color, this.radius = 0});
+
+  // Hand-written here; `freezed` generates it in real projects
+  @override
+  Circle copyWith({int? x, int? y, String? color, int? radius}) => Circle(
+        x: x ?? this.x,
+        y: y ?? this.y,
+        color: color ?? this.color,
+        radius: radius ?? this.radius,
+      );
+
+  @override
+  String toString() => "Circle(x=$x, y=$y, radius=$radius, color=$color)";
+}
+
+class Rectangle extends Shape {
+  final int width;
+  final int height;
+
+  const Rectangle({super.x, super.y, super.color, this.width = 0, this.height = 0});
+
+  @override
+  Rectangle copyWith({int? x, int? y, String? color, int? width, int? height}) => Rectangle(
+        x: x ?? this.x,
+        y: y ?? this.y,
+        color: color ?? this.color,
+        width: width ?? this.width,
+        height: height ?? this.height,
+      );
+
+  @override
+  String toString() => "Rectangle(x=$x, y=$y, ${width}x$height, color=$color)";
+}
+
+// --- Usage ---
+void main() {
+  const circle = Circle(x: 10, y: 20, color: "red", radius: 50);
+  const rectangle = Rectangle(x: 0, y: 0, color: "blue", width: 100, height: 50);
+
+  // Clone and modify in one step; the original is untouched
+  final circleCopy = circle.copyWith(x: 100, color: "green");
+  print("Original: $circle");  // Original: Circle(x=10, y=20, radius=50, color=red)
+  print("Copy: $circleCopy");  // Copy: Circle(x=100, y=20, radius=50, color=green)
+
+  // Clone without knowing the concrete type: the override keeps it
+  final shapes = <Shape>[circle, rectangle];
+  for (final shape in shapes) {
+    print(shape.copyWith(color: "black"));
+  }
+  // Circle(x=10, y=20, radius=50, color=black)
+  // Rectangle(x=0, y=0, 100x50, color=black)
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer built-in copies when | Keep a hand-written `clone()` when |
+|---|---|
+| Objects are values that you replace rather than mutate | The copy needs custom rules: a fresh ID, reset counters, shared vs. copied resources |
+| You want to clone and modify in one expression | The object owns handles (files, sockets, locks) that must not be duplicated |
+| Types are already records, dataclasses, or plain data | The object is a mutable entity whose identity matters, such as one that must register itself on creation |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
