@@ -892,6 +892,392 @@ weatherData.setMeasurements(22.0, 90.0, 1005.0);
 
 :::
 
+## Modern Approach
+
+Observer is built into three of the four platforms: C# has `event`, Dart has `Stream`, and JavaScript has `EventTarget`. Python needs nothing more than a list of callables. Each platform keeps the observer list for you, and any function can be an observer: a lambda, or a method of a small stateful class. Unsubscribing hands back a handle (`-=`, `cancel()`, an unsubscribe function). Use it, because a live subscription keeps the observer alive.
+
+::: {.callout-note appearance="simple"}
+**Verdict: 🟢 Replaces** — C# events, Dart streams, and `EventTarget` are the Observer pattern built into the platform, and in Python a list of callables is enough.
+:::
+
+### Feature Map
+
+::: {.panel-tabset}
+#### `Python`
+
+| Classic | Modern |
+|---|---|
+| `class Observer(ABC)` with `update(temperature, humidity, pressure)` | `type Listener = Callable[[Measurement], None]` |
+| Three loose `update()` parameters | one frozen `Measurement` dataclass |
+| `CurrentConditionsDisplay` class | a lambda |
+| `StatisticsDisplay` / `ForecastDisplay` implementing `Observer` | plain classes; subscribe the bound method `stats.update` |
+| `attach()` / `detach()` | `subscribe()` returns an unsubscribe function |
+| `notify()` loop | unchanged: a loop over callables |
+
+#### `C#`
+
+| Classic | Modern |
+|---|---|
+| `interface IObserver` with `Update(…)` | `Action<Measurement>` delegate |
+| `List<IObserver>` + `Attach()` / `Detach()` / `Notify()` | `event Action<Measurement>?`: the compiler generates the list, `+=`, and `-=` |
+| Three loose `float` parameters | `record Measurement(…)` |
+| `CurrentConditionsDisplay` class | a lambda |
+| Displays implementing `IObserver` | plain classes; subscribe the method group `forecast.Update` |
+
+#### `TypeScript`
+
+| Classic | Modern |
+|---|---|
+| `interface Observer` with `update(…)` | `type Listener = (m: Measurement) => void` |
+| `observers` array + `attach()` / `notify()` | built-in `EventTarget`: `addEventListener()` / `dispatchEvent()` |
+| `detach()` with `indexOf` + `splice` | `subscribe()` returns `() => controller.abort()` (an `AbortController` signal removes the listener) |
+| Three loose `number` parameters | a `Measurement` object carried in `CustomEvent.detail` |
+| `CurrentConditionsDisplay` class | a lambda |
+| Displays implementing `Observer` | plain classes with arrow-function fields, so `stats.update` keeps `this` |
+
+#### `Dart`
+
+| Classic | Modern |
+|---|---|
+| `abstract class Observer` with `update(…)` | `void Function(Measurement)`: any function or tear-off |
+| `_observers` list + `attach()` / `notify()` | `StreamController<Measurement>.broadcast()` (`dart:async`) |
+| `detach(observer)` | `listen()` returns a `StreamSubscription`; call `cancel()` |
+| Three loose `double` parameters | a record `({double temperature, double humidity, double pressure})` |
+| `CurrentConditionsDisplay` class | a lambda |
+| Displays implementing `Observer` | plain classes; subscribe the tear-off `stats.update` |
+
+:::
+
+**Ecosystem:** Rx libraries (Rx.NET, RxJS, RxPY) add operators such as filter, debounce, and combine on top of the same idea. UI frameworks have their own flavors: signals in Angular, Preact, and Solid, Flutter's `ChangeNotifier` / `ValueNotifier`, and .NET's `INotifyPropertyChanged` with CommunityToolkit's `[ObservableProperty]`. Python's `blinker` provides named signals.
+
+### Modern Code
+
+::: {.panel-tabset}
+#### `Python`
+
+```python
+# Python 3.12+ — callables as observers; subscribe() returns an unsubscribe function
+from collections.abc import Callable
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Measurement:
+    temperature: float
+    humidity: float
+    pressure: float
+
+
+type Listener = Callable[[Measurement], None]
+
+
+# Subject → a list of callables: no Observer interface
+class WeatherData:
+    def __init__(self) -> None:
+        self._listeners: list[Listener] = []
+
+    def subscribe(self, listener: Listener) -> Callable[[], None]:
+        self._listeners.append(listener)
+        return lambda: self._listeners.remove(listener)  # the "detach" handle
+
+    def set_measurements(self, m: Measurement) -> None:
+        for listener in self._listeners:
+            listener(m)
+
+
+# Stateful observers → plain classes; their bound methods are the callables
+class StatisticsDisplay:
+    def __init__(self) -> None:
+        self._temperatures: list[float] = []
+
+    def update(self, m: Measurement) -> None:
+        self._temperatures.append(m.temperature)
+        t = self._temperatures
+        print(f"Avg/Max/Min: {sum(t) / len(t):.1f}/{max(t):.1f}/{min(t):.1f}")
+
+
+class ForecastDisplay:
+    def __init__(self) -> None:
+        self._last_pressure = 0.0
+
+    def update(self, m: Measurement) -> None:
+        if m.pressure > self._last_pressure:
+            print("Forecast: Improving weather!")
+        elif m.pressure < self._last_pressure:
+            print("Forecast: Cooler, rainy weather")
+        else:
+            print("Forecast: Same weather")
+        self._last_pressure = m.pressure
+
+
+# --- Usage ---
+weather_data = WeatherData()
+
+# A stateless observer is just a lambda
+weather_data.subscribe(
+    lambda m: print(f"Current: {m.temperature:.1f}°C and {m.humidity:.1f}% humidity")
+)
+weather_data.subscribe(StatisticsDisplay().update)
+stop_forecast = weather_data.subscribe(ForecastDisplay().update)
+
+print("=== Weather Update 1 ===")
+weather_data.set_measurements(Measurement(25.0, 65.0, 1013.0))
+# Current: 25.0°C and 65.0% humidity
+# Avg/Max/Min: 25.0/25.0/25.0
+# Forecast: Improving weather!
+
+print("\n=== Weather Update 2 ===")
+weather_data.set_measurements(Measurement(28.0, 70.0, 1010.0))
+# Current: 28.0°C and 70.0% humidity
+# Avg/Max/Min: 26.5/28.0/25.0
+# Forecast: Cooler, rainy weather
+
+stop_forecast()  # detach at runtime
+print("\n=== Weather Update 3 (forecast removed) ===")
+weather_data.set_measurements(Measurement(22.0, 90.0, 1005.0))
+# Current: 22.0°C and 90.0% humidity
+# Avg/Max/Min: 25.0/28.0/22.0
+```
+
+#### `C#`
+
+```csharp
+// C# 12 / .NET 8+ — `event` + Action<T> (the language-level observer), records
+public record Measurement(float Temperature, float Humidity, float Pressure);
+
+// Subject → a C# event: the compiler generates the observer list, += and -=
+public class WeatherData
+{
+    public event Action<Measurement>? MeasurementsChanged;
+
+    public void SetMeasurements(Measurement m) => MeasurementsChanged?.Invoke(m);
+}
+
+// Stateful observers → plain classes; their methods are the delegates
+public class StatisticsDisplay
+{
+    private readonly List<float> _temperatures = [];
+
+    public void Update(Measurement m)
+    {
+        _temperatures.Add(m.Temperature);
+        var t = _temperatures;
+        Console.WriteLine($"Avg/Max/Min: {t.Average():F1}/{t.Max():F1}/{t.Min():F1}");
+    }
+}
+
+public class ForecastDisplay
+{
+    private float _lastPressure;
+
+    public void Update(Measurement m)
+    {
+        if (m.Pressure > _lastPressure)
+            Console.WriteLine("Forecast: Improving weather!");
+        else if (m.Pressure < _lastPressure)
+            Console.WriteLine("Forecast: Cooler, rainy weather");
+        else
+            Console.WriteLine("Forecast: Same weather");
+        _lastPressure = m.Pressure;
+    }
+}
+
+// --- Usage ---
+var weatherData = new WeatherData();
+var forecast = new ForecastDisplay();
+
+// A stateless observer is just a lambda
+weatherData.MeasurementsChanged += m =>
+    Console.WriteLine($"Current: {m.Temperature:F1}°C and {m.Humidity:F1}% humidity");
+weatherData.MeasurementsChanged += new StatisticsDisplay().Update;
+weatherData.MeasurementsChanged += forecast.Update;
+
+Console.WriteLine("=== Weather Update 1 ===");
+weatherData.SetMeasurements(new Measurement(25.0f, 65.0f, 1013.0f));
+// Current: 25.0°C and 65.0% humidity
+// Avg/Max/Min: 25.0/25.0/25.0
+// Forecast: Improving weather!
+
+Console.WriteLine("\n=== Weather Update 2 ===");
+weatherData.SetMeasurements(new Measurement(28.0f, 70.0f, 1010.0f));
+// Current: 28.0°C and 70.0% humidity
+// Avg/Max/Min: 26.5/28.0/25.0
+// Forecast: Cooler, rainy weather
+
+weatherData.MeasurementsChanged -= forecast.Update;  // detach at runtime
+Console.WriteLine("\n=== Weather Update 3 (forecast removed) ===");
+weatherData.SetMeasurements(new Measurement(22.0f, 90.0f, 1005.0f));
+// Current: 22.0°C and 90.0% humidity
+// Avg/Max/Min: 25.0/28.0/22.0
+```
+
+#### `TypeScript`
+
+```typescript
+// TypeScript 5.x — built-in EventTarget + CustomEvent, AbortController to unsubscribe
+type Measurement = Readonly<{ temperature: number; humidity: number; pressure: number }>;
+type Listener = (m: Measurement) => void;
+
+// Subject → the built-in EventTarget keeps the listener list
+class WeatherData extends EventTarget {
+  subscribe(listener: Listener): () => void {
+    const controller = new AbortController();
+    this.addEventListener(
+      "measurements",
+      (e) => listener((e as CustomEvent<Measurement>).detail),
+      { signal: controller.signal },
+    );
+    return () => controller.abort();  // the "detach" handle
+  }
+
+  setMeasurements(m: Measurement): void {
+    this.dispatchEvent(new CustomEvent("measurements", { detail: m }));
+  }
+}
+
+// Stateful observers → plain classes; arrow-function fields keep `this` when passed around
+class StatisticsDisplay {
+  private temperatures: number[] = [];
+
+  update = (m: Measurement): void => {
+    this.temperatures.push(m.temperature);
+    const t = this.temperatures;
+    const avg = t.reduce((a, b) => a + b) / t.length;
+    console.log(`Avg/Max/Min: ${avg.toFixed(1)}/${Math.max(...t).toFixed(1)}/${Math.min(...t).toFixed(1)}`);
+  };
+}
+
+class ForecastDisplay {
+  private lastPressure = 0;
+
+  update = (m: Measurement): void => {
+    if (m.pressure > this.lastPressure) {
+      console.log("Forecast: Improving weather!");
+    } else if (m.pressure < this.lastPressure) {
+      console.log("Forecast: Cooler, rainy weather");
+    } else {
+      console.log("Forecast: Same weather");
+    }
+    this.lastPressure = m.pressure;
+  };
+}
+
+// --- Usage ---
+const weatherData = new WeatherData();
+
+// A stateless observer is just a lambda
+weatherData.subscribe((m) =>
+  console.log(`Current: ${m.temperature.toFixed(1)}°C and ${m.humidity.toFixed(1)}% humidity`),
+);
+weatherData.subscribe(new StatisticsDisplay().update);
+const stopForecast = weatherData.subscribe(new ForecastDisplay().update);
+
+console.log("=== Weather Update 1 ===");
+weatherData.setMeasurements({ temperature: 25.0, humidity: 65.0, pressure: 1013.0 });
+// Current: 25.0°C and 65.0% humidity
+// Avg/Max/Min: 25.0/25.0/25.0
+// Forecast: Improving weather!
+
+console.log("\n=== Weather Update 2 ===");
+weatherData.setMeasurements({ temperature: 28.0, humidity: 70.0, pressure: 1010.0 });
+// Current: 28.0°C and 70.0% humidity
+// Avg/Max/Min: 26.5/28.0/25.0
+// Forecast: Cooler, rainy weather
+
+stopForecast();  // detach at runtime
+console.log("\n=== Weather Update 3 (forecast removed) ===");
+weatherData.setMeasurements({ temperature: 22.0, humidity: 90.0, pressure: 1005.0 });
+// Current: 22.0°C and 90.0% humidity
+// Avg/Max/Min: 25.0/28.0/22.0
+```
+
+#### `Dart`
+
+```dart
+// Dart 3.x — Stream + StreamController.broadcast (dart:async), records
+import 'dart:async';
+
+typedef Measurement = ({double temperature, double humidity, double pressure});
+
+// Subject → a broadcast stream keeps the listener list
+class WeatherData {
+  // sync: true delivers each event right away, inside setMeasurements()
+  final _controller = StreamController<Measurement>.broadcast(sync: true);
+
+  Stream<Measurement> get measurements => _controller.stream;
+
+  void setMeasurements(Measurement m) => _controller.add(m);
+}
+
+// Stateful observers → plain classes; their tear-offs are the listeners
+class StatisticsDisplay {
+  final _temperatures = <double>[];
+
+  void update(Measurement m) {
+    _temperatures.add(m.temperature);
+    final t = _temperatures;
+    final avg = t.reduce((a, b) => a + b) / t.length;
+    final max = t.reduce((a, b) => a > b ? a : b);
+    final min = t.reduce((a, b) => a < b ? a : b);
+    print("Avg/Max/Min: ${avg.toStringAsFixed(1)}/${max.toStringAsFixed(1)}/${min.toStringAsFixed(1)}");
+  }
+}
+
+class ForecastDisplay {
+  double _lastPressure = 0;
+
+  void update(Measurement m) {
+    if (m.pressure > _lastPressure) {
+      print("Forecast: Improving weather!");
+    } else if (m.pressure < _lastPressure) {
+      print("Forecast: Cooler, rainy weather");
+    } else {
+      print("Forecast: Same weather");
+    }
+    _lastPressure = m.pressure;
+  }
+}
+
+// --- Usage ---
+void main() {
+  final weatherData = WeatherData();
+
+  // A stateless observer is just a lambda
+  weatherData.measurements.listen((m) => print(
+      "Current: ${m.temperature.toStringAsFixed(1)}°C and ${m.humidity.toStringAsFixed(1)}% humidity"));
+  weatherData.measurements.listen(StatisticsDisplay().update);
+  final forecast = weatherData.measurements.listen(ForecastDisplay().update);
+
+  print("=== Weather Update 1 ===");
+  weatherData.setMeasurements((temperature: 25.0, humidity: 65.0, pressure: 1013.0));
+  // Current: 25.0°C and 65.0% humidity
+  // Avg/Max/Min: 25.0/25.0/25.0
+  // Forecast: Improving weather!
+
+  print("\n=== Weather Update 2 ===");
+  weatherData.setMeasurements((temperature: 28.0, humidity: 70.0, pressure: 1010.0));
+  // Current: 28.0°C and 70.0% humidity
+  // Avg/Max/Min: 26.5/28.0/25.0
+  // Forecast: Cooler, rainy weather
+
+  forecast.cancel();  // detach at runtime
+  print("\n=== Weather Update 3 (forecast removed) ===");
+  weatherData.setMeasurements((temperature: 22.0, humidity: 90.0, pressure: 1005.0));
+  // Current: 22.0°C and 90.0% humidity
+  // Avg/Max/Min: 25.0/28.0/22.0
+}
+```
+
+:::
+
+### Classic or Modern?
+
+| Prefer built-in events and callbacks when | Keep an Observer interface when |
+|---|---|
+| Each observer reacts with a single operation | Observers handle several kinds of notification (`on_reading`, `on_alert`, `on_offline`) as one contract |
+| Subscriptions are added and removed ad hoc | Observers are long-lived components you want to register, list, and inspect by type |
+| You want stream operators (filter, debounce, combine) from Rx or Dart streams | You need explicit control over delivery: ordering, error isolation between observers, or weak references |
+
 ## Summary
 
 ::: {.callout-tip appearance="simple" collapse="false"}
