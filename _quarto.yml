@@ -91,6 +91,9 @@ book:
       chapters: 
         - text: Port & Adapter
           href: "contents/hexagonal/port-adapter-explained.qmd"
+filters:
+  - diagram-zoom
+
 format:
   html:
     theme:
