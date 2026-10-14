@@ -1,0 +1,133 @@
+---
+title: "Boolean soup"
+---
+
+**Boolean soup** is a code smell where a piece of state or behavior is controlled by several independent boolean flags. The flags combine into a large number of possible states, but only a few of those states are valid. Every reader and every `if` statement then has to work out which combinations are real.
+
+It shows up in two main forms.
+
+## 1. State soup: flags describing *what something is*
+
+```python
+class FetchState:
+    def __init__(self):
+        self.is_loading = False
+        self.has_error  = False
+        self.has_data   = False
+```
+
+Three booleans give you 2³ = 8 possible states, but your domain only has 4:
+
+```
+ is_loading  has_error  has_data   Meaning?
+ ─────────────────────────────────────────────────
+   False       False     False     Idle            ✅
+   True        False     False     Loading         ✅
+   False       True      False     Failed          ✅
+   False       False     True      Success         ✅
+   True        True      False     ??? loading AND failed     ❌
+   True        False     True      ??? loading AND done       ❌
+   False       True      True      ??? failed AND succeeded   ❌
+   True        True      True      ??? everything at once     ❌
+
+          4 legal states  vs  8 representable states
+          → half of your state space is a bug waiting to happen
+```
+
+Nothing in the type stops you from reaching an invalid row. The only protection is discipline, for example remembering to reset `has_error = False` when you set `has_data = True`. Each new flag doubles the state space, so the soup gets thicker over time.
+
+**The fix is to model the states explicitly so invalid ones can't be represented.**
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Idle: pass
+
+@dataclass(frozen=True)
+class Loading: pass
+
+@dataclass(frozen=True)
+class Failed:
+    message: str
+
+@dataclass(frozen=True)
+class Success:
+    data: dict
+
+FetchState = Idle | Loading | Failed | Success   # exactly 4 states, no more
+
+def render(state: FetchState) -> str:
+    match state:
+        case Idle():          return "Press fetch"
+        case Loading():       return "Spinner..."
+        case Failed(msg):     return f"Error: {msg}"
+        case Success(data):   return f"Got {len(data)} items"
+```
+
+Since you write Dart, its `sealed` classes do this even better, because the compiler checks that your `switch` covers every case:
+
+```dart
+sealed class FetchState {}
+class Idle    extends FetchState {}
+class Loading extends FetchState {}
+class Failed  extends FetchState { final String message; Failed(this.message); }
+class Success extends FetchState { final Map data; Success(this.data); }
+
+String render(FetchState s) => switch (s) {
+  Idle()          => 'Press fetch',
+  Loading()       => 'Spinner...',
+  Failed(:final message) => 'Error: $message',
+  Success(:final data)   => 'Got ${data.length} items',
+};  // forget a case → compile error
+```
+
+The data is also attached to the state it belongs to. `message` exists only in `Failed`, and `data` exists only in `Success`, so you can't read data from a failed request by accident.
+
+## 2. Argument soup: flags describing *how to behave*
+
+```python
+export_report(patient, True, False, True)   # ...what?
+```
+
+At the call site the booleans tell you nothing, which is sometimes called *boolean blindness*. Inside the function, each flag adds another branch:
+
+```
+export_report(p, as_pdf, anonymize, include_images)
+        │
+        ├─ if as_pdf ─────────┬─ if anonymize ──┬─ if include_images ...
+        └─ else ──────────────┴─ else ──────────┴─ ...
+                 → 8 code paths hidden in one function
+```
+
+Remedies, roughly from lightest to heaviest:
+
+```python
+# a) Keyword-only args: at least readable at the call site
+def export_report(patient, *, as_pdf=False, anonymize=False, include_images=False): ...
+export_report(p, as_pdf=True, include_images=True)
+
+# b) Enums when the flags are really one choice
+class Format(Enum): PDF = "pdf"; DOCX = "docx"; HTML = "html"
+
+# c) Separate functions when a flag switches to completely different behavior
+export_pdf(p)  vs  export_docx(p)          # instead of export(p, is_pdf)
+
+# d) Strategy / composition when behaviors combine
+export(p, steps=[Anonymize(), EmbedImages(), RenderPDF()])
+```
+
+## The underlying idea
+
+A useful heuristic (from Yaron Minsky and Richard Feldman) is **"make illegal states unrepresentable."** A boolean holds one bit of information, and it says nothing about how it relates to the other booleans next to it. When several flags together describe one concept, that concept deserves its own type.
+
+```
+  Boolean soup                        Explicit model
+  ────────────                        ──────────────
+  rules live in programmers' heads    rules live in the type
+  validated at runtime (maybe)        validated at compile/design time
+  2ⁿ states, k legal                  exactly k states
+  "remember to reset the flag"        nothing to remember
+```
+
+Booleans aren't bad in themselves. A single, independent, truly binary fact (`is_active`, `has_consent`) is fine. The smell starts when flags depend on each other or are mutually exclusive. When you see two booleans where one is only meaningful while the other is true, that usually means an enum or a sealed type is missing.
