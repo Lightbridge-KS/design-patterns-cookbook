@@ -1,0 +1,354 @@
+---
+title: "Dispensables: Code Whose Absence Would Make Things Clearer"
+---
+
+## The core idea
+
+Bloaters are code that's *too big*. Change Preventers are code that's *badly divided*. Dispensables are code that **shouldn't exist at all**. Removing them makes the system easier to understand.
+
+The underlying philosophy is that **every line of code is a liability, not an asset**. Each line must be read, understood, tested, and maintained, and it can hide bugs. The value is in what the code *does*, not in how much code there is. Saint-Exupéry's line fits well: perfection is reached *when there is nothing left to take away.*
+
+The five Dispensables are five different ways code can be unnecessary:
+
+```
+  ┌───────────────────────────┬─────────────────────────────────────┐
+  │ Duplicated Code           │ says the same thing TWICE           │
+  │ Lazy Element              │ says too LITTLE to deserve a name   │
+  │ Speculative Generality    │ says things NOBODY ASKED for (yet)  │
+  │ Data Class                │ holds data but its behavior LIVES   │
+  │                           │ ELSEWHERE                           │
+  │ Comments                  │ explains what the CODE should say   │
+  └───────────────────────────┴─────────────────────────────────────┘
+```
+
+There's also something new in this lesson. In the first two lessons, the main cure was **Extract**. Here, the main cure is often the opposite: **Inline, Collapse, Remove**. Keep that in mind, because it leads to the key tension at the end.
+
+---
+
+## 1. Duplicated Code: the same knowledge in two places
+
+**Symptom:** The same logic appears in more than one place. The dangerous kind is not copy-paste, which is easy to find. It's the **same knowledge written differently**:
+
+```python
+# worklist.py
+hn = raw.strip().replace("-", "").zfill(7)
+
+# report.py
+hn = raw.replace("-", "").strip()
+if len(hn) < 7:
+    hn = "0" * (7 - len(hn)) + hn
+```
+
+The text is different, but the *knowledge* (how to normalize an HN) is the same. When the rule changes, someone updates one place and misses the other. That's Shotgun Surgery from lesson 2, which duplication creates.
+
+**Cures:**
+
+| Situation | Refactoring |
+|---|---|
+| Same code in one module | **Extract Function** |
+| Similar but not identical | **Slide Statements** to line them up first, then extract |
+| Same method in sibling subclasses | **Pull Up Method** |
+
+```python
+def normalize_hn(raw: str) -> str:
+    return raw.strip().replace("-", "").zfill(7)
+```
+
+### The subtle part: duplication of *knowledge*, not *text*
+
+Hunt and Thomas's DRY principle is often misread as "never write similar code twice." What they actually said is that every piece of **knowledge** should have a single, authoritative representation. So the opposite case also exists, where code *looks* identical but is **not** a duplicate:
+
+```python
+def is_valid_hn(s: str) -> bool:
+    return len(s) == 7 and s.isdigit()
+
+def is_valid_room_code(s: str) -> bool:
+    return len(s) == 7 and s.isdigit()
+```
+
+It's tempting to merge these into `is_seven_digits()`. But the hospital might change the HN format to 9 digits next year, and room codes have nothing to do with that. They look the same **by coincidence**. They change for **different reasons**, so merging them creates a Divergent Change.
+
+```
+  TRUE duplication                     INCIDENTAL duplication
+  ─────────────────                    ──────────────────────
+  same knowledge                       same shape, different knowledge
+  changes together                     changes independently
+  → MERGE                              → LEAVE APART
+```
+
+Two practical heuristics:
+
+- **The Rule of Three** (Don Roberts, cited by Fowler): the first time, just write it. The second time, notice the duplication. The third time, refactor. By the third occurrence, you can actually see the pattern.
+- **Sandi Metz:** *"duplication is far cheaper than the wrong abstraction."* An abstraction made too early, from only two examples, often has the wrong shape, and that's harder to undo than duplicated code.
+
+---
+
+## 2. Lazy Element: too small to justify its existence
+
+**Symptom:** A function, class, or module that doesn't do enough to justify the extra layer a reader has to step through.
+
+```python
+def get_modality(study):
+    return study.modality
+
+class ReportFormatter:
+    def format(self, text):
+        return text.strip()
+```
+
+These usually come from one of two sources. Either the element **used to be bigger** and shrank after other refactorings, or it **was planned to grow** and never did (which overlaps with Speculative Generality).
+
+**Cures:** **Inline Function**, **Inline Class**, **Collapse Hierarchy**.
+
+### But not every small function is lazy
+
+This is important, because lesson 1 encouraged you to extract small functions. Compare:
+
+```python
+def is_stat(study):                          # ✓ KEEP
+    return study.priority == "S"
+
+def get_modality(study):                     # ✗ INLINE
+    return study.modality
+```
+
+`is_stat` is one line, but its **name adds meaning**. `"S"` is a cryptic code, and the name tells the reader what it means. `get_modality` adds nothing. The name just repeats the body.
+
+This gives a neat test that connects to the Long Function lesson:
+
+```
+  The name says LESS than the body  →  Long Function  →  EXTRACT
+  The name says MORE than the body  →  Good function  →  KEEP
+  The name says THE SAME as body    →  Lazy Element   →  INLINE
+```
+
+The value of a function is the **gap between its name and its body**: the name should add meaning that the body alone doesn't express. When that gap is zero, the function is just a detour.
+
+---
+
+## 3. Speculative Generality: "We might need it someday"
+
+**Symptom:** Abstractions, hooks, parameters, and plugin systems built for needs that **don't exist yet**.
+
+```python
+class ImageSource(ABC):                       # abstract base...
+    @abstractmethod
+    def fetch(self, uid, options=None): ...   # ...'options' never used
+
+class PacsImageSource(ImageSource):           # ...with exactly ONE subclass
+    def fetch(self, uid, options=None):
+        return self._client.get(uid)
+
+SOURCE_REGISTRY = {"pacs": PacsImageSource}   # a registry with one entry
+```
+
+Everything here exists for an imagined future: "maybe we'll fetch from cloud storage, or from a local folder." Meanwhile, every reader today has to work through three layers to understand a single function call.
+
+**Fowler's detection trick:** if the **only users** of a class or function are **test cases**, it's probably speculative.
+
+**Cures:**
+
+| Speculative thing | Refactoring |
+|---|---|
+| Abstract class with one subclass | **Collapse Hierarchy** |
+| Unnecessary delegation layer | **Inline Function / Inline Class** |
+| Unused parameter | **Change Function Declaration** (remove it) |
+| Code nobody calls | **Remove Dead Code** |
+
+### Why speculation is costly
+
+```
+  Speculation cost  =  cost of carrying the abstraction NOW (certain)
+                     + cost of a WRONG guess later (likely)
+
+  Refactoring cost  =  cost of adding it WHEN NEEDED (with tests: usually small)
+```
+
+The hidden cost is the **wrong guess**. When the real requirement arrives, it rarely matches what you predicted. For example, cloud storage might need async streaming, which doesn't fit `fetch()`'s signature. Now you have to work *around* your own abstraction. This is YAGNI ("You Aren't Gonna Need It"), and it connects directly to lesson 2: **draw boundaries around changes that actually happen, not ones you imagine.**
+
+### The exception: decisions that are expensive to reverse
+
+Fowler distinguishes **published interfaces** from internal code. A public API used by other teams, a database schema, or a message format exchanged with external systems is expensive to change later, so it deserves more upfront thought. Internal code that you can refactor freely does not.
+
+```
+  cheap to change later  ──────────────────────────  expensive to change later
+  (internal functions)                               (public APIs, DB schemas,
+   → YAGNI, wait                                      external protocols)
+                                                      → think ahead more
+```
+
+---
+
+## 4. Data Class: data without behavior
+
+**Symptom:** A class that only holds fields, while the logic *about* that data lives somewhere else, often in several places.
+
+```python
+@dataclass
+class Study:
+    modality: str
+    acquired_at: datetime
+    status: str
+
+# worklist.py
+deadline = s.acquired_at + timedelta(hours=24 if s.modality == "CT" else 48)
+
+# dashboard.py
+overdue = s.status != "C" and now > s.acquired_at + timedelta(hours=24 ...)
+```
+
+`Study` is passive. Other modules reach in, take its data, and compute things about it. That leads to **duplication** (smell #1), and in the next lesson we'll see it's also **Feature Envy**.
+
+**Cure:** Find out **where the data class's fields are used**, then use **Move Function** to bring that behavior into the class. Use **Encapsulate Record** and **Remove Setting Method** to protect its data.
+
+```python
+@dataclass(frozen=True)
+class Study:
+    modality: Modality          # the enum from lesson 2
+    acquired_at: datetime
+    status: str
+
+    @property
+    def deadline(self) -> datetime:
+        return self.acquired_at + timedelta(hours=self.modality.tat_hours)
+
+    def is_overdue(self, now: datetime) -> bool:
+        return self.status != "C" and now > self.deadline
+```
+
+### Wait, didn't we create data classes in lesson 2?
+
+Yes. `StudyInput` and `AiResult` from the Split Phase example are pure data. Fowler explicitly says this is **fine**: records that carry the result of one phase into the next are legitimate, especially when **immutable**. Their job *is* to be data, acting as a contract between phases.
+
+```
+  Data Class is a SMELL when:          Data Class is FINE when:
+  ──────────────────────────           ────────────────────────
+  behavior about it is scattered       it's a phase boundary (Split Phase)
+  elsewhere, often duplicated          it's a DTO crossing a system boundary
+  it's mutable and widely shared       it's immutable (frozen / C# record)
+```
+
+So the smell is not `@dataclass` or `record`. The smell is **behavior that has drifted away from its data.**
+
+---
+
+## 5. Comments: deodorant for smelly code
+
+Fowler is careful here. Comments are not bad. His point is that comments are often used as **deodorant**: when you see a heavy comment, check whether it's covering up code that's hard to understand.
+
+```python
+# check if study overdue: CT 24h, MR 48h from acquisition, skip cancelled
+if s.status != "C" and (now - s.acq_t).total_seconds() > (86400 if s.mod == "CT" else 172800):
+    ...
+```
+
+The comment is needed only because the code is unreadable. Fix the code and the comment becomes unnecessary:
+
+```python
+if study.is_overdue(now):
+    ...
+```
+
+**Cures:**
+
+| Comment explains... | Refactoring |
+|---|---|
+| what a block does | **Extract Function** (name it after the comment) |
+| what an expression means | **Extract Variable** |
+| what a name means | **Rename** |
+| a required precondition | **Introduce Assertion** |
+
+### Good comments explain *why*
+
+```
+  WHAT the code does        → belongs in the code (names, structure)
+  HOW it does it            → belongs in the code
+  WHY it does it this way   → COMMENT ✓
+  WHY NOT the obvious way   → COMMENT ✓
+  what you're UNSURE about  → COMMENT ✓
+```
+
+```python
+# Threshold 0.7 chosen from ROC analysis on validation set v3
+# (sensitivity 0.92 at specificity 0.85). See REQ-AI-014.
+POSITIVE_THRESHOLD = 0.7
+```
+
+No amount of renaming can express this. It records *reasoning*, *evidence*, and *traceability*. In regulated software like a medical-device QMS, comments of this kind are especially valuable.
+
+---
+
+## The big tension: Extract vs Inline
+
+Now the lessons start to fit together. Bloaters are cured by **extracting**. Dispensables are often cured by **inlining**. These cures pull in opposite directions:
+
+```
+  too few, too big                                     too many, too small
+  ◄───────────────────────────────────────────────────────────────────────►
+  Long Function                                             Lazy Element
+  Large Class                                     Speculative Generality
+       │                                                         │
+       └─── EXTRACT ──────►    sweet spot    ◄────── INLINE ─────┘
+                          each element earns
+                          its name and its place
+```
+
+There's a similar tension between **Duplicated Code** and **Speculative Generality**. Removing duplication too early produces premature, often wrong, abstractions:
+
+```
+  tolerate duplication ◄─────────── Rule of Three ───────────► abstract early
+  (risk: Shotgun Surgery)                                   (risk: wrong abstraction)
+```
+
+Refactoring is not a one-way process of always making things smaller or more abstract. It's a **back-and-forth**: extract when understanding grows, inline when an abstraction stops paying for itself. Fowler often inlines and then re-extracts, which is the same move we saw for Shotgun Surgery.
+
+---
+
+## Detection tools
+
+```zsh
+# Python: find duplicated blocks
+pylint --disable=all --enable=duplicate-code src/
+
+# Any language: copy-paste detector
+npx jscpd src/
+
+# Python: find dead code (Speculative Generality / unused things)
+pip install vulture && vulture src/
+
+# Grep for speculation and deodorant
+grep -rnE "TODO|FIXME|in the future|someday|for now|hack" src/
+```
+
+Tools find **textual** duplication and **dead** code. Only you can judge **knowledge** duplication, incidental duplication, and whether a small function's name adds meaning.
+
+---
+
+## The whole picture
+
+```
+ SMELL                   QUESTION TO ASK                          MAIN CURES
+ ──────────────────────  ───────────────────────────────────────  ──────────────────────
+ Duplicated Code         "Is this the same KNOWLEDGE, changing     Extract Function,
+                          for the same reason?"                    Slide Statements,
+                                                                   Pull Up Method
+ Lazy Element            "Does the name say more than the body?"   Inline Function/Class,
+                                                                   Collapse Hierarchy
+ Speculative Generality  "Does a real, current need use this?"     Collapse Hierarchy,
+                                                                   Remove Dead Code
+ Data Class              "Where does the behavior about this       Move Function,
+                          data live?"                              Encapsulate Record
+ Comments                "Is this comment explaining WHAT,         Extract Function,
+                          or WHY?"                                 Rename, Assertion
+```
+
+Connections to earlier lessons:
+
+```
+  Lesson 1 (Bloaters)      Data Clumps → class → behavior moves in   (Data Class cure)
+                           Extract Function  ⟷  Inline Function       (the oscillation)
+  Lesson 2 (Change Prev.)  Duplicated Code   → causes Shotgun Surgery
+                           Wrong merge       → causes Divergent Change
+                           Change history    → guides what to abstract (vs. speculation)
+```
+
