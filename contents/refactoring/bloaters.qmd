@@ -1,0 +1,210 @@
+---
+title: "Bloaters: When Code Grows Too Big to Hold in Your Head"
+---
+
+## The core idea
+
+No one *writes* a bloater on purpose. Bloaters build up over time. Each change adds "just one more parameter" or "just one more `if`," and each step is reasonable on its own. The trouble is in the economics: at each moment, **adding is cheaper than restructuring**, so code grows instead of being reorganized. It's the boiling-frog problem.
+
+The real cost of a bloater is **cognitive load**, not size. Human working memory holds about 4–7 items. When a unit of code asks you to track more than that, you start making mistakes.
+
+The four bloaters often travel together and feed one another:
+
+```
+   Data Clumps ──────► Long Parameter List ──────► Long Function ──────► Large Class
+  (data that belongs   (the clumps get passed      (with many inputs,     (long functions
+   together but isn't   around as loose args)       functions do many      pile up in one
+   grouped)                                         things)                class)
+
+        └──────────────── root cause: missing abstractions ────────────────┘
+```
+
+So we'll use **one running example** that has all four smells and fix it step by step.
+
+---
+
+## The smelly starting point
+
+```python
+def generate_report(patient_name, patient_hn, patient_age,
+                    study_date, modality, body_part,
+                    findings, radiologist, is_urgent, lang):
+    # --- validate ---
+    if not patient_hn or len(patient_hn) != 7:
+        raise ValueError("Invalid HN")
+    if modality not in ("CT", "MR", "US", "CR"):
+        raise ValueError("Unknown modality")
+    # --- header ---
+    header = f"{patient_name}  HN: {patient_hn}  Age: {patient_age}\n"
+    header += f"{modality} {body_part}  ({study_date})\n"
+    # --- findings ---
+    body = "".join(f"- {f}\n" for f in findings)
+    # --- urgency ---
+    if is_urgent:
+        header = "*** URGENT ***\n" + header
+    # --- language ---
+    title = "รายงานผลการตรวจ" if lang == "th" else "Radiology Report"
+    return f"{title}\n{header}\n{body}\nReported by: {radiologist}"
+```
+
+It works, and it's only about 20 lines. Now imagine it a year later, after 15 more features have been added. Here's what's already wrong with it.
+
+---
+
+## 1. Data Clumps: find the missing nouns
+
+**Symptom:** The same group of data items always shows up together. Here there are two clumps:
+
+```
+patient_name, patient_hn, patient_age   ← always travel together
+study_date, modality, body_part         ← always travel together
+```
+
+**Fowler's test:** Delete one item from the group. Do the others still make sense on their own? A `patient_age` without a patient is meaningless, so this is a clump that should become an object.
+
+**Cure:** Extract Class / Introduce Parameter Object.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Patient:
+    name: str
+    hn: str
+    age: int
+
+@dataclass(frozen=True)
+class Study:
+    date: str
+    modality: str
+    body_part: str
+```
+
+**The deeper payoff:** A clump is a *concept from your domain that hasn't been named yet*. Once it has a name, **behavior starts to move into it**. HN validation clearly belongs to `Patient`, not to the report generator:
+
+```python
+@dataclass(frozen=True)
+class Patient:
+    name: str
+    hn: str
+    age: int
+
+    def __post_init__(self):
+        if len(self.hn) != 7:
+            raise ValueError(f"Invalid HN: {self.hn}")
+```
+
+Now an invalid `Patient` *cannot exist*, so no other function ever needs to re-check it. This is the most important lesson in the Bloaters family: **naming a concept moves knowledge to the place where it belongs.**
+
+---
+
+## 2. Long Parameter List: count what the caller must know
+
+**Symptom:** Our signature has 10 parameters. Every caller has to know all ten, get their order right, and change whenever one is added.
+
+**Cures**, three of which apply here:
+
+| Refactoring | Applied here |
+|---|---|
+| **Introduce Parameter Object** | 6 loose args become `patient, study` |
+| **Remove Flag Argument** | `is_urgent` is a boolean that *switches behavior*, and `True` at the call site tells the reader nothing |
+| **Preserve Whole Object** | Pass `patient`, not `patient.name, patient.hn` |
+
+A flag argument is a hidden second function. Compare the call sites:
+
+```python
+generate_report(p, s, f, r, True, "th")   # True what? "th" why?
+generate_urgent_report(p, s, f, r)         # intent is visible
+```
+
+**Rule of thumb:** Parameters should be things the function *operates on*, not settings that *pick which function to be*.
+
+---
+
+## 3. Long Function: comments are seams
+
+**Symptom:** Look at the comments, `# --- validate ---`, `# --- header ---`, and so on. Each one is the author admitting, *"this block has a purpose I couldn't express in code."*
+
+Fowler's heuristic:
+
+> Whenever you feel the need to comment a block, write a function instead, and name it after the comment's **intent**.
+
+**Cure:** Extract Function, using each comment as a cut line:
+
+```python
+def generate_report(patient: Patient, study: Study,
+                    findings: list[str], radiologist: str) -> str:
+    return "\n".join([
+        render_header(patient, study),
+        render_findings(findings),
+        render_signature(radiologist),
+    ])
+```
+
+Now the function reads like a table of contents. You see **what** happens at one level of abstraction, and you go into a helper only when you need the **how**.
+
+An important point: Fowler says length is a poor measure. What matters is the **semantic distance between the function's name and its body**. A 3-line function that mixes SQL, formatting, and business rules is "long." A 30-line function that does one clear thing at one level of abstraction may be fine.
+
+```
+  Good function                          Bloated function
+  ─────────────                          ────────────────
+  name:  render_header                   name:  generate_report
+  body:  one level of detail             body:  validation + formatting +
+         ↓ (short gap)                          i18n + business rules
+         "I can see the name                    ↓ (huge gap)
+          in the body"                          "the name hides 5 jobs"
+```
+
+---
+
+## 4. Large Class: the function's home becomes the next bloater
+
+Suppose `generate_report` lives in a class that has grown over time:
+
+```
+ReportService
+├── fetch_from_pacs()          ┐
+├── pacs_host, pacs_port       ┘ ← PACS integration
+├── validate_hn()              ┐
+├── validate_modality()        ┘ ← domain rules
+├── render_header()            ┐
+├── render_findings()          │ ← formatting
+├── translate()                ┘
+├── send_email()               ┐
+└── smtp_server                ┘ ← notification
+```
+
+**Fowler's detection trick:** Look for **subsets of fields and methods that are used together**, and for **shared prefixes and suffixes** in names (`pacs_*`, `smtp_*`, `render_*`). Each cluster is a class waiting to be extracted.
+
+**Cure:** Extract Class (and sometimes Extract Superclass).
+
+```
+         BEFORE                                AFTER
+  ┌──────────────────┐            ┌─────────────┐   ┌──────────────┐
+  │  ReportService   │            │ PacsClient  │   │ ReportRender │
+  │ (4 reasons to    │    ──►     └─────────────┘   └──────────────┘
+  │  change)         │            ┌─────────────┐   ┌──────────────┐
+  └──────────────────┘            │  Patient    │   │  Notifier    │
+                                  │ (rules)     │   └──────────────┘
+                                  └─────────────┘
+```
+
+This is the **Single Responsibility Principle** seen from the opposite side. SRP tells you how to *design*, and the Large Class smell tells you how to *detect* a violation in existing code.
+
+---
+
+## The whole picture
+
+```
+ SMELL                 QUESTION TO ASK                       MAIN CURE
+ ───────────────────   ───────────────────────────────────   ──────────────────────
+ Data Clumps           "What concept am I failing to name?"  Extract Class
+ Long Parameter List   "What must the caller know?"          Parameter Object,
+                                                             Remove Flag Argument
+ Long Function         "Where are the comment-seams?"        Extract Function
+ Large Class           "Which fields/methods cluster?"       Extract Class
+```
+
+## A warning about over-correcting
+
+Every cure can be overdone. If you extract too much, you get a different family of smells: **Lazy Element** (classes too small to justify themselves) and **Middle Man** (layers that only delegate). The goal is not "small." The goal is that **each unit can be understood on its own**. We'll see this tension in the Dispensables and Couplers lessons.

@@ -79,6 +79,10 @@ book:
       chapters: 
         - text: "Boolean Soup"
           href: "contents/anti-pattern/boolean-soup.qmd"
+    - part: Refactoring
+      chapters: 
+        - text: "Bloaters"
+          href: "contents/refactoring/bloaters.qmd"
     - part: Domain-Driven Design
       chapters:
         - text: "Strategic Design"
