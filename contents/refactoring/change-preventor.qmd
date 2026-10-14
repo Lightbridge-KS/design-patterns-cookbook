@@ -1,0 +1,244 @@
+---
+title: "Change Preventers: When One Change Hurts Too Much"
+---
+
+## The core idea
+
+Bloaters are about **size**: you can spot them by reading a single snapshot of the code. Change Preventers are different. They're about **how the code responds when it has to change**, so you usually notice them *over time*, when a simple-sounding request turns into a painful edit.
+
+Fowler puts the goal this way: when you make a change, you want to be able to jump to **a single clear place** in the system and make it there. The ideal is a one-to-one mapping between *reasons to change* and *modules*:
+
+```
+        IDEAL                     DIVERGENT CHANGE            SHOTGUN SURGERY
+   (1 reason : 1 module)       (N reasons : 1 module)      (1 reason : N modules)
+
+  reason A ──► Module A        reason A ─┐                          ┌─► module 1
+  reason B ──► Module B        reason B ─┼─► [ Module ]   reason ───┼─► module 2
+  reason C ──► Module C        reason C ─┘                          ├─► module 3
+                                                                    └─► module 4
+                               "too many jobs              "one job smeared
+                                in one place"               across many places"
+```
+
+These two smells are **mirror images**. Both come from a mismatch between the code's boundaries and the actual **axes of change** in your domain.
+
+This idea is older than Fowler. In 1972, David Parnas argued in *On the Criteria To Be Used in Decomposing Systems into Modules* that you should draw module boundaries around **design decisions likely to change**, so each module hides one decision. Later, Robert Martin reformulated it as the Single Responsibility Principle: *a module should have one reason to change.* Change Preventers are what you get when that principle is broken.
+
+---
+
+## 1. Divergent Change: one module, many reasons
+
+**Symptom:** You keep editing the same file, but for unrelated reasons. You find yourself saying, *"I change these three functions when X happens, and these other four when Y happens."*
+
+### The smelly example
+
+An AI-inference pipeline for incoming studies:
+
+```python
+def process_study(ds, model):
+    # --- parse DICOM ---
+    age = int(ds.PatientAge.rstrip("Y"))          # vendor quirk: "045Y"
+    pixels = ds.pixel_array * ds.RescaleSlope + ds.RescaleIntercept
+    # --- run AI ---
+    score = model.predict(pixels)
+    positive = score > 0.7                        # threshold tuned per model
+    # --- format output ---
+    return f"OBX|1|NM|AI_SCORE||{score:.2f}||||||F\r" \
+           f"OBX|2|ST|AI_FLAG||{'POS' if positive else 'NEG'}||||||F"
+```
+
+Ask: **who causes this function to change?**
+
+```
+                          ┌──────────────────────┐
+  New scanner vendor ────►│                      │  (DICOM quirks)
+  Model v2 → v3      ────►│   process_study()    │  (threshold, preprocessing)
+  HL7 v2 → FHIR      ────►│                      │  (output format)
+                          └──────────────────────┘
+        3 different people, 3 different schedules, 1 file
+```
+
+The physicist, the ML engineer, and the integration engineer all edit the same function. Their changes collide, and each one risks breaking the others' work.
+
+### The cure: Split Phase
+
+When the different responsibilities form a natural **sequence**, Fowler's first tool is **Split Phase**. You separate the stages and connect them with an **intermediate data structure**:
+
+```python
+@dataclass(frozen=True)
+class StudyInput:
+    age: int
+    pixels: np.ndarray
+
+@dataclass(frozen=True)
+class AiResult:
+    score: float
+    positive: bool
+
+def process_study(ds, model):
+    study  = parse_dicom(ds)          # changes when: vendor quirks
+    result = run_inference(study, model)  # changes when: model updates
+    return to_hl7(result)             # changes when: output standard
+```
+
+```
+  DICOM ──► [ parse_dicom ] ──► StudyInput ──► [ run_inference ] ──► AiResult ──► [ to_hl7 ] ──► HL7
+                                    ▲                                    ▲
+                                    └──── contracts / firewalls ─────────┘
+```
+
+**The intermediate data structures are the most important part.** `StudyInput` and `AiResult` act as **firewalls**. A vendor quirk is fixed inside `parse_dicom`, and nothing downstream ever sees it. Switching to FHIR means writing a new `to_fhir(result)`, and the inference code doesn't change at all.
+
+If the responsibilities aren't sequential, use the other tools: **Extract Function**, then **Move Function** into separate modules or classes (**Extract Class**).
+
+---
+
+## 2. Shotgun Surgery: one reason, many modules
+
+**Symptom:** One conceptual change forces you to make many small edits across many files. The danger is not the typing. The danger is **forgetting one of the places**, which leads to inconsistency bugs.
+
+### The smelly example
+
+The department starts doing mammography. *"Just add MG as a modality,"* someone says. Then you look:
+
+```python
+# api/validators.py
+VALID_MODALITIES = ["CT", "MR", "US", "CR"]                 # ← edit 1
+
+# report/templates.py
+def report_title(modality):
+    if modality == "CT": return "CT Scan"
+    elif modality == "MR": return "MRI"                     # ← edit 2
+    ...
+
+# worklist/priority.py
+TAT_HOURS = {"CT": 24, "MR": 48, "US": 24, "CR": 12}        # ← edit 3
+
+# ui/forms.py
+MODALITY_CHOICES = [("CT", "CT"), ("MR", "MRI"), ...]       # ← edit 4
+```
+
+```
+                         "add MG"
+                            │
+     ┌──────────────┬───────┴──────┬──────────────┐
+     ▼              ▼              ▼              ▼
+ validators.py  templates.py  priority.py    forms.py
+     ✓              ✓              ✗ forgot!       ✓
+                                   │
+                         KeyError: 'MG' in production
+```
+
+The knowledge of **what a modality is** has no home, so it's scattered across the codebase.
+
+### The cure: gather what changes together
+
+Fowler's main tools here are **Move Function**, **Move Field**, and **Combine Functions into Class**. You give the scattered concept a single home:
+
+```python
+class Modality(Enum):
+    #     title         tat_hours
+    CT = ("CT Scan",     24)
+    MR = ("MRI",         48)
+    US = ("Ultrasound",  24)
+    CR = ("Radiograph",  12)
+    MG = ("Mammogram",   72)   # ← adding MG is now ONE line
+
+    def __init__(self, title, tat_hours):
+        self.title = title
+        self.tat_hours = tat_hours
+```
+
+Validators now use `Modality(value)`, templates use `m.title`, the worklist uses `m.tat_hours`, and the UI iterates over `Modality`. Every consumer reads from one source of truth.
+
+### Fowler's counterintuitive trick
+
+When the logic is badly scattered, Fowler suggests sometimes **inlining first** (using Inline Function or Inline Class) to pull all the pieces into one place. You knowingly create a temporary Long Function or Large Class. **Then** you extract again, this time along better boundaries.
+
+```
+  scattered pieces ──► INLINE ──► one big blob ──► EXTRACT ──► well-shaped modules
+                       (temporarily worse)         (along the real axis of change)
+```
+
+Sometimes you have to make the code worse in order to see its real shape.
+
+---
+
+## The tension: these two smells pull against each other
+
+Here's the subtle part. Should the **billing fee** for each modality also go into the `Modality` enum?
+
+```python
+MG = ("Mammogram", 72, 1800)   # fee here too?
+```
+
+It's tempting: "everything about a modality in one place." But ask **who changes the fee and when**. Fees change once a year when the finance department updates prices, which is a completely different reason and schedule from adding a modality. Putting fees into `Modality` would fix one Shotgun Surgery and **create a Divergent Change**.
+
+```
+  Split too finely ──────────────────────────────────── Lump too coarsely
+  ◄── Shotgun Surgery                       Divergent Change ──►
+          (a concept is scattered)          (concerns are tangled)
+
+                      sweet spot: group by
+                    "WHAT CHANGES TOGETHER"
+                     not by "what is related"
+```
+
+This is the key insight of this lesson. **Group code by what changes together, not by what seems related.** A fee is *related* to a modality, but it doesn't *change with* the modality.
+
+This also explains why there is no permanently correct design. The right boundaries depend on **which changes actually happen**. That's why Fowler prefers refactoring when real change pressure appears over designing for imagined changes in advance (which leads to Speculative Generality, which we'll cover in Dispensables).
+
+---
+
+## Detection: your Git history knows
+
+Because these smells are about change, **version control is your best detector**. Some zsh one-liners:
+
+```zsh
+# Hotspots: files changed most often in the last 6 months
+git log --since="6 months ago" --name-only --format="" \
+  | sort | uniq -c | sort -rn | head -15
+
+# Divergent Change check: read the commit topics for one hotspot.
+# Unrelated topics in one file = smell.
+git log --oneline -- src/pipeline/process.py
+
+# Shotgun Surgery check: how many files did one conceptual change touch?
+git show --stat <commit-hash>
+```
+
+```
+ SIGNAL IN GIT                                   LIKELY SMELL
+ ───────────────────────────────────────────     ─────────────────
+ One file, many commits with unrelated topics    Divergent Change
+ One small feature commit, many files touched    Shotgun Surgery
+ Files A and B almost always change together     Shotgun Surgery
+   but live in different modules                 (hidden coupling)
+```
+
+If you want to go deeper, Adam Tornhill's *Your Code as a Crime Scene* builds a whole method on this idea, which he calls **change coupling**.
+
+---
+
+## The whole picture
+
+```
+ SMELL              QUESTION TO ASK                         MAIN CURES
+ ────────────────   ─────────────────────────────────────   ──────────────────────────
+ Divergent Change   "How many different reasons make        Split Phase, Extract
+                     me edit this module?"                  Function, Move Function,
+                                                            Extract Class
+ Shotgun Surgery    "How many places must I edit for        Move Function/Field,
+                     one conceptual change?"                Combine Functions into
+                                                            Class, Inline then Extract
+```
+
+And the connections to what you already know:
+
+```
+  Bloaters (lesson 1)          Change Preventers (lesson 2)
+  ───────────────────          ────────────────────────────
+  Large Class            ───►  often IS Divergent Change seen from the outside
+  Data Clumps            ───►  scattered clumps often cause Shotgun Surgery
+  SRP (design view)      ◄──►  Divergent Change (detection view)
+```

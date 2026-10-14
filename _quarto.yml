@@ -83,6 +83,8 @@ book:
       chapters: 
         - text: "Bloaters"
           href: "contents/refactoring/bloaters.qmd"
+        - text: "Change Preventor"
+          href: "contents/refactoring/change-preventor.qmd"
     - part: Domain-Driven Design
       chapters:
         - text: "Strategic Design"
