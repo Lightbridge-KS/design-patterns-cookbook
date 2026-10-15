@@ -1,0 +1,320 @@
+---
+title: "Couplers: When Modules Know Too Much About Each Other"
+---
+
+## The core idea
+
+**Coupling** measures how much one module must *know* about another in order to work. Some coupling is unavoidable, since a system with zero coupling is just a set of unrelated programs. The problem is **knowledge leaking across boundaries** that should hide it.
+
+This brings back Parnas from lesson 2. A module's boundary exists to **hide a decision**. Each Coupler is a different way that hidden decision leaks out:
+
+```
+  ┌──────────────────┬──────────────────────────────────────────────────┐
+  │ Feature Envy     │ a function lives in the WRONG HOME               │
+  │                  │ (it's more interested in another module's data)  │
+  │ Insider Trading  │ two modules swap PRIVATE details                 │
+  │                  │ (they know each other's internals)               │
+  │ Message Chains   │ a client knows the STRUCTURE of a whole          │
+  │                  │ object graph (a.b().c().d())                     │
+  │ Middle Man       │ the OVER-CORRECTION: a module that only          │
+  │                  │ forwards calls                                   │
+  └──────────────────┴──────────────────────────────────────────────────┘
+```
+
+Notice the fourth one. Middle Man is the smell you get from **fixing the others too aggressively**. This family comes with its own built-in tension.
+
+---
+
+## 1. Feature Envy: a function in the wrong home
+
+**Symptom:** A function that spends more time talking to *another* module's data than to its own.
+
+```python
+class ReportRenderer:
+    def render_header(self, study):
+        p = study.patient
+        days = (study.date - p.birth_date).days
+        age = f"{days // 365:03d}Y" if days >= 365 else f"{days // 30:03d}M"
+        return f"{p.name} ({age})  HN {p.hn}"
+```
+
+Count where the attention goes: `p.birth_date`, `study.date`, `p.name`, `p.hn`. The renderer barely uses *itself*. The age calculation in particular is **knowledge about patients** that got stuck in the presentation layer. The next time someone needs a patient's age (worklist, AI pipeline, billing), they'll write it again, which brings back the Duplicated Code from lesson 3.
+
+**Cure:** **Move Function**. If only *part* of the function is envious, first **Extract Function** on that part, then move it.
+
+```python
+@dataclass(frozen=True)
+class Patient:
+    name: str
+    hn: str
+    birth_date: date
+
+    def age_at(self, on: date) -> Age:            # domain knowledge lives here
+        return Age.between(self.birth_date, on)
+
+class ReportRenderer:
+    def render_header(self, study):
+        p = study.patient
+        return f"{p.name} ({p.age_at(study.date)})  HN {p.hn}"
+```
+
+### The principle: Tell, Don't Ask
+
+```
+  ASK (envious)                           TELL (well-placed)
+  ─────────────                           ──────────────────
+  renderer ── "give me birth_date" ──►    renderer ── "what's your age     ──► patient
+           ◄── birth_date ─────────               on this date?"
+           ── "give me date"   ────►            ◄── Age ───────────────────
+           ◄── date ───────────────
+  then computes age itself                patient computes with its own data
+```
+
+Instead of *asking* an object for its data and doing the work yourself, *tell* the object what you need and let it use its own data.
+
+### When it gets tricky
+
+Sometimes a function uses data from **several** modules. Fowler's rule is to move it to the module whose data it uses **most**.
+
+There's also a deliberate exception. Patterns like **Strategy** and **Visitor** intentionally separate behavior from data. They knowingly accept a little Feature Envy in order to avoid **Divergent Change** (lesson 2): you can swap a rendering strategy without touching `Patient`. The deeper rule, which Fowler states directly, is to **put things together that change together**. Usually that means behavior next to its data, but not always.
+
+The same applies to layers. Calculating age is domain knowledge and belongs in `Patient`. Formatting it as HTML belongs in the renderer. That's why the example above split the function before moving part of it.
+
+---
+
+## 2. Insider Trading: modules swapping private details
+
+*(In the 1st edition this was called "Inappropriate Intimacy.")*
+
+**Symptom:** Two modules reach into each other's internals, usually in **both directions**.
+
+```python
+# worklist.py
+class Worklist:
+    def assign(self, study, rad):
+        if rad._shift_end < datetime.now():       # peeks at private state
+            raise ShiftEnded()
+        rad._load += study._rvu                   # MUTATES another's internals
+        self._assigned[study.uid] = rad
+
+# radiologist.py
+class Radiologist:
+    def hand_over(self, worklist):
+        for uid, r in worklist._assigned.items(): # peeks back the other way
+            ...
+```
+
+```
+     ┌──────────────┐  reads _shift_end, writes _load   ┌──────────────┐
+     │   Worklist   │ ─────────────────────────────────►│ Radiologist  │
+     │  _assigned   │ ◄─────────────────────────────────│  _shift_end  │
+     └──────────────┘        reads _assigned            │  _load       │
+                                                        └──────────────┘
+           Neither can change its internals without breaking the other.
+           Effectively ONE module split across two files.
+```
+
+The underscore in Python is a *promise* that something is private. Python won't enforce it, so `other._field` across modules is a clear signal of a broken promise.
+
+**Cures:**
+
+| Situation | Refactoring |
+|---|---|
+| Too much back-and-forth | **Move Function / Move Field** to cut the chatter |
+| They share a common concern | **Extract** a third module that owns it |
+| One side exposes too much | **Hide Delegate**, expose an intention-revealing method |
+| A subclass knows too much about its parent | **Replace Subclass with Delegate** |
+
+Here, the shared concern is *workload assignment*. It belongs to neither class, so give it a home of its own:
+
+```python
+class Radiologist:
+    def can_accept(self, now: datetime) -> bool: ...
+    def take(self, study: Study) -> None: ...         # updates own _load
+
+class AssignmentLedger:                                # the third module
+    def assign(self, study, rad, now):
+        if not rad.can_accept(now):
+            raise ShiftEnded()
+        rad.take(study)
+        self._by_study[study.uid] = rad
+```
+
+### Inheritance as insider trading
+
+A subclass is the most intimate partner possible. It sees protected members, depends on the parent's internal call order, and breaks when the parent changes. This is the **fragile base class** problem. It's why Fowler (following the Gang of Four's *favor composition over inheritance*) offers **Replace Subclass with Delegate**: turn the intimate inheritance relationship into a polite one based on a public interface.
+
+---
+
+## 3. Message Chains: navigating someone else's structure
+
+**Symptom:** A client walks through a chain of objects to reach what it needs.
+
+```python
+email = study.order.visit.ward.department.head.email
+```
+
+The client now knows that a study has an order, an order has a visit, a visit has a ward, a ward belongs to a department, and a department has a head. That's **five structural facts** about other people's designs. If any link changes (say, wards get reorganized under divisions instead of departments), this line breaks, and so does every similar line elsewhere.
+
+```
+  client ──► study ──► order ──► visit ──► ward ──► department ──► head ──► email
+     │                                                                      ▲
+     └──────────── depends on EVERY link in this path ──────────────────────┘
+```
+
+This is the **Law of Demeter**: *talk only to your immediate friends, not to strangers you reach through them.* Fowler treats it as a useful guideline rather than a strict law, which matters for the next smell.
+
+**Cures:**
+
+1. **Hide Delegate** at some point in the chain: `study.responsible_department()`.
+2. **Fowler's preferred approach:** look at *what the client does with the result*, **Extract Function** on that, then **Move Function** down the chain.
+
+```python
+# Why did the client want the email? To escalate an overdue study.
+# So move the WHOLE intent, not just the navigation:
+study.escalate_overdue(notifier)
+```
+
+The client stops *navigating* and starts *telling*, which is Tell, Don't Ask again.
+
+### Not every chain is a message chain
+
+```python
+df.query("modality == 'CT'").groupby("ward").tat.mean()        # pandas
+studies |> filter(modality == "CT") |> summarise(mean(tat))    # dplyr pipe
+```
+
+These are **not** message chains. Each step *transforms a value* and returns the same kind of thing (a data frame). They don't *navigate into* the structure of different objects. So counting dots is the wrong test. The right question is:
+
+> Am I navigating a structure that isn't mine to know?
+
+---
+
+## 4. Middle Man: the over-correction
+
+**Symptom:** A class where most methods just forward calls to another object.
+
+```python
+class Study:
+    def patient_name(self):  return self.patient.name
+    def patient_hn(self):    return self.patient.hn
+    def patient_age(self):   return self.patient.age
+    def patient_sex(self):   return self.patient.sex
+    def ward_name(self):     return self.order.visit.ward.name
+    # ... 15 more like this
+```
+
+This often comes from fixing Message Chains too eagerly: every new `Patient` field forces a new forwarding method on `Study`, which is a kind of Shotgun Surgery. Fowler's rule of thumb: if **about half** of a class's methods only delegate, it's a Middle Man.
+
+**Cures:** **Remove Middle Man** (let clients call the delegate directly), **Inline Function** for the few callers. If the middle man adds a *little* real behavior, consider **Replace Superclass with Delegate** or **Replace Subclass with Delegate**.
+
+### When a "middle man" is legitimate
+
+Some classes that mostly forward calls are **good design**:
+
+```
+  LEGITIMATE wrapper                     MIDDLE MAN smell
+  ──────────────────                     ────────────────
+  Facade (simplifies a complex API)      forwards 1:1, adds nothing
+  Adapter (translates an interface)      exists "for decoupling" in theory
+  Anti-corruption layer                  hides NO decision
+  e.g. wrapping pydicom / a PACS
+  client so vendor quirks stay out
+```
+
+The difference, once again, is Parnas's criterion. A legitimate wrapper **hides a decision likely to change** (which DICOM library, which PACS vendor) or **translates** between two models. A Middle Man hides nothing; it's just a corridor between two rooms.
+
+---
+
+## The big tension: the delegation dial
+
+**Hide Delegate** and **Remove Middle Man** are *exact inverse refactorings*. You'll keep moving between them as the code changes:
+
+```
+   Message Chains                                              Middle Man
+   ◄──────────────────────────────────────────────────────────────────────►
+   client knows the                                       server is just a
+   whole structure                                        forwarding hallway
+         │                                                         │
+         └──── HIDE DELEGATE ──►    sweet spot   ◄── REMOVE MIDDLE MAN ┘
+                                expose INTENTIONS
+                              (escalate_overdue),
+                               not PATHS (a.b.c.d)
+```
+
+The way out of the dial is **intention-revealing methods**. Both `study.order.visit.ward.department.head.email` and `study.department_head_email()` expose *structure*. `study.escalate_overdue(notifier)` exposes *purpose*, and the structure behind it can change freely.
+
+There's also a second tension, from earlier: **Feature Envy vs Divergent Change**. If you move every behavior into its data class, `Patient` can grow until it changes for many reasons (lesson 2) and becomes a Large Class (lesson 1). Strategy, Visitor, and layering exist to balance this.
+
+---
+
+## What *good* coupling looks like
+
+Coupling can't be zero, so aim for coupling with these properties:
+
+```
+  ┌─────────────────┬──────────────────────────────────────────────────┐
+  │ NARROW          │ few methods, not many fields                     │
+  │ EXPLICIT        │ through public interfaces, never _private parts  │
+  │ ONE-DIRECTIONAL │ A depends on B, not both ways                    │
+  │ TOWARD STABLE   │ depend on things that change LESS than you do    │
+  │ ABOUT INTENT    │ "what I need" (age_at), not "how you're built"   │
+  └─────────────────┴──────────────────────────────────────────────────┘
+
+        Domain (Patient, Study, Modality)   ← most stable, depends on nothing
+                    ▲
+        Application (AssignmentLedger)      ← depends on domain
+                    ▲
+        Adapters (PACS client, HL7, UI)     ← most volatile, depends inward
+```
+
+The last row is the core idea of Clean Architecture's **dependency rule**: dependencies point toward the stable center.
+
+---
+
+## Detection tools
+
+```zsh
+# Insider Trading in Python: cross-object private access
+grep -rnE "\b[a-z_]+\._[a-z]" src/ | grep -v "self\._"
+
+# Message Chains (rough; read results with judgment, not as rules)
+grep -rnE "\w+(\.\w+){4,}" src/ --include="*.py"
+
+# Visualize the import graph: look for cycles (two-way coupling)
+pip install pydeps && pydeps src/your_package --cluster
+
+# ENFORCE layer rules in CI (e.g. "domain must not import adapters")
+pip install import-linter   # then define contracts in .importlinter
+```
+
+Also recall the **change coupling** analysis from lesson 2. Files that always change together in Git but sit in different modules are often hidden Insider Trading.
+
+---
+
+## The whole picture
+
+```
+ SMELL             QUESTION TO ASK                             MAIN CURES
+ ───────────────   ─────────────────────────────────────────   ─────────────────────────
+ Feature Envy      "Whose data does this function use most?"   Move Function,
+                                                               Extract then Move
+ Insider Trading   "Am I touching another module's private     Move Function/Field,
+                    parts? Does it touch mine?"                Extract shared module,
+                                                               Replace Sub with Delegate
+ Message Chains    "Am I navigating a structure that isn't     Hide Delegate,
+                    mine to know?"                             Extract + Move intent
+ Middle Man        "Does this class hide any decision, or      Remove Middle Man,
+                    just forward calls?"                       Inline Function
+```
+
+How all four lessons now connect:
+
+```
+  Lesson 1  Bloaters ─────────── Data Clumps → class → behavior moves in (cures Envy)
+  Lesson 2  Change Preventers ── "put together what changes together" (Envy's real rule)
+                                  Hidden coupling shows up in Git co-change
+  Lesson 3  Dispensables ──────── Data Class ⟷ Feature Envy (two sides of one problem)
+                                  Lazy Element ⟷ Middle Man (both: layers that add nothing)
+  Lesson 4  Couplers ──────────── Tell, Don't Ask · Law of Demeter · Dependency direction
+```

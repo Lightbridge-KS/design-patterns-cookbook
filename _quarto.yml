@@ -87,6 +87,8 @@ book:
           href: "contents/refactoring/change-preventor.qmd"
         - text: "Dispensable"
           href: "contents/refactoring/dispensables.qmd"
+        - text: "Couplers"
+          href: "contents/refactoring/couplers.qmd"
     - part: Domain-Driven Design
       chapters:
         - text: "Strategic Design"
