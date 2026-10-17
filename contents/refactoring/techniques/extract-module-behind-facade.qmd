@@ -1,0 +1,140 @@
+---
+title: "Extract Module behind a Facade"
+---
+
+
+The phrase combines two ideas. **Extract Module** means taking a cluster of related logic that is scattered or tangled inside a codebase and giving it its own home. **Behind a Facade** means that everyone else reaches that home only through one small, deliberately designed front door. You build the front door first, route callers through it, and only then move or rewrite what sits behind it.
+
+The core idea: you change the shape of the dependency graph before you change the code itself.
+
+## The problem it solves
+
+Imagine a codebase where "exporting a report" isn't a thing. It's a pattern repeated in many places.
+
+```
+BEFORE: callers reach directly into implementation details
+
+  ┌────────────┐   ┌────────────┐   ┌────────────┐
+  │ Controller │   │ BatchJob   │   │ CLI tool   │
+  └──┬───┬───┬─┘   └──┬───┬─────┘   └──┬──────┬──┘
+     │   │   │        │   │            │      │
+     ▼   ▼   ▼        ▼   ▼            ▼      ▼
+   template  font   pdf_lib  file   template  pdf_lib
+   engine    cache  calls    paths  engine    calls
+```
+
+Every caller knows how the work is done: which template engine, how fonts are cached, where files go. Changing the PDF library now means touching every caller. Testing a caller means dragging the whole PDF stack along. The knowledge has leaked everywhere, so the coupling has leaked everywhere too.
+
+## The strategy, step by step
+
+```
+AFTER: one front door; internals are private
+
+  ┌────────────┐   ┌────────────┐   ┌────────────┐
+  │ Controller │   │ BatchJob   │   │ CLI tool   │
+  └─────┬──────┘   └─────┬──────┘   └─────┬──────┘
+        └────────────────┼────────────────┘
+                         ▼
+              ╔═════════════════════╗
+              ║  ReportExporter     ║  ◄── facade: small, stable,
+              ║  .export(report)    ║      speaks the callers' language
+              ╚══════════╤══════════╝
+       ┌─────────────────┼──────────────────┐
+       │  report_export module (private)    │
+       │  template engine · fonts · pdf_lib │
+       │  file paths · retries · caching    │
+       └────────────────────────────────────┘
+```
+
+**1. Identify the cluster.** Find the responsibility that is spread around. A good sign is that the same group of imports and calls keeps appearing together across files.
+
+**2. Design the facade from the callers' point of view.** Ask what the callers actually want, not what the internals happen to offer. Callers want "export this report as a PDF." They don't want "load template, warm font cache, render, write bytes." This is the most important design decision in the whole refactoring.
+
+**3. Make the facade delegate to the existing messy code.** At first the facade is just a wrapper around the code that already exists, with no change in behavior. This keeps the step safe and boring.
+
+```python
+# Step 3: the facade starts as a thin delegator. No behavior changes yet.
+class ReportExporter:
+    """Single entry point for turning a Report into a file."""
+
+    def export(self, report: Report, fmt: str = "pdf") -> Path:
+        # Temporarily calls the same legacy functions the callers used to call.
+        html = legacy_render_template(report.template_name, report.data)
+        warm_font_cache()
+        return legacy_write_pdf(html, legacy_output_path(report))
+```
+
+**4. Redirect callers one at a time.** Each caller switches from the direct calls to `exporter.export(report)`. Every switch is a small commit you can test and revert. The system works at every step.
+
+**5. Move the internals behind the wall.** Once no outside code calls the internals directly, move them into the new module and make them private. In Python, use a leading underscore or keep them out of `__init__`. In C#, use `internal`. In Dart, use the `_` prefix or don't export them from the library.
+
+**6. Now you are free to change the inside.** Swap the PDF library, add caching, or rewrite everything. Callers won't notice, because they only depend on `export()`.
+
+```
+Timeline of risk
+
+ step:   1     2     3     4      5      6
+         ─────────────────────────────────────►
+ risk:   none  none  low   low    low    contained
+                     (pure (one   (only  (behind the
+                     wrap) caller module  facade only)
+                           at a   moves)
+                           time)
+```
+
+## Why this order matters
+
+A naive refactoring tries to move code and change callers at the same time. That produces one big, risky change. This strategy splits it into two separate concerns:
+
+```
+  Change WHO depends on WHAT   (steps 2–4)   ← redirect dependencies
+                │
+                ▼
+  Change HOW it works inside   (steps 5–6)   ← refactor freely
+```
+
+The facade is what Michael Feathers calls a **seam**: a place where you can change behavior without editing the code on either side. It is also the natural place to put tests. You can write characterization tests against `export()` before touching the internals, and they stay valid however much the inside changes.
+
+## The philosophical part: deep, not thin
+
+The common failure mode is a facade that mirrors the internals one-to-one:
+
+```python
+# Shallow facade: just a renamed pile of internals. Little gained.
+class ReportExporter:
+    def render_template(self, name, data): ...
+    def warm_font_cache(self): ...
+    def write_pdf(self, html, path): ...
+    def compute_output_path(self, report): ...
+```
+
+Here the callers still have to know the procedure, and all you've done is add a layer. John Ousterhout's *A Philosophy of Software Design* calls this a **shallow module**: the interface is nearly as complex as the implementation.
+
+A good facade is a **deep module**. It has a small interface hiding a lot of complexity, like `export(report)`. The measure of success is how much knowledge the callers no longer need, not how many files you moved.
+
+```
+  Shallow:  ┌──────────────────────────┐    Deep:   ┌──────────┐
+            │  big interface           │            │ small API│
+            ├──────────────────────────┤            ├──────────┤
+            │  little hidden           │            │          │
+            └──────────────────────────┘            │  lots    │
+                                                    │  hidden  │
+                                                    │          │
+                                                    └──────────┘
+```
+
+## Relatives you may have heard of
+
+The **Facade pattern** (Gang of Four) is the structural pattern this strategy uses: a simplified interface over a subsystem. The refactoring adds the incremental migration path on top.
+
+**Branch by Abstraction** (Paul Hammant, Martin Fowler) is nearly the same move. It puts an abstraction in front of a component so you can build a replacement behind it while the old one keeps working. Its emphasis is on swapping the implementation.
+
+**Strangler Fig** is the same idea at the system boundary. A routing layer sits in front of a legacy system, and pieces are replaced one by one until the old system can be removed.
+
+**Extract Class** (Fowler) is the smaller, in-file version: splitting one class's responsibilities into two.
+
+## A rule of thumb
+
+Use this strategy when three things are true. One responsibility has leaked across many call sites. You expect its internals to change, through a new library, a new vendor, or a rewrite. And you can't afford a big-bang change. If the logic lives in one place and nobody else touches it, a plain extract-and-move is enough, and a facade would just be ceremony.
+
+In one sentence: **first make every caller depend on a small promise, then keep that promise however you like.**

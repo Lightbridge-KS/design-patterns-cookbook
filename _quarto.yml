@@ -89,6 +89,10 @@ book:
           href: "contents/refactoring/dispensables.qmd"
         - text: "Couplers"
           href: "contents/refactoring/couplers.qmd"
+    - part: Refactoring Technique
+      chapters: 
+        - text: "Extract Module behind Facade"
+          href: "contents/refactoring/techniques/extract-module-behind-facade.qmd"
     - part: Domain-Driven Design
       chapters:
         - text: "Strategic Design"
