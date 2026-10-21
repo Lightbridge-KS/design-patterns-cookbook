@@ -7,6 +7,8 @@ book:
   repo-url: https://github.com/Lightbridge-KS/design-patterns-cookbook
   site-url: https://design-patterns-cookbook-lightbridge.netlify.app
   date: today
+  sidebar:
+    collapse-level: 1
   chapters:
     - index.qmd
     - part: OOP
@@ -79,17 +81,17 @@ book:
       chapters: 
         - text: "Boolean Soup"
           href: "contents/anti-pattern/boolean-soup.qmd"
-    - part: Refactoring
+    - part: Code Smells
       chapters: 
         - text: "Bloaters"
           href: "contents/refactoring/bloaters.qmd"
-        - text: "Change Preventor"
+        - text: "Change Preventers"
           href: "contents/refactoring/change-preventor.qmd"
-        - text: "Dispensable"
+        - text: "Dispensables"
           href: "contents/refactoring/dispensables.qmd"
         - text: "Couplers"
           href: "contents/refactoring/couplers.qmd"
-    - part: Refactoring Technique
+    - part: Refactoring Techniques
       chapters: 
         - text: "Extract Module behind Facade"
           href: "contents/refactoring/techniques/extract-module-behind-facade.qmd"
@@ -97,17 +99,15 @@ book:
       chapters:
         - text: "Strategic Design"
           href: "contents/ddd/strategic-design.qmd"
-    - part: Microkernel / Plug-in Architecture
+    - part: Architectural Patterns
       chapters: 
-        - text: "Microkernel, Registry, and Manifest-First"
+        - text: "Microkernel: Registry & Manifest-First"
           href: "contents/plugins-arch/microkernel-registry-manifest-first.qmd"
-        - text: "Manifest-first / Declarative Meta"
+        - text: "Microkernel: Declarative Meta"
           href: "contents/plugins-arch/manifest-first-declarative-meta.qmd"
-        - text: "Capability Flag"
+        - text: "Microkernel: Capability Flag"
           href: "contents/plugins-arch/capability-flag-over-type-switching.qmd"
-    - part: Hexagonal Architecture
-      chapters: 
-        - text: Port & Adapter
+        - text: "Hexagonal: Port & Adapter"
           href: "contents/hexagonal/port-adapter-explained.qmd"
 filters:
   - diagram-zoom
