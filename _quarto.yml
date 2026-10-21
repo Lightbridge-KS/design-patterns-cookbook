@@ -91,6 +91,8 @@ book:
           href: "contents/refactoring/dispensables.qmd"
         - text: "Couplers"
           href: "contents/refactoring/couplers.qmd"
+        - text: "Data & Abstraction Misuse"
+          href: "contents/refactoring/data-abstraction-misuse.qmd"
     - part: Refactoring Techniques
       chapters: 
         - text: "Extract Module behind Facade"

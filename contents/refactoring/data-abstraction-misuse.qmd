@@ -1,0 +1,535 @@
+---
+title: "Data & Abstraction Misuse: When the Representation Doesn't Match the Meaning"
+---
+
+## The core idea
+
+The first four families were about *size*, *boundaries*, *excess*, and *coupling*. This last family is about something more basic: **the shape you choose to represent a concept.**
+
+Every program translates domain concepts (a patient, a dose, a modality) into code (names, types, variables, classes). These nine smells are places where that translation **doesn't tell the truth**. The code *works*, but its representation hides, distorts, or contradicts what it means.
+
+```
+     DOMAIN CONCEPT                 CODE REPRESENTATION
+     ──────────────                 ───────────────────
+     "Hospital Number,              hn: str
+      exactly 7 digits"     ──✗──►  (any string at all: "", "abc", "12")
+
+     "CT dose in mGy"       ──✗──►  dose: float   (mGy? Gy? CTDI? DLP?)
+
+     "behavior differs      ──✗──►  if modality == "CT": ... in 6 files
+      by modality"
+```
+
+There are nine smells, so I've split them into two parts:
+
+```
+  PART A — DATA THAT LIES OR LEAKS          PART B — ABSTRACTIONS WITH THE WRONG SHAPE
+  (names, scope, mutability, types)         (control flow and type hierarchies)
+  ─────────────────────────────────         ──────────────────────────────────────────
+  1. Mysterious Name                        6. Repeated Switches
+  2. Global Data                            7. Loops
+  3. Mutable Data                           8. Refused Bequest
+  4. Primitive Obsession                    9. Alternative Classes with
+  5. Temporary Field                           Different Interfaces
+```
+
+---
+
+# PART A: Data That Lies or Leaks
+
+## 1. Mysterious Name
+
+Fowler moved this smell to **first place** in the 2nd edition. A name is the main way code communicates with the next person who reads it.
+
+```python
+def proc(d, f=True):
+    r = d["m"]
+    t = 24 if r == "CT" else 48
+    ...
+```
+
+**Cures:** **Rename Variable / Function / Field**, **Change Function Declaration**.
+
+```python
+def compute_deadline(study: Study, include_weekends: bool = True): ...
+```
+
+### The deeper insight: naming difficulty is a design signal
+
+Fowler makes the point that when you **can't think of a good name**, the problem is often deeper than vocabulary. If a function is hard to name, it's usually doing two things (Long Function, Divergent Change), or it represents a concept you haven't understood yet. **Struggling with a name is a diagnostic tool.**
+
+Two practical rules:
+
+```
+  Name length ∝ scope       i in a 3-line loop is fine
+                            a module-level i is a crime
+
+  Use DOMAIN words          "accession_number", "tat_deadline", "prior_study"
+  (ubiquitous language)     not "data", "info", "item", "obj", "manager"
+```
+
+---
+
+## 2. Global Data
+
+Fowler describes this as one of the **most pungent** smells. The problem is simple: data that can be modified **from anywhere** gives you **no way to know who changed it**.
+
+```python
+# config.py
+CURRENT_MODEL = None
+THRESHOLDS = {"CT": 0.7, "CR": 0.6}
+
+# somewhere_far_away.py
+config.THRESHOLDS["CT"] = 0.5        # who did this? when? why?
+```
+
+Global data also appears **in disguise**: singletons, class-level mutable variables, module-level caches, environment variables read in many places.
+
+**Cure:** **Encapsulate Variable**. Wrap the data in functions, so every access goes through one controllable point. Then **narrow its scope**, ideally moving it into a class or module that has a clear owner.
+
+```python
+class ThresholdRegistry:
+    def __init__(self, thresholds: Mapping[Modality, float]):
+        self._thresholds = dict(thresholds)
+
+    def for_modality(self, m: Modality) -> float:
+        return self._thresholds[m]
+```
+
+Now changes can only happen through one controlled interface, and you can add logging, validation, or make it read-only.
+
+Fowler quotes Paracelsus: *"the difference between a poison and something benign is the dose."* A small amount of global data is manageable. **Global constants are fine**. Danger comes from the combination of *wide scope* and *mutability*, which leads to the next smell.
+
+---
+
+## 3. Mutable Data
+
+**Symptom:** A change to data in one place causes unexpected effects somewhere else.
+
+```python
+def top_findings(findings: list[Finding], n: int = 3) -> list[Finding]:
+    findings.sort(key=lambda f: f.severity, reverse=True)   # mutates the CALLER's list!
+    return findings[:n]
+
+report_findings = [...]                  # carefully ordered by anatomy
+summary = top_findings(report_findings)  # ...now silently re-sorted by severity
+```
+
+```
+   caller's variable ──┐
+                       ├──► [ same list object in memory ]
+   function's param  ──┘           ▲
+                                   └── .sort() changes it for BOTH
+                                        (aliasing)
+```
+
+The function *looks* like a **query** ("give me the top findings") but it's secretly a **modifier**. That breaks **Command-Query Separation**: a function should either answer a question or change state, not both.
+
+**Cures:**
+
+| Situation | Refactoring |
+|---|---|
+| A query that also changes state | **Separate Query from Modifier** (here, just `sorted(...)`) |
+| A stored value that could be computed | **Replace Derived Variable with Query** |
+| A value object being mutated | **Change Reference to Value** (`frozen=True`) |
+| Setters nobody should call | **Remove Setting Method** |
+| One variable reused for different things | **Split Variable** |
+
+```python
+def top_findings(findings: Sequence[Finding], n: int = 3) -> list[Finding]:
+    return sorted(findings, key=lambda f: f.severity, reverse=True)[:n]
+```
+
+Here is an example of **Replace Derived Variable with Query**. A field like `study.total_dlp`, updated manually whenever a series is added, can drift out of sync. A computed property cannot:
+
+```python
+@property
+def total_dlp(self) -> float:
+    return sum(s.dlp for s in self.series)
+```
+
+### Scope × Mutability: putting smells 2 and 3 together
+
+```
+                     IMMUTABLE                 MUTABLE
+                ┌──────────────────────┬──────────────────────────┐
+  NARROW scope  │  ✓ safe              │  ~ manageable            │
+  (local)       │                      │   (you can see all uses) │
+                ├──────────────────────┼──────────────────────────┤
+  WIDE scope    │  ✓ fine              │  ✗ DANGER                │
+  (global)      │   (constants)        │   (anyone, anywhere,     │
+                │                      │    any time)             │
+                └──────────────────────┴──────────────────────────┘
+```
+
+Risk comes from **scope multiplied by mutability**. Reducing either one helps a lot. This is the core lesson functional programming taught mainstream software, and it's why your earlier dataclasses have been `frozen=True`.
+
+---
+
+## 4. Primitive Obsession
+
+**Symptom:** Using strings, ints, and floats for domain concepts that have their own **rules, units, or behavior**.
+
+```python
+def check_drl(ctdi: float, limit: float, hn: str, modality: str) -> bool: ...
+```
+
+Every parameter here is ambiguous:
+
+```
+  ctdi: float      mGy? Gy? CTDIvol or DLP?      → unit errors
+  hn: str          normalized? validated?        → re-validated everywhere (lesson 3)
+  modality: str    "CT"? "ct"? "Computed Tom."?  → typo bugs
+```
+
+Unit errors with primitives have real consequences: NASA lost the Mars Climate Orbiter in 1999 because one system produced impulse in pound-force seconds and another expected newton-seconds. Both were just `float`.
+
+**Cures:** **Replace Primitive with Object** (value objects), **Replace Type Code with Subclasses**, **Introduce Parameter Object**.
+
+```python
+@dataclass(frozen=True)
+class HN:
+    value: str
+
+    def __post_init__(self):
+        if not (len(self.value) == 7 and self.value.isdigit()):
+            raise ValueError(f"Invalid HN: {self.value!r}")
+
+    @classmethod
+    def parse(cls, raw: str) -> "HN":
+        return cls(raw.strip().replace("-", "").zfill(7))
+```
+
+You've already seen this cure twice: the `Modality` enum in lesson 2 and `normalize_hn` in lesson 3. A value object is where that function *naturally lives*.
+
+### The philosophy: "parse, don't validate"
+
+```
+  VALIDATE (primitive)                    PARSE (value object)
+  ────────────────────                    ────────────────────
+  def f(hn: str):                         def f(hn: HN):
+      if not valid(hn): raise ...             ...  # already guaranteed valid
+  → every function re-checks              → checked ONCE, at the boundary
+  → one forgotten check = bug             → invalid HN CANNOT EXIST past here
+```
+
+Alexis King calls this *"parse, don't validate."* Yaron Minsky puts it as *"make illegal states unrepresentable."* Once a raw string has been parsed into an `HN`, the type system carries the guarantee everywhere else.
+
+### A balance: don't wrap everything
+
+A value object should **earn its existence** by carrying validation, units, or behavior. A wrapper that adds nothing is a **Lazy Element** (lesson 3). For a lightweight "just don't mix these up" type, Python's `NewType` costs nothing at runtime:
+
+```python
+from typing import NewType
+AccessionNumber = NewType("AccessionNumber", str)   # mypy catches mix-ups with HN
+```
+
+(In C#, `readonly record struct` gives you cheap value objects. In Dart, a small `final class` with a `const` constructor does the same.)
+
+---
+
+## 5. Temporary Field
+
+**Symptom:** A field that is only set **in certain circumstances**, so readers must figure out when it's valid.
+
+```python
+class ReportBuilder:
+    def __init__(self, study):
+        self.study = study
+        self._prior = None           # only set if a prior study exists
+        self._interval_change = None # only computed if _prior exists
+
+    def build(self):
+        text = self._findings()
+        if self._prior is not None:                    # checks everywhere
+            text += self._comparison()
+        ...
+```
+
+The object's state is **conditionally meaningful**. Every method has to remember which fields are "real" right now.
+
+**Cures:** **Extract Class**, moving the temporary fields *and the code that uses them* into their own class. Use **Introduce Special Case** (Null Object) to remove the `None` checks.
+
+```python
+class Comparison:                         # exists only when a prior exists
+    def __init__(self, current, prior): ...
+    def render(self) -> str: ...
+
+class NoComparison:                       # Special Case
+    def render(self) -> str:
+        return "No prior study available for comparison."
+
+comparison = Comparison(study, prior) if prior else NoComparison()
+```
+
+Now every object is **fully valid for its whole lifetime**, which is the same "illegal states unrepresentable" idea applied to objects.
+
+---
+
+# PART B: Abstractions With the Wrong Shape
+
+## 6. Repeated Switches
+
+In the 1st edition this smell was called "Switch Statements," and Fowler treated any switch as suspicious. In the 2nd edition he softened it: **a single switch is fine**. The smell is the **same switch on the same condition repeated in several places**.
+
+```python
+# protocol.py
+if modality == Modality.CT:   kv = 120
+elif modality == Modality.CR: kv = 80
+# dose.py
+if modality == Modality.CT:   report = ctdi_report(s)
+elif modality == Modality.CR: report = dap_report(s)
+# tat.py
+if modality == Modality.CT:   ...
+```
+
+Adding a modality means finding every one of these switches. That's **Shotgun Surgery** (lesson 2) caused by control flow.
+
+**Cure:** **Replace Conditional with Polymorphism**.
+
+```python
+class ModalityPolicy(Protocol):
+    def default_kv(self) -> int: ...
+    def dose_report(self, s: Study) -> DoseReport: ...
+
+class CtPolicy:
+    def default_kv(self): return 120
+    def dose_report(self, s): return ctdi_report(s)
+
+class CrPolicy:
+    def default_kv(self): return 80
+    def dose_report(self, s): return dap_report(s)
+
+POLICIES: dict[Modality, ModalityPolicy] = {Modality.CT: CtPolicy(), Modality.CR: CrPolicy()}
+```
+
+The switch now happens **once**, in the lookup, and every other place just calls `policy.dose_report(s)`.
+
+(When modalities differ only in **data**, like titles and TAT hours, the enum from lesson 2 is enough. Polymorphism is for differences in **behavior**.)
+
+### The deep insight: the Expression Problem
+
+Polymorphism is not always better. There's a classic trade-off, which Philip Wadler named the **Expression Problem**:
+
+```
+                       add a new TYPE          add a new OPERATION
+                       (e.g. MG modality)      (e.g. "export to FHIR")
+                    ┌─────────────────────┬──────────────────────────┐
+  switch / match    │ ✗ edit every switch │ ✓ write one new function │
+                    ├─────────────────────┼──────────────────────────┤
+  polymorphism      │ ✓ write one class   │ ✗ edit every class       │
+                    └─────────────────────┴──────────────────────────┘
+```
+
+Neither shape is universally right. Choose based on **which axis changes more often** in your domain. That's lesson 2's principle once again: *organize code around what actually changes.* If new modalities are rare but new operations are common, a well-placed `match` statement may be the better design.
+
+---
+
+## 7. Loops
+
+Fowler added this smell in the 2nd edition because first-class functions are now standard in mainstream languages. A manual loop shows **how** the computation runs. A pipeline shows **what** it means.
+
+```python
+wards = set()
+for s in studies:
+    if s.modality is Modality.CT:
+        if s.is_overdue(now):
+            wards.add(s.ward)
+```
+
+**Cure:** **Replace Loop with Pipeline**. In Python that's usually a comprehension:
+
+```python
+overdue_ct_wards = {
+    s.ward for s in studies
+    if s.modality is Modality.CT and s.is_overdue(now)
+}
+```
+
+```
+  LOOP: read 5 lines, simulate the state     PIPELINE: read the intent
+  ──────────────────────────────────────     ─────────────────────────
+  "start empty set, iterate, check,          "the wards of overdue CT studies"
+   check again, add..."
+```
+
+This is the same idea as a dplyr chain: `filter() |> distinct()` describes the data transformation directly.
+
+A related refactoring is **Split Loop**: if one loop computes two unrelated things (e.g., counts overdue studies *and* sums DLP), split it into two loops, one for each purpose. Clarity first, then optimize only if profiling shows a real need.
+
+**Balance:** Pipelines are not always clearer. Loops with complex early exits, state machines, or several interacting accumulators can be easier to follow as explicit loops. The goal is **expressed intent**, not avoiding the `for` keyword.
+
+---
+
+## 8. Refused Bequest
+
+**Symptom:** A subclass inherits methods or data it **doesn't want**.
+
+```python
+class Study:
+    def dose_report(self) -> DoseReport: ...
+    def contrast_agent(self) -> str: ...
+
+class UltrasoundStudy(Study):
+    def dose_report(self):
+        raise NotImplementedError("Ultrasound has no ionizing radiation")
+```
+
+Fowler distinguishes two levels of severity:
+
+```
+  MILD:   subclass doesn't USE some inherited implementation
+          → often tolerable
+
+  SEVERE: subclass REFUSES the inherited INTERFACE
+          (raises, returns nonsense, or no-ops)
+          → violates the Liskov Substitution Principle:
+            code that works with Study breaks when given UltrasoundStudy
+```
+
+**Cures:**
+
+- **Push Down Method / Push Down Field**: create a more specific parent for the subclasses that actually want the behavior.
+
+```
+        BEFORE                              AFTER
+        ──────                              ─────
+         Study                               Study
+       (dose_report)                           │
+     ┌──────┼──────┐               ┌───────────┴───────────┐
+    CT     CR     US ✗           IonizingStudy             US  MR
+                                 (dose_report)
+                                  ┌────┼────┐
+                                 CT   CR   MG
+```
+
+- **Replace Subclass with Delegate / Replace Superclass with Delegate**: if the hierarchy keeps fighting the domain, switch to **composition**. A study *has* a `RadiationExposure` component when relevant, instead of *being* a kind of ionizing study.
+
+This connects to **Insider Trading** (lesson 4): inheritance is the tightest coupling available, and Refused Bequest is a sign that the coupling is wrong.
+
+---
+
+## 9. Alternative Classes with Different Interfaces
+
+**Symptom:** Two classes do the **same job** but have **different method signatures**, so you can't swap one for the other.
+
+```python
+class OrthancClient:
+    def get_instance(self, sop_uid: str) -> bytes: ...
+
+class DicomWebClient:
+    def retrieve(self, study_uid: str, series_uid: str, instance_uid: str) -> Dataset: ...
+```
+
+Every caller needs `if isinstance(client, OrthancClient): ... else: ...`, which is a **Repeated Switch** on type.
+
+**Cures:** **Change Function Declaration** to align names and parameters, **Move Function** until the behaviors match, then **Extract Superclass** (in Python, a `Protocol`):
+
+```python
+class ImageSource(Protocol):
+    def fetch(self, ref: InstanceRef) -> Dataset: ...
+```
+
+### The mirror image of Speculative Generality
+
+This connects neatly to lesson 3:
+
+```
+  Speculative Generality          Alternative Classes w/ Different Interfaces
+  ──────────────────────          ───────────────────────────────────────────
+  1 interface, 1 implementation   0 interfaces, 2 implementations
+  abstraction WITHOUT a need      a need WITHOUT an abstraction
+  → COLLAPSE it                   → UNIFY them
+```
+
+Remember the `ImageSource` base class we collapsed in lesson 3? It had one implementation and no real need. **Now** there are two real implementations, so the same abstraction is justified. The abstraction is the same; **the evidence is different**. That's the YAGNI cycle: wait until reality asks for the abstraction, then build it.
+
+---
+
+## The unifying principle: representations should tell the truth
+
+```
+ SMELL                     THE LIE IT TELLS                   THE HONEST SHAPE
+ ───────────────────────   ────────────────────────────────   ──────────────────────────
+ Mysterious Name           "this means... something"          domain vocabulary
+ Global Data               "this belongs to no one"           an owner with an interface
+ Mutable Data              "this value is what you saw"       immutable values, CQS
+ Primitive Obsession       "any string is a valid HN"         value objects, parse once
+ Temporary Field           "this field is always meaningful"  extract the conditional part
+ Repeated Switches         "behavior is scattered"            polymorphism (or one match)
+ Loops                     "the mechanics are the meaning"    pipelines that state intent
+ Refused Bequest           "a US study IS a dose-bearer"      push down, or compose
+ Alt. Classes w/ Diff. If. "these are unrelated"              a shared Protocol
+```
+
+Several tensions you've seen before also appear here:
+
+```
+  Primitive Obsession  ⟷  Lazy Element       (wrap only when the type earns it)
+  Polymorphism         ⟷  match statement    (the Expression Problem)
+  Inheritance          ⟷  composition        (Refused Bequest ⟷ Insider Trading)
+  Alt. Classes         ⟷  Speculative Gen.   (abstract on evidence, not on guess)
+```
+
+---
+
+## Detection tools
+
+```zsh
+# Repeated Switches: how many places compare against the same type code?
+grep -rn 'modality == ' src/ | wc -l
+
+# Global/mutable module state
+grep -rnE '^\s*global\s' src/
+
+# Mutable default args & other mutation gotchas (flake8-bugbear rules, via ruff)
+ruff check --select B src/
+
+# Primitive Obsession: let the type checker find mixed-up primitives
+mypy --strict src/     # pairs well with NewType and value objects
+```
+
+---
+
+# 🎓 The complete course: 24 smells, one map
+
+You've now covered every smell in the book. Here's the full picture:
+
+```
+                            CODE SMELLS (24)
+                                   │
+   ┌────────────┬──────────────────┼──────────────────┬───────────────────────┐
+   │            │                  │                  │                       │
+ BLOATERS    CHANGE           DISPENSABLES        COUPLERS          DATA & ABSTRACTION
+ "too big"   PREVENTERS       "shouldn't          "know too         MISUSE
+             "bad seams"       exist"              much"            "wrong shape"
+   │            │                  │                  │                       │
+ cognitive   axis of           every line         information       representation
+ load        change            is a liability     hiding            honesty
+   │            │                  │                  │                       │
+ EXTRACT     SPLIT / GATHER    INLINE / REMOVE    MOVE / HIDE        RENAME / ENCAPSULATE
+                                                                    / REPLACE
+   └────────────┴──────────────────┴──────────────────┴───────────────────────┘
+                                   │
+            ┌──────────────────────┴───────────────────────┐
+            │  Put together what changes together.          │
+            │  Keep apart what changes for different        │
+            │  reasons. Let every name and type tell the    │
+            │  truth about what it means.                   │
+            └───────────────────────────────────────────────┘
+```
+
+Two final reflections:
+
+**Smells are questions, not verdicts.** Almost every smell has a mirror smell: Long Function vs Lazy Element, Message Chains vs Middle Man, Duplication vs Speculative Generality. A rule like "always extract" or "never duplicate" would push you into the opposite smell. That's why Fowler gave **heuristics and judgment**, not metrics.
+
+**Refactoring is a continuous activity.** The right shape depends on what actually changes, so good design isn't something you finish. It's something you keep moving toward, in small, safe, tested steps. That's why the other half of the book, the **refactoring catalog**, plus a good test suite, is what makes all of this practical.
+
+---
+
+## 🏋️ Practice exercise
+
+1. **Name audit:** Find the three hardest-to-name functions in a RAMAAI module. For each, ask whether the difficulty is about vocabulary or about design.
+2. **Primitive hunt:** List every `str` or `float` parameter that represents a domain concept (HN, accession number, dose, threshold). Pick one and turn it into a value object with `parse()`.
+3. **Switch count:** Run the `grep` on your most common type code. If it's repeated three or more times, decide using the Expression Problem table: polymorphism or one `match`?
+4. **Liskov check:** Search for `raise NotImplementedError` in subclasses. Each one is a candidate for Refused Bequest.
