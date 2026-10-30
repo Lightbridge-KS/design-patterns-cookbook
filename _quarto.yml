@@ -115,6 +115,8 @@ book:
       chapters:
         - text: ".NET"
           href: "contents/concurrent/dotnet-concurrent-programming.qmd"
+        - text: "Python"
+          href: "contents/concurrent/python-concurrent-programming.qmd"
 
 filters:
   - diagram-zoom
