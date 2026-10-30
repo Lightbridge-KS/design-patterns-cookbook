@@ -1,0 +1,780 @@
+---
+title: "Concurrent Programming in .NET — A Summary"
+---
+
+> **Target:** .NET 9 / C# 13
+> **Audience:** Intermediate C# developers who know OOP and want a mental map of concurrency in .NET
+
+---
+
+## Table of Contents
+
+1. [Core Concepts](#1-core-concepts)
+2. [The Two Problems: Execution vs Coordination](#2-the-two-problems-execution-vs-coordination)
+3. [The Execution Stack](#3-the-execution-stack)
+4. [Choosing an Execution Model](#4-choosing-an-execution-model)
+5. [Hazards of Shared State](#5-hazards-of-shared-state)
+6. [The Coordination Toolbox](#6-the-coordination-toolbox)
+7. [Cancellation and Timeouts](#7-cancellation-and-timeouts)
+8. [Exceptions in Concurrent Code](#8-exceptions-in-concurrent-code)
+9. [Common Pitfalls](#9-common-pitfalls)
+10. [Cheat Sheet](#10-cheat-sheet)
+11. [The Big Picture](#11-the-big-picture)
+12. [Further Reading](#12-further-reading)
+
+---
+
+## 1. Core Concepts
+
+### 1.1 Concurrency vs Parallelism vs Asynchrony
+
+These three terms are often used interchangeably, but they mean different things.
+
+```
+CONCURRENCY   = several operations in progress over the same time span
+                (they may take turns on one thread)
+
+PARALLELISM   = several operations literally executing at the same instant
+                (needs multiple cores / threads)
+
+ASYNCHRONY    = an operation that waits without holding a thread
+                (I/O: network, disk, timers)
+```
+
+```
+Concurrent, not parallel (1 thread, interleaved):
+  Thread 1:  [A][B][A][C][B][A]
+
+Parallel (multiple threads/cores at once):
+  Core 1:    [A A A A A A]
+  Core 2:    [B B B B B B]
+
+Asynchronous (waiting costs no thread):
+  Thread:    [A start]......(no thread used while waiting)......[A resume]
+```
+
+| Term        | Meaning                                       | Needs multiple cores? | Typical .NET tool                  |
+| ----------- | --------------------------------------------- | --------------------- | ---------------------------------- |
+| Concurrency | Many operations in progress at once           | No                    | `Task`, `async`/`await`            |
+| Parallelism | Many operations executing at the same instant | Yes                   | `Parallel`, PLINQ, `Task.Run`      |
+| Asynchrony  | Waiting without blocking a thread             | No                    | `async`/`await` on I/O APIs        |
+
+Parallelism is a *kind* of concurrency. Asynchrony is a *way* to achieve concurrency cheaply.
+
+### 1.2 CPU-bound vs I/O-bound
+
+This is the single most important question to ask before choosing a tool.
+
+```
+CPU-bound  : the work keeps a core busy the whole time
+             e.g. image processing, hashing, compression, heavy math
+             → more cores help → use PARALLELISM
+
+I/O-bound  : the work mostly WAITS for something external
+             e.g. HTTP calls, database queries, disk reads, timers
+             → threads would just sit idle → use ASYNCHRONY
+```
+
+> **Rule of thumb:** CPU-bound → `Parallel` / `Task.Run`.
+> I/O-bound → `async`/`await` directly (no `Task.Run` needed).
+
+---
+
+## 2. The Two Problems: Execution vs Coordination
+
+Every concurrent program has to solve two separate problems.
+
+```
+                     Concurrent programming
+                    ┌──────────┴──────────┐
+       (A) EXECUTION                 (B) COORDINATION
+   "How do I run many things?"   "How do they share safely?"
+   ──────────────────────────    ─────────────────────────────
+   Thread, ThreadPool            lock / Lock / Monitor
+   Task, async/await             Interlocked
+   Parallel, PLINQ               Concurrent collections
+   Channels, Dataflow            SemaphoreSlim
+                                 ReaderWriterLockSlim
+                                 Signals (events, TaskCompletionSource)
+```
+
+- **Execution** tools *create* concurrency: they start work and schedule it.
+- **Coordination** tools *control* concurrency: they decide who may proceed, who must wait, and how shared data stays consistent.
+
+```
+  Execution creates the traffic    Coordination controls the traffic
+  ─────────────────────────────    ──────────────────────────────────
+  Threads, Tasks, async/await  ──► traffic lights, gates, toll booths
+```
+
+Most concurrency bugs (races, deadlocks, corrupted state) are coordination bugs.
+
+---
+
+## 3. The Execution Stack
+
+.NET concurrency is built in layers. Modern code lives mostly in the upper layers.
+
+```
+ ┌──────────────────────────────────────────────────────────────┐
+ │ High-level patterns   Parallel.ForEachAsync, PLINQ,          │
+ │                       Channels, TPL Dataflow                 │
+ ├──────────────────────────────────────────────────────────────┤
+ │ Language              async / await  (compiler-built state   │
+ │                       machines that pause and resume)        │
+ ├──────────────────────────────────────────────────────────────┤
+ │ Task Parallel Library Task, Task<T>, ValueTask<T>            │
+ │                       ("a unit of work that completes later")│
+ ├──────────────────────────────────────────────────────────────┤
+ │ Scheduler             ThreadPool (reuses a pool of threads)  │
+ ├──────────────────────────────────────────────────────────────┤
+ │ Runtime / OS          Thread → OS thread → CPU core          │
+ └──────────────────────────────────────────────────────────────┘
+        ▲ higher = easier, safer, preferred
+        ▼ lower  = more control, more cost, rarely needed
+```
+
+### 3.1 `Thread` — the lowest level
+
+```csharp
+var t = new Thread(() => Console.WriteLine("Hello from a dedicated thread"));
+t.Start();
+t.Join(); // block until it finishes
+```
+
+- Each thread has its own stack and OS scheduling cost. Creating many is expensive.
+- Use only for rare cases such as a long-running dedicated loop. Even then, prefer
+  `Task.Factory.StartNew(work, TaskCreationOptions.LongRunning)`.
+
+### 3.2 `ThreadPool` — reusable workers
+
+- A shared pool of worker threads, sized automatically by the runtime.
+- You rarely use it directly. `Task.Run`, `Parallel`, and `await` continuations all run on it.
+- **Thread-pool starvation** happens when pool threads are *blocked* (e.g. `.Result`, `Thread.Sleep`), so new work has no thread to run on. This is the main reason to avoid blocking in async code.
+
+### 3.3 `Task` — a promise of a result
+
+A `Task` represents *work that will complete later*. **A Task is not a thread.** An I/O-bound task may use no thread at all while it waits.
+
+```csharp
+Task<int> t = Task.Run(() => ExpensiveCalculation()); // CPU work queued to the ThreadPool
+int result = await t;
+```
+
+Useful combinators:
+
+| API                                 | Purpose                                                  |
+| ----------------------------------- | -------------------------------------------------------- |
+| `Task.WhenAll(tasks)`               | Wait for all tasks to complete                           |
+| `Task.WhenAny(tasks)`               | Continue when the first one completes                    |
+| `Task.WhenEach(tasks)` (.NET 9)     | `await foreach` over tasks *in completion order*         |
+| `Task.Delay(time, ct)`              | Asynchronous wait (no thread blocked)                    |
+| `Task.FromResult(x)` / `Task.CompletedTask` | An already-finished task                         |
+| `task.WaitAsync(timeout, ct)` (.NET 6) | Apply a timeout or cancellation to any task           |
+
+```csharp
+// .NET 9: handle results as soon as each finishes
+await foreach (Task<string> done in Task.WhenEach(downloadTasks))
+    Console.WriteLine(await done);
+```
+
+**`ValueTask<T>`** is a lighter alternative for hot paths that often complete synchronously (e.g. cache hits). Rules: await it only once, and don't store it. When in doubt, use `Task<T>`.
+
+### 3.4 `async` / `await` — the language layer
+
+The compiler rewrites an `async` method into a state machine that can pause at each `await` and resume later.
+
+```
+async Task<string> GetReportAsync()
+{
+    Validate();                        ── runs synchronously on the caller's thread
+
+    var data = await LoadAsync();      ── if not finished yet:
+                                            1. return an incomplete Task to the caller
+                                            2. free the thread
+                                            3. register "resume here" as a continuation
+
+    return Format(data);               ── resumes later, often on a DIFFERENT thread
+}
+```
+
+**Where does the code resume?** That depends on the `SynchronizationContext`:
+
+| App type                        | SynchronizationContext | After `await`, resumes on...  |
+| ------------------------------- | ---------------------- | ----------------------------- |
+| Console app                     | None                   | A thread-pool thread          |
+| ASP.NET Core                    | None                   | A thread-pool thread          |
+| UI apps (WPF, WinForms, MAUI)   | UI context             | The UI thread                 |
+
+In **library code**, use `await x.ConfigureAwait(false)` to say "I don't need to resume on the original context". It avoids deadlocks and overhead when the library is used from a UI app.
+
+**Golden rules of async:**
+
+1. **Async all the way.** Don't mix `await` with `.Result` / `.Wait()`.
+2. **Return `Task`, not `void`.** `async void` is only for event handlers.
+3. Name async methods with the `Async` suffix and accept a `CancellationToken`.
+4. **Async streams:** `IAsyncEnumerable<T>` + `await foreach` produce and consume items one at a time asynchronously.
+
+```csharp
+async IAsyncEnumerable<string> ReadLinesAsync(string path,
+    [EnumeratorCancellation] CancellationToken ct = default)
+{
+    using var reader = new StreamReader(path);
+    while (await reader.ReadLineAsync(ct) is { } line)
+        yield return line;
+}
+
+await foreach (var line in ReadLinesAsync("log.txt"))
+    Console.WriteLine(line);
+```
+
+### 3.5 High-level patterns
+
+```csharp
+// CPU-bound data parallelism (blocking call, splits work across cores)
+Parallel.ForEach(images, img => Resize(img));
+
+// PLINQ: parallel LINQ for CPU-bound queries
+var primes = numbers.AsParallel().Where(IsPrime).ToList();
+
+// I/O-bound work over a collection with a concurrency cap (.NET 6+)
+await Parallel.ForEachAsync(urls,
+    new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+    async (url, token) => await DownloadAsync(url, token));
+```
+
+> `Parallel.ForEachAsync` defaults `MaxDegreeOfParallelism` to `Environment.ProcessorCount`.
+> `Parallel.ForEach` has no default cap — set one explicitly if needed.
+
+**Channels** (`System.Threading.Channels`) — async producer/consumer queues:
+
+```
+ Producer(s) ──WriteAsync──► [ bounded channel: ▓▓▓▓░░ ] ──ReadAllAsync──► Consumer(s)
+                              if full, producers wait (backpressure)
+```
+
+```csharp
+using System.Threading.Channels;
+
+var channel = Channel.CreateBounded<int>(capacity: 10);
+
+var producer = Task.Run(async () =>
+{
+    for (int i = 0; i < 100; i++)
+        await channel.Writer.WriteAsync(i);   // waits if the channel is full
+    channel.Writer.Complete();                // signal "no more items"
+});
+
+var consumer = Task.Run(async () =>
+{
+    await foreach (var item in channel.Reader.ReadAllAsync())
+        Console.WriteLine($"Processed {item}");
+});
+
+await Task.WhenAll(producer, consumer);
+```
+
+**TPL Dataflow** (NuGet: `System.Threading.Tasks.Dataflow`) — build multi-stage pipelines out of blocks (`TransformBlock`, `ActionBlock`, ...), each with its own parallelism and buffering. Useful when a Channel-based pipeline grows complex.
+
+---
+
+## 4. Choosing an Execution Model
+
+```
+What kind of work is it?
+│
+├─ I/O-bound (waiting on network / disk / DB)
+│   ├─ One operation ...................... await the async API directly
+│   ├─ Many, all at once (small N) ........ Task.WhenAll
+│   ├─ Many, but at most N at a time ...... Parallel.ForEachAsync or SemaphoreSlim
+│   └─ Continuous stream of work .......... Channel<T> (producer/consumer)
+│
+└─ CPU-bound (keeps a core busy)
+    ├─ Loop over a collection ............. Parallel.For / Parallel.ForEach
+    ├─ LINQ-style query ................... PLINQ (.AsParallel())
+    ├─ Offload one job from a UI thread ... await Task.Run(...)
+    └─ Multi-stage pipeline ............... Channels or TPL Dataflow
+```
+
+| Scenario                                      | Use                                  |
+| --------------------------------------------- | ------------------------------------ |
+| Call a web API                                | `await httpClient.GetAsync(...)`     |
+| Download 200 files, max 5 at a time           | `Parallel.ForEachAsync` with limit 5 |
+| Resize 10,000 images on all cores             | `Parallel.ForEach`                   |
+| Keep a UI responsive during a heavy calculation | `await Task.Run(...)`              |
+| Background worker processing a queue of jobs  | `Channel<T>`                         |
+| In ASP.NET Core, call a database              | `await` the DB call (no `Task.Run`)  |
+
+---
+
+## 5. Hazards of Shared State
+
+When concurrent operations touch the **same data**, things go wrong in a few classic ways.
+
+### 5.1 Race condition
+
+The result depends on the unpredictable timing of operations. `counter++` looks like one step, but it is really three: read, add, write.
+
+```
+Thread A: read 5 ──────── add 1 ── write 6
+Thread B:      read 5 ── add 1 ── write 6     ← one increment is lost
+```
+
+Try it yourself (`dotnet new console`, then paste into `Program.cs`):
+
+```csharp
+int unsafeCount = 0;
+int safeCount = 0;
+
+Parallel.For(0, 1_000_000, _ =>
+{
+    unsafeCount++;                         // read-modify-write: races
+    Interlocked.Increment(ref safeCount);  // atomic: always correct
+});
+
+Console.WriteLine($"unsafe: {unsafeCount:N0}");   // e.g. 412,537 (varies every run)
+Console.WriteLine($"safe:   {safeCount:N0}");     // 1,000,000
+```
+
+### 5.2 Deadlock
+
+Two (or more) operations each wait for something the other holds, so none can continue.
+
+```
+Operation A holds Lock1, wants Lock2  ──┐
+                                        ├── both wait forever
+Operation B holds Lock2, wants Lock1  ──┘
+```
+
+Prevention:
+- Always acquire multiple locks in the **same order**.
+- Keep critical sections **small**; never call unknown code (callbacks, events, virtual methods) while holding a lock.
+- Use timeouts (`WaitAsync(timeout)`) where it makes sense.
+- Never block on async code (`.Result`, `.Wait()`) — a very common source of deadlocks in UI apps.
+
+### 5.3 Other hazards
+
+| Hazard          | What happens                                                              |
+| --------------- | ------------------------------------------------------------------------- |
+| Starvation      | Some operations never get a turn (e.g. thread-pool starvation)            |
+| Livelock        | Operations keep reacting to each other but make no progress               |
+| Visibility      | One thread doesn't see another thread's write yet (CPU caches/reordering) — locks and `Interlocked` handle this for you |
+| Torn reads      | Reading a large struct while another thread writes it gives a half-old, half-new value |
+
+### 5.4 Most types are NOT thread-safe
+
+Assume a type is **not** safe for concurrent use unless its docs say otherwise.
+
+| Not thread-safe for writes         | Thread-safe alternative                       |
+| ---------------------------------- | --------------------------------------------- |
+| `List<T>`                          | `ConcurrentBag<T>`, `ConcurrentQueue<T>`, or `lock` |
+| `Dictionary<TKey, TValue>`         | `ConcurrentDictionary<TKey, TValue>`          |
+| `Queue<T>`                         | `ConcurrentQueue<T>` or `Channel<T>`          |
+| `new Random()` shared across threads | `Random.Shared` (.NET 6+)                   |
+
+---
+
+## 6. The Coordination Toolbox
+
+### 6.1 Map of the toolbox
+
+Grouped by the *problem* each tool solves, from simplest (top) to most involved (bottom):
+
+```
+Coordination primitives
+│
+├─ Avoid sharing at all (best option when possible)
+│     immutable types, records, ImmutableArray, message passing (Channel<T>)
+│
+├─ Atomic single operations
+│     Interlocked.Increment / Add / Exchange / CompareExchange
+│
+├─ Thread-safe data structures
+│     ConcurrentDictionary, ConcurrentQueue, ConcurrentStack, ConcurrentBag
+│
+├─ Mutual exclusion  (only 1 at a time)
+│     lock / Monitor, System.Threading.Lock (.NET 9), SpinLock,
+│     Mutex (cross-process),
+│     SemaphoreSlim(1, 1)  ◄── async-capable
+│
+├─ Counting / limiting  (at most N at a time)
+│     Semaphore (cross-process),
+│     SemaphoreSlim(N, N)  ◄── async-capable
+│
+├─ Reader/writer  (many readers OR one writer)
+│     ReaderWriterLockSlim
+│
+├─ Signaling  ("wait until something happens")
+│     ManualResetEventSlim, AutoResetEvent, CountdownEvent, Barrier,
+│     TaskCompletionSource  ◄── async-capable
+│
+└─ Rate limiting  (at most X per time window)
+      System.Threading.RateLimiting (.NET 7+)
+```
+
+### 6.2 Blocking vs async-aware
+
+| Primitive                                   | Blocks a thread while waiting? | Usable with `await`?          | Cross-process? |
+| ------------------------------------------- | ------------------------------ | ----------------------------- | -------------- |
+| `lock` / `Monitor` / `Lock`                 | Yes                            | ❌ (CS1996 if `await` inside) | ❌             |
+| `Mutex`                                     | Yes                            | ❌                            | ✅ (named)     |
+| `Semaphore`                                 | Yes                            | ❌                            | ✅ (named)     |
+| `ReaderWriterLockSlim`                      | Yes                            | ❌                            | ❌             |
+| `ManualResetEventSlim`, `CountdownEvent`    | Yes                            | ❌                            | ❌             |
+| **`SemaphoreSlim`**                         | Only with `Wait()`             | ✅ `WaitAsync()`              | ❌             |
+| `TaskCompletionSource<T>`                   | No                             | ✅ (a signal, not a lock)     | ❌             |
+| `Channel<T>`                                | No                             | ✅ (message passing)          | ❌             |
+
+> **Key insight:** most classic primitives are thread-based and blocking. When the protected code contains `await`, your main built-in options are `SemaphoreSlim`, `TaskCompletionSource`, and `Channel<T>`.
+
+### 6.3 Avoid sharing (the best synchronization is none)
+
+- Give each task **its own data**, then combine results at the end.
+- Use **immutable** objects (`record`, `ImmutableArray<T>`, `ImmutableDictionary<K,V>`): they can be shared freely because no one can change them.
+- **Pass messages** instead of sharing memory: one task owns the data, others send it requests through a `Channel<T>`.
+
+```csharp
+// Each task returns its own result; no shared mutable state
+int[] partialSums = await Task.WhenAll(
+    chunks.Select(chunk => Task.Run(() => chunk.Sum())));
+int total = partialSums.Sum();
+```
+
+### 6.4 `Interlocked` — atomic operations on a single variable
+
+```csharp
+private int _activeRequests;
+private long _bytesDownloaded;
+
+Interlocked.Increment(ref _activeRequests);
+Interlocked.Add(ref _bytesDownloaded, chunk.Length);
+
+// Compare-and-swap: "set to newValue only if it is still oldValue"
+Interlocked.CompareExchange(ref _state, newValue, oldValue);
+```
+
+Fastest option, but only for **one variable at a time**. If two fields must change together, use a lock.
+
+### 6.5 Concurrent collections
+
+```csharp
+var counts = new ConcurrentDictionary<string, int>();
+
+Parallel.ForEach(words, word =>
+    counts.AddOrUpdate(word, addValue: 1, updateValueFactory: (_, old) => old + 1));
+```
+
+⚠️ **Caveat:** the factory in `GetOrAdd` / `AddOrUpdate` may run **more than once** under contention (only one result is stored). If the factory is expensive or has side effects, wrap it in `Lazy<T>`:
+
+```csharp
+private readonly ConcurrentDictionary<string, Lazy<Task<Report>>> _cache = new();
+
+public Task<Report> GetReportAsync(string id) =>
+    _cache.GetOrAdd(id, key => new Lazy<Task<Report>>(() => LoadReportAsync(key))).Value;
+```
+
+> `BlockingCollection<T>` is the older, blocking producer/consumer queue. Prefer `Channel<T>` in new code.
+
+### 6.6 `lock` and `System.Threading.Lock` — synchronous mutual exclusion
+
+```csharp
+public sealed class SafeList
+{
+    private readonly Lock _gate = new();      // .NET 9 / C# 13
+    // older .NET: private readonly object _gate = new();
+    private readonly List<int> _items = [];
+
+    public void Add(int x)
+    {
+        lock (_gate)
+        {
+            _items.Add(x);
+        }
+    }
+}
+```
+
+Rules:
+- Lock on a **private readonly** object. Never `lock(this)`, `lock(typeof(...))`, or a string — outside code could lock the same object and deadlock you.
+- Keep the critical section **short**.
+- **No `await` inside** (compiler error CS1996). Use `SemaphoreSlim(1, 1)` instead.
+- `lock` is **re-entrant**: the same thread can enter again without deadlocking.
+- On .NET 9, prefer the dedicated `Lock` type: clearer intent and slightly faster.
+
+### 6.7 `SemaphoreSlim` — async-capable gate with N slots
+
+```
+   SemaphoreSlim(initialCount: 3, maxCount: 3)
+
+   Waiting queue              Gate             Inside (critical section)
+  ┌──────────────┐        ┌─────────┐        ┌──────────────────────┐
+  │ Task E       │        │ count=0 │        │ Task A  ── working   │
+  │ Task D  ─────┼──────► │  ▓▓▓    │ ─────► │ Task B  ── working   │
+  │ (awaiting)   │        │ (full)  │        │ Task C  ── working   │
+  └──────────────┘        └─────────┘        └──────────┬───────────┘
+         ▲                                              │
+         │          Task A calls Release()              │
+         └────────── count 0→1, Task D enters ◄─────────┘
+```
+
+- Counts **callers (operations)**, not threads. With `await`, operations can share or switch threads.
+- `N = 1` → async lock. `N > 1` → throttle.
+- It's a **sliding window**, not batches: as soon as any slot frees up, the next waiter enters.
+
+```csharp
+private readonly SemaphoreSlim _mutex = new(initialCount: 1, maxCount: 1);
+
+public async Task SaveAsync(string text, CancellationToken ct)
+{
+    await _mutex.WaitAsync(ct);   // acquire OUTSIDE try
+    try
+    {
+        await File.AppendAllTextAsync("log.txt", text, ct);
+    }
+    finally
+    {
+        _mutex.Release();         // always release in finally
+    }
+}
+```
+
+Pitfalls: **not re-entrant** (waiting twice in the same flow deadlocks), always pass `maxCount` so extra `Release()` calls fail loudly, don't forget `await`, prefer `WaitAsync()` over `Wait()` in async code.
+
+### 6.8 `ReaderWriterLockSlim` — many readers OR one writer
+
+```csharp
+private readonly ReaderWriterLockSlim _rw = new();
+private readonly Dictionary<string, string> _settings = new();
+
+public string? Get(string key)
+{
+    _rw.EnterReadLock();                 // many readers at once
+    try { return _settings.GetValueOrDefault(key); }
+    finally { _rw.ExitReadLock(); }
+}
+
+public void Set(string key, string value)
+{
+    _rw.EnterWriteLock();                // exclusive
+    try { _settings[key] = value; }
+    finally { _rw.ExitWriteLock(); }
+}
+```
+
+Only worth it when reads **far outnumber** writes and the read section isn't trivially short. Otherwise a plain `lock` is often just as fast and simpler. Not async-capable.
+
+### 6.9 Signaling — "wait until something happens"
+
+| Primitive                   | Behavior                                                      |
+| --------------------------- | ------------------------------------------------------------- |
+| `ManualResetEventSlim`      | A door: once `Set()`, everyone passes until `Reset()`         |
+| `AutoResetEvent`            | A turnstile: each `Set()` lets exactly one waiter through     |
+| `CountdownEvent`            | Waits until a counter reaches zero ("wait for N signals")     |
+| `Barrier`                   | N participants wait for each other at each phase              |
+| `TaskCompletionSource<T>`   | Creates a `Task` you complete manually — the async-friendly signal |
+
+`TaskCompletionSource<T>` turns any callback or event into something you can `await`:
+
+```csharp
+var tcs = new TaskCompletionSource<string>(
+    TaskCreationOptions.RunContinuationsAsynchronously); // recommended default
+
+// Somewhere else (an event handler, a callback, another task):
+tcs.TrySetResult("ready");
+
+// The waiting side:
+string message = await tcs.Task;
+```
+
+### 6.10 Concurrency limit vs rate limit
+
+```
+Concurrency limit (SemaphoreSlim):   "at most 5 requests IN FLIGHT at once"
+Rate limit (RateLimiting):           "at most 100 requests PER MINUTE"
+```
+
+For the second, use `System.Threading.RateLimiting` (`FixedWindowRateLimiter`, `SlidingWindowRateLimiter`, `TokenBucketRateLimiter`), or ASP.NET Core's built-in rate-limiting middleware.
+
+---
+
+## 7. Cancellation and Timeouts
+
+.NET uses **cooperative cancellation**: the caller *requests* cancellation, and the work *checks* for it and stops itself. Nothing is killed forcibly.
+
+```
+CancellationTokenSource ──.Token──► CancellationToken ──passed into──► every async method
+   .Cancel()                           .ThrowIfCancellationRequested()   (and down to the
+   .CancelAfter(timeout)               .IsCancellationRequested           .NET APIs you call)
+```
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // auto-cancel after 10 s
+
+try
+{
+    await ProcessAllAsync(files, cts.Token);
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("Timed out or cancelled.");
+}
+
+async Task ProcessAllAsync(IEnumerable<string> files, CancellationToken ct)
+{
+    foreach (var file in files)
+    {
+        ct.ThrowIfCancellationRequested();              // check in loops / CPU work
+        var text = await File.ReadAllTextAsync(file, ct); // pass the token down
+        Analyze(text);
+    }
+}
+```
+
+Other useful pieces:
+
+```csharp
+// Cancel when EITHER the user cancels OR a timeout hits
+using var linked = CancellationTokenSource.CreateLinkedTokenSource(userToken, timeoutToken);
+
+// Add a timeout to any existing task (.NET 6+)
+var result = await SomeTaskAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+// Async periodic loop (.NET 6+) — no thread blocked between ticks
+using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+while (await timer.WaitForNextTickAsync(ct))
+    await PollServerAsync(ct);
+```
+
+Conventions:
+- Public async methods accept `CancellationToken ct = default` as the **last** parameter.
+- **Pass the token down** to every async call.
+- Cancellation surfaces as `OperationCanceledException` (or its subclass `TaskCanceledException`).
+
+---
+
+## 8. Exceptions in Concurrent Code
+
+| Situation                        | What you get                                                     |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `await task`                     | The **original** exception, rethrown with its stack trace        |
+| `task.Result` / `task.Wait()`    | An `AggregateException` wrapping it (another reason to avoid them) |
+| `await Task.WhenAll(...)`        | Only the **first** exception is thrown                           |
+| `Parallel.For` / `ForEach`       | An `AggregateException` with all failures                        |
+| `async void` method throws       | Can **crash the process** — it can't be caught by the caller     |
+| Fire-and-forget task throws      | Exception is silently lost unless you observe it                 |
+
+To see **all** failures from `Task.WhenAll`, keep a reference to the combined task:
+
+```csharp
+Task all = Task.WhenAll(tasks);
+try
+{
+    await all;
+}
+catch
+{
+    if (all.Exception is { } aggregate)
+        foreach (var ex in aggregate.InnerExceptions)
+            Console.WriteLine($"Failed: {ex.Message}");
+}
+```
+
+---
+
+## 9. Common Pitfalls
+
+| Pitfall                                                            | Symptom                                               | Fix                                                      |
+| ------------------------------------------------------------------ | ----------------------------------------------------- | -------------------------------------------------------- |
+| **Sync-over-async** (`.Result`, `.Wait()`, `.GetAwaiter().GetResult()`) | Deadlocks in UI apps; thread-pool starvation in servers | Async all the way                                     |
+| `async void` methods                                               | Crashes; caller can't await or catch                  | Return `Task` (except event handlers)                    |
+| Forgetting `await`                                                 | Work runs unobserved; exceptions lost (warning CS4014) | `await` it, or handle the task explicitly               |
+| `Task.Run` around I/O in ASP.NET Core                              | Wastes a thread for nothing                           | Just `await` the async I/O API                           |
+| `await` inside `lock`                                              | Compiler error CS1996                                 | `SemaphoreSlim(1, 1)`                                    |
+| Sharing `List<T>` / `Dictionary` across tasks                      | Corrupted state, random exceptions                    | Concurrent collections, a lock, or don't share           |
+| Unbounded fan-out (`WhenAll` over 10,000 HTTP calls)               | Socket exhaustion, overloaded server                  | `Parallel.ForEachAsync`, `SemaphoreSlim`, bounded `Channel` |
+| Ignoring `CancellationToken`                                       | Work can't be stopped; slow shutdown                  | Accept the token and pass it down                        |
+| `lock(this)` / `lock("text")` / `lock(typeof(X))`                  | Outside code can deadlock you                         | `private readonly Lock _gate = new();`                   |
+| Long work inside a lock                                            | Contention, poor throughput                           | Do the work outside; lock only the shared update         |
+| Expensive factory in `ConcurrentDictionary.GetOrAdd`               | Factory runs multiple times                           | Wrap the value in `Lazy<T>`                              |
+| Re-entering a `SemaphoreSlim` in the same flow                     | Deadlock                                              | Restructure; acquire once at the outer level             |
+| Shared `new Random()` across threads                               | Broken/duplicate values                               | `Random.Shared`                                          |
+
+---
+
+## 10. Cheat Sheet
+
+| I need to...                                         | Use                                            |
+| ---------------------------------------------------- | ---------------------------------------------- |
+| Wait for I/O without blocking                        | `async` / `await`                              |
+| Run CPU work off the UI thread                       | `await Task.Run(...)`                          |
+| Process a collection on all cores (CPU)              | `Parallel.ForEach`, PLINQ                      |
+| Process a collection with max N concurrent (I/O)     | `Parallel.ForEachAsync`                        |
+| Start several operations and wait for all            | `Task.WhenAll`                                 |
+| Handle results as each finishes                      | `Task.WhenEach` (.NET 9)                       |
+| Producer/consumer queue                              | `Channel<T>`                                   |
+| Increment a shared counter                           | `Interlocked`                                  |
+| Share a dictionary between tasks                     | `ConcurrentDictionary`                         |
+| Protect a short synchronous block                    | `lock` with `System.Threading.Lock`            |
+| Protect a block that contains `await`                | `SemaphoreSlim(1, 1)`                          |
+| Limit concurrent access to a resource                | `SemaphoreSlim(N, N)`                          |
+| Many readers, rare writers (sync)                    | `ReaderWriterLockSlim`                         |
+| Turn a callback/event into an awaitable              | `TaskCompletionSource<T>`                      |
+| Limit requests per time window                       | `System.Threading.RateLimiting`                |
+| Stop work on request or timeout                      | `CancellationToken` + `CancelAfter`            |
+| Coordinate across separate processes                 | Named `Mutex` / `Semaphore`                    |
+
+**When multiple operations touch something shared, try these in order** (higher = simpler, fewer bugs):
+
+```
+1. Can I avoid sharing?             → own copies, immutable data, Channel<T>
+2. Is it a single number/reference? → Interlocked
+3. Is it a collection?              → ConcurrentDictionary / ConcurrentQueue
+4. Is it a short sync block?        → lock (Lock in .NET 9)
+5. Does the block contain await?    → SemaphoreSlim(1, 1)
+6. Need "at most N at once"?        → SemaphoreSlim(N, N) / Parallel.ForEachAsync
+```
+
+---
+
+## 11. The Big Picture
+
+```
+┌─────────────────────────────── CONCURRENT PROGRAMMING IN .NET ───────────────────────────────┐
+│                                                                                              │
+│   Ask first:  CPU-bound?  ──► PARALLELISM  (Parallel, PLINQ, Task.Run)                       │
+│               I/O-bound?  ──► ASYNCHRONY   (async/await, no thread while waiting)            │
+│                                                                                              │
+│   ┌──────────── (A) EXECUTION ────────────┐     ┌────────── (B) COORDINATION ───────────┐    │
+│   │ Parallel.ForEachAsync, PLINQ,         │     │ 1. Don't share  (immutable, Channels) │    │
+│   │ Channels, Dataflow                    │     │ 2. Interlocked                        │    │
+│   │        ▲                              │     │ 3. Concurrent collections             │    │
+│   │ async / await                         │ ──► │ 4. lock / Lock          (sync only)   │    │
+│   │        ▲                              │     │ 5. SemaphoreSlim        (async-ready) │    │
+│   │ Task / Task<T> / ValueTask<T>         │     │ 6. ReaderWriterLockSlim (sync only)   │    │
+│   │        ▲                              │     │ 7. Signals: events, TaskCompletionSrc │    │
+│   │ ThreadPool                            │     │ 8. RateLimiting                       │    │
+│   │        ▲                              │     └───────────────────────────────────────┘    │
+│   │ Thread → OS thread → CPU core         │                                                  │
+│   └───────────────────────────────────────┘     Cross-cutting: CancellationToken,            │
+│                                                 exception handling, no sync-over-async       │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Five ideas to remember:**
+
+1. **A Task is not a thread.** An awaiting I/O task uses no thread at all.
+2. **Classify the work first.** CPU-bound → parallelism. I/O-bound → asynchrony.
+3. **Execution creates concurrency; coordination keeps it correct.**
+4. **The best synchronization is none.** Avoid shared mutable state when you can.
+5. **Async all the way.** Never block on async code; pass `CancellationToken` everywhere.
+
+---
+
+## 12. Further Reading
+
+- **Microsoft Learn** — "Asynchronous programming with async and await" (C# guide)
+- **Microsoft Learn** — "Parallel programming in .NET" (TPL, PLINQ, data structures)
+- **Microsoft Learn** — "System.Threading.Channels library"
+- **Stephen Toub** (.NET Blog) — "How Async/Await Really Works in C#" and "ConfigureAwait FAQ"
+- **Stephen Cleary** — *Concurrency in C# Cookbook* (2nd ed., O'Reilly)
+- **Joseph Albahari** — *Threading in C#* (free online; deep reference on primitives and the memory model)

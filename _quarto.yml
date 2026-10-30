@@ -111,6 +111,11 @@ book:
           href: "contents/plugins-arch/capability-flag-over-type-switching.qmd"
         - text: "Hexagonal: Port & Adapter"
           href: "contents/hexagonal/port-adapter-explained.qmd"
+    - part: Concurrent
+      chapters:
+        - text: ".NET"
+          href: "contents/concurrent/dotnet-concurrent-programming.qmd"
+
 filters:
   - diagram-zoom
 
