@@ -168,6 +168,7 @@ Most concurrency bugs (races, deadlocks, corrupted state) are coordination bugs.
 ```
 
 ---
+
 ## 3. The Execution Stack
 
 Python concurrency has **two roads** that meet in the middle: the *async road* (one thread, cooperative switching at `await`) and the *worker road* (threads, interpreters, processes, switched by the OS). Modern code lives mostly in the upper layers.
@@ -584,6 +585,7 @@ a, b = threading.concurrent_tee(stream_events(), n=2)     # every consumer sees 
 **Multi-stage pipelines:** chain stages with queues (stage 1 → queue → stage 2 → queue → ...), each stage with its own number of workers. For larger data pipelines, look at third-party tools (Dask, Ray, joblib).
 
 ---
+
 ## 4. Choosing an Execution Model
 
 ```
@@ -755,6 +757,7 @@ Single operations on built-ins won't corrupt the object (the GIL, or per-object 
 > Assume a type is **not** safe for concurrent use unless its docs say otherwise.
 
 ---
+
 ## 6. The Coordination Toolbox
 
 ### 6.1 Map of the toolbox
@@ -1079,6 +1082,7 @@ Rate limit:                      "at most 100 requests PER MINUTE"
 The stdlib has no rate limiter. Use a third-party package (e.g. `aiolimiter` for asyncio, `limits` for general use), or write a small token bucket around `asyncio.sleep`.
 
 ---
+
 ## 7. Cancellation and Timeouts
 
 Python has **three different cancellation models**, one per world:
@@ -1269,6 +1273,7 @@ ok = [r for r in results if not isinstance(r, BaseException)]
 | `profiling.sampling` (Tachyon) *(3.15+)*                     | Sampling profiler: `--async-aware` task stacks, `--mode gil` GIL holders |
 
 ---
+
 ## 10. Cheat Sheet
 
 | I need to...                                         | Use                                                          |
