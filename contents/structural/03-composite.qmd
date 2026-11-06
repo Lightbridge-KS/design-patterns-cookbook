@@ -168,6 +168,57 @@ int getTotalSize(List<dynamic> items) {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::any::Any;
+
+struct File {
+    name: String,
+    size: u64,
+}
+
+impl File {
+    fn new(name: &str, size: u64) -> Self {
+        Self {
+            name: name.to_string(),
+            size,
+        }
+    }
+}
+
+struct Folder {
+    name: String,
+    children: Vec<Box<dyn Any>>, // anything at all: no shared interface
+}
+
+impl Folder {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            children: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, item: Box<dyn Any>) {
+        self.children.push(item);
+    }
+}
+
+fn get_total_size(items: &[Box<dyn Any>]) -> u64 {
+    let mut total = 0;
+    for item in items {
+        // Runtime type checks, like isinstance()
+        if let Some(file) = item.downcast_ref::<File>() {
+            total += file.size;
+        } else if let Some(folder) = item.downcast_ref::<Folder>() {
+            total += get_total_size(&folder.children); // Different logic!
+        }
+    }
+    total
+}
+```
+
 :::
 
 #### Usage
@@ -236,6 +287,24 @@ void main() {
   // Must use external function with type checking
   final total = getTotalSize(root.children);
   print("Total size: $total");  // 350
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let mut root = Folder::new("root");
+    root.add(Box::new(File::new("doc.txt", 100)));
+    root.add(Box::new(File::new("image.png", 200)));
+
+    let mut projects = Folder::new("projects");
+    projects.add(Box::new(File::new("code.py", 50)));
+    root.add(Box::new(projects));
+
+    // Must use external function with type checking
+    let total = get_total_size(&root.children);
+    println!("Total size: {total}"); // Total size: 350
 }
 ```
 
@@ -476,6 +545,75 @@ class Folder implements FileSystemItem {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Component interface → a trait
+trait FileSystemItem {
+    fn get_name(&self) -> &str;
+    fn get_size(&self) -> u64;
+}
+
+// Leaf
+struct File {
+    name: String,
+    size: u64,
+}
+
+impl File {
+    fn new(name: &str, size: u64) -> Self {
+        Self {
+            name: name.to_string(),
+            size,
+        }
+    }
+}
+
+impl FileSystemItem for File {
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    fn get_size(&self) -> u64 {
+        self.size
+    }
+}
+
+// Composite → owns its children as boxed trait objects
+struct Folder {
+    name: String,
+    children: Vec<Box<dyn FileSystemItem>>,
+}
+
+impl Folder {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            children: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, item: Box<dyn FileSystemItem>) {
+        self.children.push(item);
+    }
+
+    fn remove(&mut self, name: &str) {
+        self.children.retain(|child| child.get_name() != name);
+    }
+}
+
+impl FileSystemItem for Folder {
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    fn get_size(&self) -> u64 {
+        // Delegates to children — no type checking!
+        self.children.iter().map(|child| child.get_size()).sum()
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -575,11 +713,48 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Build the tree structure
+    let mut root = Folder::new("root");
+    root.add(Box::new(File::new("doc.txt", 100)));
+    root.add(Box::new(File::new("image.png", 200)));
+
+    let mut projects = Folder::new("projects");
+    projects.add(Box::new(File::new("code.py", 50)));
+
+    let mut data = Folder::new("data");
+    data.add(Box::new(File::new("data.csv", 150)));
+    projects.add(Box::new(data));
+
+    // Uniform interface — works the same for files and folders!
+    println!("doc.txt size: {}", File::new("doc.txt", 100).get_size()); // doc.txt size: 100
+    println!("projects size: {}", projects.get_size()); // projects size: 200
+
+    root.add(Box::new(projects)); // `projects` moves into `root`: unusable after this line
+    println!("root size: {}", root.get_size()); // root size: 500
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Component interface | `trait FileSystemItem` |
+| Leaf | `struct File` + `impl FileSystemItem for File` |
+| Composite | `struct Folder { children: Vec<Box<dyn FileSystemItem>> }` + `impl FileSystemItem for Folder` |
+| Uniform call | `child.get_size()` on each `Box<dyn FileSystemItem>` |
+| `remove(item)` | `remove(name)` with `retain`: a boxed child has no cheap identity to compare |
+
+**Ownership:** a folder *owns* its children, so the tree is a chain of owned boxes and dropping `root` frees everything. That is why `projects` cannot be used after `root.add(Box::new(projects))`: it moved into the tree, so the example prints its size first. A child that must point back to its parent needs `Weak` (with `Rc<RefCell<…>>` nodes), because an owning back-pointer would form a cycle. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Composite is the object-oriented way to model a tree: every node shares an interface and implements each operation itself. All four languages now support a **data-oriented** alternative. The tree becomes immutable data (a closed set of node types), and each operation becomes one function that uses **pattern matching** to handle files and folders.
+Composite is the object-oriented way to model a tree: every node shares an interface and implements each operation itself. All five languages now support a **data-oriented** alternative. The tree becomes immutable data (a closed set of node types), and each operation becomes one function that uses **pattern matching** to handle files and folders.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — plain data plus pattern-matching functions replace the component interface. This is a different trade-off, not a strict upgrade: new operations get easy and new node types get harder.
@@ -628,9 +803,19 @@ Composite is the object-oriented way to model a tree: every node shares an inter
 | `getSize()` implemented in every class | one switch expression with object patterns, checked for exhaustiveness |
 | A new operation means a new method in every class | a new function; `File` and `Folder` stay untouched |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait FileSystemItem` with `get_name()` / `get_size()` | `enum FileSystemItem { File { … }, Folder { … } }` |
+| `struct File` + `impl FileSystemItem for File` | the `File` variant |
+| `struct Folder { children: Vec<Box<dyn FileSystemItem>> }` + `add()` / `remove()` | the `Folder` variant with `children: Vec<FileSystemItem>`, built in one nested expression with `vec![…]` |
+| `get_size()` implemented in every type | one `get_size()` function with an exhaustive `match` |
+| A new operation means a new method in every `impl` | a new function; the enum stays untouched |
+
 :::
 
-**Ecosystem:** C# has no closed unions yet, so `OneOf` is a popular stand-in. In TypeScript, `ts-pattern` adds richer matching. In Dart, `freezed` generates sealed unions with `copyWith`.
+**Ecosystem:** C# has no closed unions yet, so `OneOf` is a popular stand-in. In TypeScript, `ts-pattern` adds richer matching. In Dart, `freezed` generates sealed unions with `copyWith`. Rust needs no library, because `enum` is a closed union with exhaustive `match`.
 
 ### Modern Code
 
@@ -827,6 +1012,85 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — enum with data, recursive exhaustive match
+
+// Component interface, leaf, and composite → one enum (a closed set of node types)
+enum FileSystemItem {
+    File {
+        name: String,
+        size: u64,
+    },
+    Folder {
+        name: String,
+        children: Vec<FileSystemItem>, // `Vec` already boxes, so the recursion needs no `Box`
+    },
+}
+
+use FileSystemItem::{File, Folder};
+
+fn file(name: &str, size: u64) -> FileSystemItem {
+    File {
+        name: name.to_string(),
+        size,
+    }
+}
+
+fn folder(name: &str, children: Vec<FileSystemItem>) -> FileSystemItem {
+    Folder {
+        name: name.to_string(),
+        children,
+    }
+}
+
+// Operations → functions that match on each variant
+fn get_name(item: &FileSystemItem) -> &str {
+    match item {
+        File { name, .. } | Folder { name, .. } => name,
+    }
+}
+
+fn get_size(item: &FileSystemItem) -> u64 {
+    match item {
+        File { size, .. } => *size,
+        Folder { children, .. } => children.iter().map(get_size).sum(),
+    }
+}
+
+// A new operation needs no change to the enum
+fn count_files(item: &FileSystemItem) -> usize {
+    match item {
+        File { .. } => 1,
+        Folder { children, .. } => children.iter().map(count_files).sum(),
+    }
+}
+
+// --- Usage ---
+fn main() {
+    // The tree is one nested expression
+    let projects = folder(
+        "projects",
+        vec![
+            file("code.py", 50),
+            folder("data", vec![file("data.csv", 150)]),
+        ],
+    );
+    let doc = file("doc.txt", 100);
+    println!("{} size: {}", get_name(&doc), get_size(&doc)); // doc.txt size: 100
+    println!("{} size: {}", get_name(&projects), get_size(&projects)); // projects size: 200
+
+    // `projects` moves into `root`
+    let root = folder(
+        "root",
+        vec![file("doc.txt", 100), file("image.png", 200), projects],
+    );
+    println!("{} size: {}", get_name(&root), get_size(&root)); // root size: 500
+    println!("{} files: {}", get_name(&root), count_files(&root)); // root files: 4
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -838,7 +1102,7 @@ This is the **expression problem**: each style makes one kind of change cheap.
 | You add new *operations* often (size, count, render, search) | You add new *node types* often (symlinks, archives, remote folders) |
 | The set of node types is small and closed | Other code must add node types without editing yours |
 | The tree is built once and read many times | Nodes change in place (`add` / `remove` on a live tree) |
-| You want the compiler to flag a missing case (Dart `sealed`, TS unions) | Each node carries its own state and behavior |
+| You want the compiler to flag a missing case (Dart `sealed`, TS unions, Rust `enum`) | Each node carries its own state and behavior |
 
 ## Summary
 
