@@ -888,13 +888,6 @@ print(f"After undo: '{editor.get_content()}'")
 editor.redo()
 print(f"After redo: '{editor.get_content()}'")
 # After redo: 'Hello'
-
-# Undo twice to get back to "Hello World" then ""
-editor.undo()  # Restore " World"
-editor.undo()  # Restore "" (remove "Hello")
-editor.undo()  # Restore "" (remove " World" — wait, we're at "Hello" now)
-print(f"After 2 undos: '{editor.get_content()}'")
-# After 2 undos: 'Hello'
 ```
 
 #### `C#`
