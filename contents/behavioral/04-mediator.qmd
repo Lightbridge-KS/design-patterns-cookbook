@@ -232,6 +232,89 @@ class Thermostat {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::cell::RefCell;
+use std::rc::Rc;
+
+struct Light {
+    name: String,
+    is_on: bool,
+    motion_sensor: Option<Rc<RefCell<MotionSensor>>>, // Direct coupling!
+    thermostat: Option<Rc<RefCell<Thermostat>>>,      // More coupling!
+}
+
+impl Light {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            is_on: false,
+            motion_sensor: None,
+            thermostat: None,
+        }
+    }
+
+    fn turn_on(&mut self) {
+        self.is_on = true;
+        println!("{}: Light turned ON", self.name);
+        // Directly manipulates thermostat when light turns on
+        if let Some(thermostat) = &self.thermostat {
+            thermostat.borrow_mut().adjust_for_occupancy();
+        }
+    }
+
+    fn turn_off(&mut self) {
+        self.is_on = false;
+        println!("{}: Light turned OFF", self.name);
+    }
+}
+
+struct MotionSensor {
+    name: String,
+    light: Option<Rc<RefCell<Light>>>, // Direct coupling!
+}
+
+impl MotionSensor {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            light: None,
+        }
+    }
+
+    fn detect_motion(&self) {
+        println!("{}: Motion detected!", self.name);
+        // Directly controls the light
+        if let Some(light) = &self.light {
+            light.borrow_mut().turn_on();
+        }
+    }
+}
+
+struct Thermostat {
+    name: String,
+    temperature: i32,
+}
+
+impl Thermostat {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            temperature: 20,
+        }
+    }
+
+    fn adjust_for_occupancy(&mut self) {
+        self.temperature = 22;
+        println!(
+            "{}: Adjusted to {}°C for occupancy",
+            self.name, self.temperature
+        );
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -316,6 +399,29 @@ void main() {
   // Main Thermostat: Adjusted to 22°C for occupancy
 
   // What if we add a SecurityCamera? Must modify Light, Sensor, etc.!
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    // Must wire up all the connections manually,
+    // and every shared device needs Rc<RefCell<…>>
+    let light = Rc::new(RefCell::new(Light::new("Living Room Light")));
+    let mut sensor = MotionSensor::new("Entry Sensor");
+    let thermostat = Rc::new(RefCell::new(Thermostat::new("Main Thermostat")));
+
+    // Every device must know about every other device!
+    sensor.light = Some(Rc::clone(&light));
+    light.borrow_mut().thermostat = Some(Rc::clone(&thermostat));
+
+    sensor.detect_motion();
+    // Entry Sensor: Motion detected!
+    // Living Room Light: Light turned ON
+    // Main Thermostat: Adjusted to 22°C for occupancy
+
+    // What if we add a SecurityCamera? Must modify Light, Sensor, etc.!
 }
 ```
 
@@ -711,6 +817,149 @@ class MotionSensor extends SmartDevice {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::cell::RefCell;
+use std::rc::{Rc, Weak};
+
+// Mediator → shared as Rc<SmartHomeHub>; RefCell lets register() grow the list
+struct SmartHomeHub {
+    devices: RefCell<Vec<Device>>,
+}
+
+// The hub must know concrete device types (Python's isinstance) → an enum of handles
+enum Device {
+    Light(Rc<RefCell<Light>>),
+    Thermostat(Rc<RefCell<Thermostat>>),
+    MotionSensor(Rc<RefCell<MotionSensor>>),
+}
+
+impl Device {
+    fn name(&self) -> String {
+        match self {
+            Device::Light(d) => d.borrow().device.name.clone(),
+            Device::Thermostat(d) => d.borrow().device.name.clone(),
+            Device::MotionSensor(d) => d.borrow().device.name.clone(),
+        }
+    }
+}
+
+impl SmartHomeHub {
+    fn new() -> Rc<Self> {
+        Rc::new(Self {
+            devices: RefCell::new(Vec::new()),
+        })
+    }
+
+    fn register(&self, device: Device) {
+        println!("Hub: Registered {}", device.name());
+        self.devices.borrow_mut().push(device);
+    }
+
+    fn notify(&self, sender: &str, event: &str) {
+        println!("Hub: Received '{event}' from {sender}");
+
+        // Coordination logic centralized here!
+        for device in self.devices.borrow().iter() {
+            match (event, device) {
+                // Turn on lights when motion detected
+                ("motion_detected", Device::Light(light)) => light.borrow_mut().turn_on(),
+                // Adjust thermostat when light turns on (room occupied)
+                ("light_on", Device::Thermostat(thermostat)) => {
+                    thermostat.borrow_mut().set_temperature(22)
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+// Abstract colleague → a struct every device embeds (composition, not inheritance)
+struct SmartDevice {
+    name: String,
+    hub: Weak<SmartHomeHub>, // Weak: the hub owns the devices, so a strong Rc would be a cycle
+}
+
+impl SmartDevice {
+    fn new(name: &str, hub: &Rc<SmartHomeHub>) -> Self {
+        Self {
+            name: name.to_string(),
+            hub: Rc::downgrade(hub),
+        }
+    }
+
+    fn notify_hub(&self, event: &str) {
+        if let Some(hub) = self.hub.upgrade() {
+            hub.notify(&self.name, event);
+        }
+    }
+}
+
+// Concrete colleagues
+struct Light {
+    device: SmartDevice,
+    is_on: bool,
+}
+
+impl Light {
+    fn new(name: &str, hub: &Rc<SmartHomeHub>) -> Self {
+        Self {
+            device: SmartDevice::new(name, hub),
+            is_on: false,
+        }
+    }
+
+    fn turn_on(&mut self) {
+        self.is_on = true;
+        println!("{}: Light turned ON", self.device.name);
+        self.device.notify_hub("light_on");
+    }
+
+    fn turn_off(&mut self) {
+        self.is_on = false;
+        println!("{}: Light turned OFF", self.device.name);
+        self.device.notify_hub("light_off");
+    }
+}
+
+struct Thermostat {
+    device: SmartDevice,
+    temperature: i32,
+}
+
+impl Thermostat {
+    fn new(name: &str, hub: &Rc<SmartHomeHub>) -> Self {
+        Self {
+            device: SmartDevice::new(name, hub),
+            temperature: 20,
+        }
+    }
+
+    fn set_temperature(&mut self, temp: i32) {
+        self.temperature = temp;
+        println!("{}: Temperature set to {temp}°C", self.device.name);
+    }
+}
+
+struct MotionSensor {
+    device: SmartDevice,
+}
+
+impl MotionSensor {
+    fn new(name: &str, hub: &Rc<SmartHomeHub>) -> Self {
+        Self {
+            device: SmartDevice::new(name, hub),
+        }
+    }
+
+    fn detect_motion(&self) {
+        println!("{}: Motion detected!", self.device.name);
+        self.device.notify_hub("motion_detected");
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -846,11 +1095,57 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Create the hub (mediator)
+    let hub = SmartHomeHub::new();
+
+    // Create devices — they know only the hub, not each other!
+    let light = Rc::new(RefCell::new(Light::new("Living Room Light", &hub)));
+    let thermostat = Rc::new(RefCell::new(Thermostat::new("Main Thermostat", &hub)));
+    let sensor = Rc::new(RefCell::new(MotionSensor::new("Entry Sensor", &hub)));
+
+    // Register all devices with the hub
+    hub.register(Device::Light(Rc::clone(&light)));
+    hub.register(Device::Thermostat(Rc::clone(&thermostat)));
+    hub.register(Device::MotionSensor(Rc::clone(&sensor)));
+
+    // Hub: Registered Living Room Light
+    // Hub: Registered Main Thermostat
+    // Hub: Registered Entry Sensor
+
+    println!("\n--- Motion Detected ---");
+    sensor.borrow().detect_motion();
+
+    // Entry Sensor: Motion detected!
+    // Hub: Received 'motion_detected' from Entry Sensor
+    // Living Room Light: Light turned ON
+    // Hub: Received 'light_on' from Living Room Light
+    // Main Thermostat: Temperature set to 22°C
+
+    // Adding new devices? Add a Device variant and a rule in the hub — no changes to other devices!
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Mediator | `SmartHomeHub`, shared as `Rc<SmartHomeHub>` |
+| Abstract colleague | a `SmartDevice` struct (name + hub) that every device embeds: composition, no base class |
+| Colleague → mediator reference | `Weak<SmartHomeHub>`, upgraded to an `Rc` on each `notify_hub()` |
+| Mediator → colleagues | `RefCell<Vec<Device>>`, where `enum Device` holds one `Rc<RefCell<…>>` per device type |
+| `isinstance(device, Light)` | `match (event, device)` on the `Device` enum |
+
+**Ownership:** the hub and the devices point at each other. Two `Rc`s in a cycle never reach a count of zero, so the device side holds a `Weak`. The calls also re-enter: the hub calls `light.turn_on()`, which calls `hub.notify()` again before the first call returns. That works because `notify()` takes only shared borrows of the device list. A rule that borrowed the sending light mutably a second time would compile, but `RefCell` would panic at runtime ("already borrowed"). See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Today the hub is usually a generic **event bus** (publish/subscribe). TypeScript and Dart ship one in the standard library, and C# builds one from multicast delegates. Devices only publish named events, and they need no base class or hub reference. The catch is that an event bus is a *mediator without the brain*. The coordination rules (motion → light on → thermostat) don't disappear. They move into the subscriptions, so give them one clearly named home.
+Today the hub is usually a generic **event bus** (publish/subscribe). TypeScript and Dart ship one in the standard library, and C# builds one from multicast delegates. Rust builds one from a `std::sync::mpsc` channel and a map of closures. The channel also breaks the hub ↔ device reference cycle, because a device holds only a `Sender`. Devices only publish named events, and they need no base class or hub reference. The catch is that an event bus is a *mediator without the brain*. The coordination rules (motion → light on → thermostat) don't disappear. They move into the subscriptions, so give them one clearly named home.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — a generic event bus replaces the hand-written hub and the colleague base class, but the coordination rules still need a home.
@@ -899,9 +1194,20 @@ Today the hub is usually a generic **event bus** (publish/subscribe). TypeScript
 | `hub.register(device)` | none: devices only need `publish` |
 | synchronous `notify()` call | stream listeners run as microtasks, after the current code finishes |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `struct SmartHomeHub` with `register()` / `notify()` | `EventBus` with `subscribe()`, a `publisher()` channel, and `run()` |
+| `match (event, device)` over an enum of device handles | subscriptions: a `move` closure that owns the light, registered for `Event::MotionDetected` |
+| `SmartDevice` struct with a `Weak<SmartHomeHub>` back-reference | a cloned `mpsc::Sender`: the device can only send, never reach the bus |
+| `Rc<RefCell<…>>` around every device | each handler closure owns its device: no `Rc`, no `RefCell` |
+| String events (`"light_on"`) | `enum Event`: a misspelled event is a compile error |
+| Nested calls: hub → light → hub again | `run()` drains a queue, so a handler never re-enters the bus |
+
 :::
 
-**Ecosystem:** .NET has MediatR (moved to a commercial license in 2025) and CommunityToolkit.Mvvm's `IMessenger` for UI apps. Python has `blinker`, TypeScript has RxJS `Subject`, and Dart has `event_bus` and Bloc. Across services, the same idea scales up to a message broker (RabbitMQ, Kafka).
+**Ecosystem:** .NET has MediatR (moved to a commercial license in 2025) and CommunityToolkit.Mvvm's `IMessenger` for UI apps. Python has `blinker`, TypeScript has RxJS `Subject`, and Dart has `event_bus` and Bloc. In Rust, `tokio::sync::broadcast` channels and actor frameworks such as `actix` play the bus role. Across services, the same idea scales up to a message broker (RabbitMQ, Kafka).
 
 ### Modern Code
 
@@ -1224,6 +1530,163 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — std::sync::mpsc channel + enum events + boxed closures
+use std::collections::HashMap;
+use std::sync::mpsc::{self, Receiver, Sender};
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Event {
+    MotionDetected,
+    LightOn,
+}
+
+impl Event {
+    fn name(self) -> &'static str {
+        match self {
+            Event::MotionDetected => "motion_detected",
+            Event::LightOn => "light_on",
+        }
+    }
+}
+
+type Handler = Box<dyn FnMut(&str)>; // receives the sender's name
+type Publish = Sender<(Event, String)>; // (event, sender)
+
+// Mediator → a generic event bus: it routes events but knows no device types
+struct EventBus {
+    handlers: HashMap<Event, Vec<Handler>>,
+    publish: Publish,
+    inbox: Receiver<(Event, String)>,
+}
+
+impl EventBus {
+    fn new() -> Self {
+        let (publish, inbox) = mpsc::channel();
+        Self {
+            handlers: HashMap::new(),
+            publish,
+            inbox,
+        }
+    }
+
+    // Each colleague gets its own cloned Sender: no reference back to the bus
+    fn publisher(&self) -> Publish {
+        self.publish.clone()
+    }
+
+    fn subscribe(&mut self, event: Event, handler: impl FnMut(&str) + 'static) {
+        self.handlers
+            .entry(event)
+            .or_default()
+            .push(Box::new(handler));
+    }
+
+    // Deliver queued events one at a time, so a handler never re-enters the bus
+    fn run(&mut self) {
+        while let Ok((event, sender)) = self.inbox.try_recv() {
+            println!("Bus: '{}' from {sender}", event.name());
+            for handler in self.handlers.get_mut(&event).into_iter().flatten() {
+                handler(&sender);
+            }
+        }
+    }
+}
+
+// Colleagues → no base struct, no hub reference: each holds a `publish` Sender
+struct Light {
+    name: String,
+    publish: Publish,
+    is_on: bool,
+}
+
+impl Light {
+    fn new(name: &str, publish: Publish) -> Self {
+        Self {
+            name: name.to_string(),
+            publish,
+            is_on: false,
+        }
+    }
+
+    fn turn_on(&mut self) {
+        if self.is_on {
+            return; // already on: nothing to announce
+        }
+        self.is_on = true;
+        println!("{}: Light turned ON", self.name);
+        self.publish
+            .send((Event::LightOn, self.name.clone()))
+            .expect("event bus is alive");
+    }
+}
+
+struct Thermostat {
+    name: String,
+    temperature: i32,
+}
+
+impl Thermostat {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            temperature: 20,
+        }
+    }
+
+    fn set_temperature(&mut self, temp: i32) {
+        self.temperature = temp;
+        println!("{}: Temperature set to {}°C", self.name, self.temperature);
+    }
+}
+
+struct MotionSensor {
+    name: String,
+    publish: Publish,
+}
+
+impl MotionSensor {
+    fn new(name: &str, publish: Publish) -> Self {
+        Self {
+            name: name.to_string(),
+            publish,
+        }
+    }
+
+    fn detect_motion(&self) {
+        println!("{}: Motion detected!", self.name);
+        self.publish
+            .send((Event::MotionDetected, self.name.clone()))
+            .expect("event bus is alive");
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut bus = EventBus::new();
+    let mut light = Light::new("Living Room Light", bus.publisher());
+    let mut thermostat = Thermostat::new("Main Thermostat");
+    let sensor = MotionSensor::new("Entry Sensor", bus.publisher());
+
+    // The coordination rules ("the brain") now live in the wiring.
+    // Each handler owns the device it drives: no Rc, no RefCell.
+    bus.subscribe(Event::MotionDetected, move |_| light.turn_on());
+    bus.subscribe(Event::LightOn, move |_| thermostat.set_temperature(22));
+
+    println!("--- Motion Detected ---");
+    sensor.detect_motion();
+    bus.run();
+    // --- Motion Detected ---
+    // Entry Sensor: Motion detected!
+    // Bus: 'motion_detected' from Entry Sensor
+    // Living Room Light: Light turned ON
+    // Bus: 'light_on' from Living Room Light
+    // Main Thermostat: Temperature set to 22°C
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1233,6 +1696,7 @@ void main() {
 | Rules are simple "when X happens, do Y" reactions | A rule depends on several devices' state at once ("lights on only if it's dark and someone is home") |
 | Publishers and subscribers should not know each other at all | You want the whole workflow readable, testable, and debuggable in one place |
 | Reactions are added often, by different modules or teams | Step ordering, error handling, or rollback across steps matters |
+| Rust: reactions are independent, so a queue can deliver them one at a time | Rust: a rule reads or changes several devices at once. A hub that *owns* the devices does that with plain `&mut`, without `Rc` or `RefCell` |
 
 ## Summary
 
