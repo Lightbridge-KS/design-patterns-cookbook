@@ -159,6 +159,42 @@ class Logistics {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Truck;
+
+impl Truck {
+    fn deliver(&self) {
+        println!("Delivering by land in a truck");
+    }
+}
+
+struct Ship;
+
+impl Ship {
+    fn deliver(&self) {
+        println!("Delivering by sea in a ship");
+    }
+}
+
+struct Logistics;
+
+impl Logistics {
+    // Conditional logic - violates OCP.
+    // Truck and Ship share no type, so one function cannot return "either":
+    // each branch must create *and* use its own product.
+    fn plan_delivery(&self, transport_type: &str) {
+        match transport_type {
+            "road" => Truck.deliver(),
+            "sea" => Ship.deliver(),
+            // Adding "air" requires modifying this method!
+            _ => panic!("Unknown transport: {transport_type}"),
+        }
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -195,6 +231,16 @@ void main() {
   final logistics = Logistics();
   logistics.planDelivery("road");
   logistics.planDelivery("sea");
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let logistics = Logistics;
+    logistics.plan_delivery("road");
+    logistics.plan_delivery("sea");
 }
 ```
 
@@ -430,6 +476,61 @@ class SeaLogistics extends Logistics {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Product interface → a trait
+trait Transport {
+    fn deliver(&self);
+}
+
+// Concrete Products → unit structs that implement the trait
+struct Truck;
+
+impl Transport for Truck {
+    fn deliver(&self) {
+        println!("Delivering by land in a truck");
+    }
+}
+
+struct Ship;
+
+impl Transport for Ship {
+    fn deliver(&self) {
+        println!("Delivering by sea in a ship");
+    }
+}
+
+// Creator → a trait: the factory method is required,
+// and plan_delivery is a default method that uses it
+trait Logistics {
+    /// Factory Method - implementors provide this
+    fn create_transport(&self) -> Box<dyn Transport>;
+
+    fn plan_delivery(&self) {
+        let transport = self.create_transport();
+        transport.deliver();
+    }
+}
+
+// Concrete Creators → structs that implement only the factory method
+struct RoadLogistics;
+
+impl Logistics for RoadLogistics {
+    fn create_transport(&self) -> Box<dyn Transport> {
+        Box::new(Truck)
+    }
+}
+
+struct SeaLogistics;
+
+impl Logistics for SeaLogistics {
+    fn create_transport(&self) -> Box<dyn Transport> {
+        Box::new(Ship)
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -481,11 +582,36 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn client_code(logistics: &dyn Logistics) {
+    logistics.plan_delivery();
+}
+
+fn main() {
+    client_code(&RoadLogistics); // Delivering by land in a truck
+    client_code(&SeaLogistics); // Delivering by sea in a ship
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Product interface | `trait Transport` |
+| Concrete product | unit structs `Truck`, `Ship` + `impl Transport for …` |
+| Abstract creator | `trait Logistics`: `create_transport()` is required, `plan_delivery()` is a default method |
+| Concrete creator | unit structs `RoadLogistics`, `SeaLogistics` that implement only `create_transport()` |
+| Returned product | `Box<dyn Transport>`: the caller does not know the concrete type |
+
+**Ownership:** there is no abstract base class to inherit from. A trait with a default method plays that role: the shared algorithm (`plan_delivery`) lives in the trait, and each creator supplies only the factory method. The factory returns a `Box`, so the caller owns a product whose size it does not know at compile time. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Each concrete creator above exists only to override one method that calls one constructor. Modern languages let you pass that constructor around as a value. A class is already callable in Python, Dart has constructor tear-offs (`Truck.new`), and C# and TypeScript wrap it in a lambda. The creator hierarchy collapses into one class that receives its factory.
+Each concrete creator above exists only to override one method that calls one constructor. Modern languages let you pass that constructor around as a value. A class is already callable in Python, Dart has constructor tear-offs (`Truck.new`), and C#, TypeScript, and Rust wrap it in a lambda (in Rust, a closure that captures nothing is a plain `fn` pointer). The creator hierarchy collapses into one class that receives its factory.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — the creator subclasses disappear and the factory method becomes a function you pass in. The product interface stays.
@@ -530,9 +656,19 @@ Each concrete creator above exists only to override one method that calls one co
 | Choosing `RoadLogistics` or `SeaLogistics` from config | `Map<String, TransportFactory>` registry of tear-offs |
 | `Transport`, `Truck`, `Ship` | unchanged |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Logistics` with required `create_transport()` | `Logistics { create_transport: TransportFactory }`: the factory is a field |
+| `RoadLogistics` / `SeaLogistics` structs | `Logistics::new(...)` with a closure that returns `Box::new(Truck)`. A closure that captures nothing coerces to a `fn` pointer. |
+| `plan_delivery()` as a default trait method | an ordinary method on the one `Logistics` struct |
+| Choosing `RoadLogistics` or `SeaLogistics` from config | a `const` table of `(name, factory)` pairs, loaded into a `HashMap` |
+| `trait Transport`, `Truck`, `Ship` | unchanged |
+
 :::
 
-**Ecosystem:** in .NET apps, DI keyed services (.NET 8+, `AddKeyedTransient<ITransport, Truck>("road")`) build the registry for you, and `IServiceProvider` acts as a general-purpose factory. Python packages can add entries to a registry from outside through entry points (see [Microkernel](../plugins-arch/microkernel-registry-manifest-first.qmd)).
+**Ecosystem:** in .NET apps, DI keyed services (.NET 8+, `AddKeyedTransient<ITransport, Truck>("road")`) build the registry for you, and `IServiceProvider` acts as a general-purpose factory. Python packages can add entries to a registry from outside through entry points (see [Microkernel](../plugins-arch/microkernel-registry-manifest-first.qmd)). In Rust, `inventory` collects registry entries declared anywhere in the program.
 
 ### Modern Code
 
@@ -733,6 +869,67 @@ void main() {
 
   const mode = "sea";  // e.g., read from config
   Logistics(transports[mode]!).planDelivery();  // Delivering by sea in a ship
+}
+```
+
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — fn pointers, non-capturing closures, HashMap registry
+use std::collections::HashMap;
+
+// Products → unchanged
+trait Transport {
+    fn deliver(&self);
+}
+
+struct Truck;
+
+impl Transport for Truck {
+    fn deliver(&self) {
+        println!("Delivering by land in a truck");
+    }
+}
+
+struct Ship;
+
+impl Transport for Ship {
+    fn deliver(&self) {
+        println!("Delivering by sea in a ship");
+    }
+}
+
+// Factory method → a function type
+type TransportFactory = fn() -> Box<dyn Transport>;
+
+// Creator → one struct that receives its factory: no RoadLogistics / SeaLogistics
+struct Logistics {
+    create_transport: TransportFactory,
+}
+
+impl Logistics {
+    fn new(create_transport: TransportFactory) -> Self {
+        Self { create_transport }
+    }
+
+    fn plan_delivery(&self) {
+        let transport = (self.create_transport)();
+        transport.deliver();
+    }
+}
+
+// Picking a product by name → a registry table instead of a match.
+// The declared type lets each closure coerce to the same `fn` pointer type.
+const TRANSPORTS: [(&str, TransportFactory); 2] =
+    [("road", || Box::new(Truck)), ("sea", || Box::new(Ship))];
+
+// --- Usage ---
+fn main() {
+    Logistics::new(|| Box::new(Truck)).plan_delivery(); // Delivering by land in a truck
+
+    let registry = HashMap::from(TRANSPORTS);
+    let mode = "sea"; // e.g., read from config
+    Logistics::new(registry[mode]).plan_delivery(); // Delivering by sea in a ship
 }
 ```
 
