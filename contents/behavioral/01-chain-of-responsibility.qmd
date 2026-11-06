@@ -173,6 +173,53 @@ String processRequest(Request request) {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::collections::HashMap;
+
+struct Request {
+    path: String,
+    headers: HashMap<String, String>,
+    user: String,
+}
+
+impl Request {
+    fn new(path: &str, headers: &[(&str, &str)], user: &str) -> Self {
+        Self {
+            path: path.to_string(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            user: user.to_string(),
+        }
+    }
+}
+
+// Rate limit tracking (simplified). Rust has no mutable globals
+// without a Mutex, so the caller passes the counts in.
+fn process_request(request: &Request, request_counts: &mut HashMap<String, u32>) -> String {
+    // Authentication check
+    if !request.headers.contains_key("Authorization") {
+        return "401 Unauthorized".to_string();
+    }
+
+    // Logging
+    println!("[LOG] {} accessing {}", request.user, request.path);
+
+    // Rate limiting
+    let count = request_counts.entry(request.user.clone()).or_insert(0);
+    *count += 1;
+    if *count > 5 {
+        return "429 Too Many Requests".to_string();
+    }
+
+    // Finally handle the request
+    format!("200 OK: Handled {}", request.path)
+}
+```
+
 :::
 
 #### Usage
@@ -239,6 +286,23 @@ void main() {
   // - Add caching middleware? Modify the function
   // - Remove rate limiting for admins? More if-else
   // - Reorder middleware? Restructure the entire function
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    // All middleware logic is in one function
+    let mut request_counts = HashMap::new();
+    let request = Request::new("/api/data", &[("Authorization", "Bearer token")], "alice");
+    let result = process_request(&request, &mut request_counts);
+    println!("{result}");
+
+    // What if we need to:
+    // - Add caching middleware? Modify the function
+    // - Remove rate limiting for admins? More if-else
+    // - Reorder middleware? Restructure the entire function
 }
 ```
 
@@ -565,6 +629,117 @@ class RateLimitMiddleware extends Middleware {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::collections::HashMap;
+
+struct Request {
+    path: String,
+    headers: HashMap<String, String>,
+    user: String,
+}
+
+impl Request {
+    fn new(path: &str, headers: &[(&str, &str)], user: &str) -> Self {
+        Self {
+            path: path.to_string(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            user: user.to_string(),
+        }
+    }
+}
+
+// Abstract handler → a trait. A trait has no fields, so each handler
+// stores its own `next` link and exposes it through `next_slot()`.
+trait Middleware {
+    fn handle(&mut self, request: &Request) -> String;
+    fn next_slot(&mut self) -> &mut Option<Box<dyn Middleware>>;
+
+    // Shared code of the abstract class → default methods
+    fn set_next(&mut self, handler: Box<dyn Middleware>) -> &mut Box<dyn Middleware> {
+        self.next_slot().insert(handler) // Enable chaining: a.set_next(b).set_next(c)
+    }
+
+    fn handle_next(&mut self, request: &Request) -> String {
+        match self.next_slot() {
+            Some(next) => next.handle(request),
+            None => format!("200 OK: Handled {}", request.path),
+        }
+    }
+}
+
+// Concrete handlers
+struct AuthMiddleware {
+    next: Option<Box<dyn Middleware>>,
+}
+
+impl Middleware for AuthMiddleware {
+    fn handle(&mut self, request: &Request) -> String {
+        if !request.headers.contains_key("Authorization") {
+            return "401 Unauthorized".to_string();
+        }
+        println!("[Auth] {} authenticated", request.user);
+        self.handle_next(request)
+    }
+
+    fn next_slot(&mut self) -> &mut Option<Box<dyn Middleware>> {
+        &mut self.next
+    }
+}
+
+struct LoggingMiddleware {
+    next: Option<Box<dyn Middleware>>,
+}
+
+impl Middleware for LoggingMiddleware {
+    fn handle(&mut self, request: &Request) -> String {
+        println!("[Log] {} -> {}", request.user, request.path);
+        self.handle_next(request)
+    }
+
+    fn next_slot(&mut self) -> &mut Option<Box<dyn Middleware>> {
+        &mut self.next
+    }
+}
+
+struct RateLimitMiddleware {
+    next: Option<Box<dyn Middleware>>,
+    limit: u32,
+    request_counts: HashMap<String, u32>,
+}
+
+impl RateLimitMiddleware {
+    fn new(limit: u32) -> Self {
+        Self {
+            next: None,
+            limit,
+            request_counts: HashMap::new(),
+        }
+    }
+}
+
+impl Middleware for RateLimitMiddleware {
+    fn handle(&mut self, request: &Request) -> String {
+        let count = self.request_counts.entry(request.user.clone()).or_insert(0);
+        *count += 1;
+        let count = *count;
+        if count > self.limit {
+            return "429 Too Many Requests".to_string();
+        }
+        println!("[RateLimit] {}: {count}/{}", request.user, self.limit);
+        self.handle_next(request)
+    }
+
+    fn next_slot(&mut self) -> &mut Option<Box<dyn Middleware>> {
+        &mut self.next
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -696,11 +871,51 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Build the middleware chain: each `set_next` moves the handler into the chain
+    let mut auth = AuthMiddleware { next: None };
+    auth.set_next(Box::new(LoggingMiddleware { next: None }))
+        .set_next(Box::new(RateLimitMiddleware::new(3)));
+
+    // Test with authenticated request
+    let request = Request::new("/api/data", &[("Authorization", "Bearer token")], "alice");
+    println!("{}", auth.handle(&request));
+    // [Auth] alice authenticated
+    // [Log] alice -> /api/data
+    // [RateLimit] alice: 1/3
+    // 200 OK: Handled /api/data
+
+    // Test without auth token
+    let bad_request = Request::new("/api/secret", &[], "bob");
+    println!("{}", auth.handle(&bad_request));
+    // 401 Unauthorized
+
+    // Easy to reorder: logging first
+    let mut logging2 = LoggingMiddleware { next: None };
+    logging2.set_next(Box::new(AuthMiddleware { next: None })); // Different order!
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Abstract handler | `trait Middleware` with a required `handle(&mut self, …)` |
+| Inherited `_next` field | a `next: Option<Box<dyn Middleware>>` field in each struct, reached through the required `next_slot()` accessor |
+| Shared `set_next()` / `handle_next()` | default trait methods built on `next_slot()` |
+| Concrete handler | `struct AuthMiddleware` + `impl Middleware for AuthMiddleware` |
+| The chain | an owned linked list: each `Box` owns the handler after it |
+
+**Ownership:** the chain owns its handlers. `set_next` *moves* the next handler into a `Box`, so after building the chain only `auth` is left as a variable; the other languages keep a reference to every handler. `handle` takes `&mut self` because the rate limiter changes its counts. A trait cannot hold the `_next` field of an abstract class, so each struct declares it and the trait asks for it through an accessor. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Every modern web framework already implements this pattern, with a smaller shape: a middleware is a **function** `(request, next) => response`. The `next` link becomes a parameter instead of a stored field. The chain is a plain list, folded from the right so each middleware wraps the one after it. Reordering the chain means reordering the list.
+Every modern web framework already implements this pattern, with a smaller shape: a middleware is a **function** `(request, next) => response`. The `next` link becomes a parameter instead of a stored field. The chain is a plain list, folded from the right (Rust names it `rfold`) so each middleware wraps the one after it. Reordering the chain means reordering the list.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟢 Replaces** — middleware functions `(request, next) => response`, composed with a fold, are Chain of Responsibility without the class hierarchy.
@@ -753,9 +968,20 @@ Every modern web framework already implements this pattern, with a smaller shape
 | `auth.setNext(logging).setNext(rateLimit)` | `pipeline([auth, log, rateLimit(3)], endpoint)` via `fold` |
 | `class Request` | a record typedef |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Middleware` with `handle()`, a `next_slot()` accessor, and default `set_next()` / `handle_next()` | `type Middleware = Box<dyn FnMut(&Request, Next) -> String>` |
+| `AuthMiddleware`, `LoggingMiddleware` structs | plain functions `auth`, `log` |
+| `RateLimitMiddleware` with a `request_counts` field | `rate_limit(limit)`: a `move` closure owns `counts` |
+| `next: Option<Box<dyn Middleware>>` in every struct | the `next` parameter (`&mut dyn FnMut`) |
+| `auth.set_next(…).set_next(…)` | `pipeline(vec![…], endpoint)` via `Iterator::rfold` |
+| Default response inside `handle_next()` | an explicit `endpoint` function at the end of the chain |
+
 :::
 
-**Ecosystem:** this is the middleware signature of ASP.NET Core (`app.Use(async (context, next) => …)`), Express / Koa / Hono (`app.use((c, next) => …)`), Dart's `shelf` (`Pipeline().addMiddleware(…)`), and Python's ASGI stack (Starlette / FastAPI `@app.middleware("http")`).
+**Ecosystem:** this is the middleware signature of ASP.NET Core (`app.Use(async (context, next) => …)`), Express / Koa / Hono (`app.use((c, next) => …)`), Dart's `shelf` (`Pipeline().addMiddleware(…)`), Python's ASGI stack (Starlette / FastAPI `@app.middleware("http")`), and Rust's `axum` (`middleware::from_fn(|request, next| …)`, built on `tower`).
 
 ### Modern Code
 
@@ -1022,6 +1248,100 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — middleware as FnMut closures, type aliases, Iterator::rfold
+use std::collections::HashMap;
+
+struct Request {
+    path: String,
+    headers: HashMap<String, String>,
+    user: String,
+}
+
+impl Request {
+    fn new(path: &str, headers: &[(&str, &str)], user: &str) -> Self {
+        Self {
+            path: path.to_string(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            user: user.to_string(),
+        }
+    }
+}
+
+type Handler = Box<dyn FnMut(&Request) -> String>; // request → response
+type Next<'a> = &'a mut dyn FnMut(&Request) -> String; // the rest of the chain
+type Middleware = Box<dyn FnMut(&Request, Next) -> String>; // may call next to continue
+
+// Concrete handlers → plain functions
+fn auth(request: &Request, next: Next) -> String {
+    if !request.headers.contains_key("Authorization") {
+        return "401 Unauthorized".to_string(); // short-circuit: next is never called
+    }
+    println!("[Auth] {} authenticated", request.user);
+    next(request)
+}
+
+fn log(request: &Request, next: Next) -> String {
+    println!("[Log] {} -> {}", request.user, request.path);
+    next(request)
+}
+
+fn rate_limit(limit: u32) -> Middleware {
+    let mut counts: HashMap<String, u32> = HashMap::new(); // state lives in the closure
+    Box::new(move |request: &Request, next: Next| {
+        let count = counts.entry(request.user.clone()).or_insert(0);
+        *count += 1;
+        if *count > limit {
+            return "429 Too Many Requests".to_string();
+        }
+        println!("[RateLimit] {}: {count}/{limit}", request.user);
+        next(request)
+    })
+}
+
+fn endpoint(request: &Request) -> String {
+    format!("200 OK: Handled {}", request.path)
+}
+
+// The chain → fold from the right: each middleware wraps the handler after it
+fn pipeline(middlewares: Vec<Middleware>, last: Handler) -> Handler {
+    middlewares
+        .into_iter()
+        .rfold(last, |mut next, mut middleware| {
+            Box::new(move |request: &Request| middleware(request, &mut next))
+        })
+}
+
+// --- Usage ---
+fn main() {
+    let mut app = pipeline(
+        vec![Box::new(auth), Box::new(log), rate_limit(3)],
+        Box::new(endpoint),
+    );
+
+    let request = Request::new("/api/data", &[("Authorization", "Bearer token")], "alice");
+    println!("{}", app(&request));
+    // [Auth] alice authenticated
+    // [Log] alice -> /api/data
+    // [RateLimit] alice: 1/3
+    // 200 OK: Handled /api/data
+
+    println!("{}", app(&Request::new("/api/secret", &[], "bob")));
+    // 401 Unauthorized
+
+    // Reordering = reordering a list
+    let mut log_first = pipeline(vec![Box::new(log), Box::new(auth)], Box::new(endpoint));
+    println!("{}", log_first(&Request::new("/api/secret", &[], "bob")));
+    // [Log] bob -> /api/secret
+    // 401 Unauthorized
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1031,6 +1351,7 @@ void main() {
 | Each handler is one decision plus a call to `next` | Handlers need several methods, rich configuration, or injected services (e.g., ASP.NET Core `IMiddleware` classes resolved from DI) |
 | The chain is assembled once, at startup | Handlers must be inserted, removed, or inspected at runtime |
 | Async pipelines: `(request, next) => Promise` composes the same way | Exactly one handler must claim each request (a lookup table or router is simpler) |
+| Rust: a synchronous chain where `FnMut` closures may own their state | Rust: async servers need backpressure, so `tower`'s `Service` trait adds `poll_ready()` beside `call()` |
 
 ## Summary
 
