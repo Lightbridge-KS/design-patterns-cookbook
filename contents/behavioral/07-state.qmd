@@ -267,6 +267,75 @@ class Document {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Document {
+    title: String,
+    content: String,
+    state: &'static str, // "draft", "review", "published"
+}
+
+impl Document {
+    fn new(title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            content: String::new(),
+            state: "draft",
+        }
+    }
+
+    fn edit(&mut self, content: &str) {
+        match self.state {
+            "draft" => {
+                self.content = content.to_string();
+                let preview: String = content.chars().take(20).collect();
+                println!("Document edited: {preview}...");
+            }
+            "review" => println!("Cannot edit: document is under review"),
+            "published" => println!("Cannot edit: document is published"),
+            _ => {} // a typo in a state name lands here silently
+        }
+    }
+
+    fn submit(&mut self) {
+        match self.state {
+            "draft" => {
+                self.state = "review";
+                println!("Document submitted for review");
+            }
+            "review" => println!("Cannot submit: already under review"),
+            "published" => println!("Cannot submit: document is published"),
+            _ => {}
+        }
+    }
+
+    fn approve(&mut self) {
+        match self.state {
+            "draft" => println!("Cannot approve: document not submitted"),
+            "review" => {
+                self.state = "published";
+                println!("Document approved and published!");
+            }
+            "published" => println!("Cannot approve: already published"),
+            _ => {}
+        }
+    }
+
+    fn reject(&mut self) {
+        match self.state {
+            "draft" => println!("Cannot reject: document not submitted"),
+            "review" => {
+                self.state = "draft";
+                println!("Document rejected, back to draft");
+            }
+            "published" => println!("Cannot reject: already published"),
+            _ => {}
+        }
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -334,6 +403,24 @@ doc.edit('Revised content');  // Document edited: Revised content...
 doc.submit();                 // Document submitted for review
 doc.approve();                // Document approved and published!
 doc.edit('More changes');     // Cannot edit: document is published
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let mut doc = Document::new("My Article");
+
+    doc.edit("Hello, World!"); // Document edited: Hello, World!...
+    doc.approve(); // Cannot approve: document not submitted
+    doc.submit(); // Document submitted for review
+    doc.edit("New content"); // Cannot edit: document is under review
+    doc.reject(); // Document rejected, back to draft
+    doc.edit("Revised content"); // Document edited: Revised content...
+    doc.submit(); // Document submitted for review
+    doc.approve(); // Document approved and published!
+    doc.edit("More changes"); // Cannot edit: document is published
+}
 ```
 
 :::
@@ -876,6 +963,155 @@ class Document {
 }
 ```
 
+#### `Rust`
+
+```rust
+// State interface → a trait. A transition consumes the current state
+// (`self: Box<Self>`) and returns the next one.
+trait DocumentState {
+    fn edit(&self, content: &mut String, new_content: &str);
+    fn submit(self: Box<Self>) -> Box<dyn DocumentState>;
+    fn approve(self: Box<Self>) -> Box<dyn DocumentState>;
+    fn reject(self: Box<Self>) -> Box<dyn DocumentState>;
+    fn name(&self) -> &'static str;
+}
+
+fn preview(text: &str) -> String {
+    text.chars().take(20).collect()
+}
+
+// Concrete states → unit structs: no fields, zero size
+struct DraftState;
+struct ReviewState;
+struct PublishedState;
+
+impl DocumentState for DraftState {
+    fn edit(&self, content: &mut String, new_content: &str) {
+        *content = new_content.to_string();
+        println!("Document edited: {}...", preview(new_content));
+    }
+
+    fn submit(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Document submitted for review");
+        Box::new(ReviewState)
+    }
+
+    fn approve(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Cannot approve: document not submitted");
+        self // stay in this state
+    }
+
+    fn reject(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Cannot reject: document not submitted");
+        self
+    }
+
+    fn name(&self) -> &'static str {
+        "Draft"
+    }
+}
+
+impl DocumentState for ReviewState {
+    fn edit(&self, _content: &mut String, _new_content: &str) {
+        println!("Cannot edit: document is under review");
+    }
+
+    fn submit(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Cannot submit: already under review");
+        self
+    }
+
+    fn approve(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Document approved and published!");
+        Box::new(PublishedState)
+    }
+
+    fn reject(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Document rejected, back to draft");
+        Box::new(DraftState)
+    }
+
+    fn name(&self) -> &'static str {
+        "Review"
+    }
+}
+
+impl DocumentState for PublishedState {
+    fn edit(&self, _content: &mut String, _new_content: &str) {
+        println!("Cannot edit: document is published");
+    }
+
+    fn submit(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Cannot submit: document is published");
+        self
+    }
+
+    fn approve(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Cannot approve: already published");
+        self
+    }
+
+    fn reject(self: Box<Self>) -> Box<dyn DocumentState> {
+        println!("Cannot reject: already published");
+        self
+    }
+
+    fn name(&self) -> &'static str {
+        "Published"
+    }
+}
+
+// Context → owns the current state and swaps it on every transition
+struct Document {
+    title: String,
+    content: String,
+    // `Option` only so a transition can move the old state out with `take()`
+    state: Option<Box<dyn DocumentState>>,
+}
+
+impl Document {
+    fn new(title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            content: String::new(),
+            state: Some(Box::new(DraftState)),
+        }
+    }
+
+    fn get_state_name(&self) -> &'static str {
+        self.state.as_ref().map_or("", |state| state.name())
+    }
+
+    fn edit(&mut self, new_content: &str) {
+        // Borrows two different fields at once: `state` (read) and `content` (write)
+        if let Some(state) = &self.state {
+            state.edit(&mut self.content, new_content);
+        }
+    }
+
+    fn submit(&mut self) {
+        self.transition(|state| state.submit());
+    }
+
+    fn approve(&mut self) {
+        self.transition(|state| state.approve());
+    }
+
+    fn reject(&mut self) {
+        self.transition(|state| state.reject());
+    }
+
+    fn transition(
+        &mut self,
+        action: impl FnOnce(Box<dyn DocumentState>) -> Box<dyn DocumentState>,
+    ) {
+        if let Some(state) = self.state.take() {
+            self.state = Some(action(state));
+        }
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -997,11 +1233,54 @@ doc.edit('More changes');     // Cannot edit: document is published
 doc.reject();                 // Cannot reject: already published
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    let mut doc = Document::new("My Article");
+    println!("State: {}", doc.get_state_name()); // State: Draft
+
+    // Draft state: can edit and submit
+    doc.edit("Hello, World!"); // Document edited: Hello, World!...
+    doc.approve(); // Cannot approve: document not submitted
+
+    doc.submit(); // Document submitted for review
+    println!("State: {}", doc.get_state_name()); // State: Review
+
+    // Review state: can approve or reject
+    doc.edit("New content"); // Cannot edit: document is under review
+    doc.reject(); // Document rejected, back to draft
+    println!("State: {}", doc.get_state_name()); // State: Draft
+
+    // Back to draft: can edit again
+    doc.edit("Revised content"); // Document edited: Revised content...
+    doc.submit(); // Document submitted for review
+    doc.approve(); // Document approved and published!
+    println!("State: {}", doc.get_state_name()); // State: Published
+
+    // Published state: all actions blocked
+    doc.edit("More changes"); // Cannot edit: document is published
+    doc.reject(); // Cannot reject: already published
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| State interface | `trait DocumentState` |
+| Concrete state | unit structs `DraftState`, `ReviewState`, `PublishedState` (no fields, zero size) |
+| Transition (`doc.set_state(...)`) | each action takes `self: Box<Self>` and **returns** the next state |
+| Stay in the same state | return `self` unchanged |
+| Context's state reference | `state: Option<Box<dyn DocumentState>>` |
+
+**Ownership:** in the classic shape a state calls `doc.set_state(...)` while the document is still inside a call on that state. That needs two borrows of the document at once, and the borrow checker rejects it. So each state consumes itself and returns its successor, and the document `take()`s the old state out of the `Option` to call it. The Rust Book builds the same design in [*Implementing an Object-Oriented Design Pattern*](https://doc.rust-lang.org/book/ch18-03-oo-design-patterns.html). See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-In the classic solution, the workflow is spread across three state classes and twelve methods. When states carry little behavior of their own, modern languages let you write the whole workflow as **data**. States become an enum or a union of string literals. The transitions become one table or one `switch` expression keyed by `(state, action)`. The type checker makes sure every state is handled.
+In the classic solution, the workflow is spread across three state classes and twelve methods. When states carry little behavior of their own, modern languages let you write the whole workflow as **data**. States become an enum or a union of string literals. The transitions become one table or one `switch` expression keyed by `(state, action)`. The type checker makes sure every state is handled. Rust can go one step further with **typestate**, shown after the code: each state is a separate type, so a wrong transition does not compile.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — a small workflow fits in one transition table, and class-per-state is still worth it when each state has rich behavior.
@@ -1050,9 +1329,19 @@ In the classic solution, the workflow is spread across three state classes and t
 | `doc.setState(ReviewState())` inside a state class | `state = next` in one place, `_fire()` |
 | `name` getter on each state | `state.label` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait DocumentState` + `DraftState`, `ReviewState`, `PublishedState` structs | `enum State { Draft, Review, Published }` |
+| `submit()` / `approve()` / `reject()` in each state | one `match (state, action)` that returns the next state and message |
+| "Cannot …" message in every blocked method | `blocked_reason(state)`: a `match` with no `_` arm, so a new variant is a compile error |
+| `Option<Box<dyn DocumentState>>` + `take()` | `State` is `Copy`: `self.state = next_state` |
+| `name()` on each state | `#[derive(Debug)]` prints the variant name |
+
 :::
 
-**Ecosystem:** state-machine libraries add guards, entry/exit actions, and diagrams on top of the same table idea: `transitions` and `python-statemachine` (Python), Stateless (.NET), XState (TypeScript), and `bloc` (Dart/Flutter).
+**Ecosystem:** state-machine libraries add guards, entry/exit actions, and diagrams on top of the same table idea: `transitions` and `python-statemachine` (Python), Stateless (.NET), XState (TypeScript), `bloc` (Dart/Flutter), and `statig` (Rust).
 
 ### Modern Code
 
@@ -1427,7 +1716,208 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — enums, exhaustive match on a tuple
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum State {
+    Draft,
+    Review,
+    Published,
+}
+
+#[derive(Clone, Copy)]
+enum Action {
+    Submit,
+    Approve,
+    Reject,
+}
+
+impl Action {
+    fn verb(self) -> &'static str {
+        match self {
+            Action::Submit => "submit",
+            Action::Approve => "approve",
+            Action::Reject => "reject",
+        }
+    }
+}
+
+// The whole workflow in one match: (state, action) → (next state, message)
+fn transition(state: State, action: Action) -> Option<(State, &'static str)> {
+    match (state, action) {
+        (State::Draft, Action::Submit) => Some((State::Review, "Document submitted for review")),
+        (State::Review, Action::Approve) => {
+            Some((State::Published, "Document approved and published!"))
+        }
+        (State::Review, Action::Reject) => Some((State::Draft, "Document rejected, back to draft")),
+        _ => None,
+    }
+}
+
+// Why actions are blocked: no `_` arm, so a new State is a compile error here
+fn blocked_reason(state: State) -> &'static str {
+    match state {
+        State::Draft => "document not submitted",
+        State::Review => "document is under review",
+        State::Published => "document is published",
+    }
+}
+
+struct Document {
+    content: String,
+    state: State,
+}
+
+impl Document {
+    fn new() -> Self {
+        Self {
+            content: String::new(),
+            state: State::Draft,
+        }
+    }
+
+    fn edit(&mut self, content: &str) {
+        // Editing is a guard, not a transition: the state stays the same
+        if self.state != State::Draft {
+            println!("Cannot edit: {}", blocked_reason(self.state));
+            return;
+        }
+        self.content = content.to_string();
+        let preview: String = content.chars().take(20).collect();
+        println!("Document edited: {preview}...");
+    }
+
+    fn submit(&mut self) {
+        self.fire(Action::Submit);
+    }
+
+    fn approve(&mut self) {
+        self.fire(Action::Approve);
+    }
+
+    fn reject(&mut self) {
+        self.fire(Action::Reject);
+    }
+
+    fn fire(&mut self, action: Action) {
+        match transition(self.state, action) {
+            Some((next_state, message)) => {
+                self.state = next_state; // State is Copy: no Box, no take()
+                println!("{message}");
+            }
+            None => println!("Cannot {}: {}", action.verb(), blocked_reason(self.state)),
+        }
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut doc = Document::new();
+    println!("State: {:?}", doc.state); // State: Draft  (Debug prints the variant name)
+
+    // Draft state: can edit and submit
+    doc.edit("Hello, World!"); // Document edited: Hello, World!...
+    doc.approve(); // Cannot approve: document not submitted
+
+    doc.submit(); // Document submitted for review
+    println!("State: {:?}", doc.state); // State: Review
+
+    // Review state: can approve or reject
+    doc.edit("New content"); // Cannot edit: document is under review
+    doc.reject(); // Document rejected, back to draft
+    println!("State: {:?}", doc.state); // State: Draft
+
+    // Back to draft: can edit again
+    doc.edit("Revised content"); // Document edited: Revised content...
+    doc.submit(); // Document submitted for review
+    doc.approve(); // Document approved and published!
+    println!("State: {:?}", doc.state); // State: Published
+
+    // Published state: all actions blocked
+    doc.edit("More changes"); // Cannot edit: document is published
+    doc.reject(); // Cannot reject: document is published
+}
+```
+
 :::
+
+#### Rust: Typestate
+
+The enum version still checks transitions at runtime: `approve()` on a draft prints "Cannot approve". Typestate moves that check to compile time. `Document<Draft>` has `edit()` and `submit()`. `Document<Review>` has only `approve()` and `reject()`. Each transition takes `self` by value, so the old state can no longer be used.
+
+```rust
+// Rust 1.85+ — typestate: each state is a type, each transition consumes the document
+struct Draft;
+struct Review;
+struct Published;
+
+struct Document<S> {
+    content: String,
+    _state: S, // zero-sized marker: costs nothing at runtime
+}
+
+impl Document<Draft> {
+    fn new() -> Self {
+        Document {
+            content: String::new(),
+            _state: Draft,
+        }
+    }
+
+    fn edit(&mut self, content: &str) {
+        self.content = content.to_string();
+        println!("Document edited: {content}");
+    }
+
+    fn submit(self) -> Document<Review> {
+        println!("Document submitted for review");
+        Document {
+            content: self.content,
+            _state: Review,
+        }
+    }
+}
+
+impl Document<Review> {
+    fn approve(self) -> Document<Published> {
+        println!("Document approved and published!");
+        Document {
+            content: self.content,
+            _state: Published,
+        }
+    }
+
+    fn reject(self) -> Document<Draft> {
+        println!("Document rejected, back to draft");
+        Document {
+            content: self.content,
+            _state: Draft,
+        }
+    }
+}
+
+impl Document<Published> {
+    fn content(&self) -> &str {
+        &self.content
+    }
+}
+
+fn main() {
+    let mut doc = Document::new();
+    doc.edit("Hello, World!"); // Document edited: Hello, World!
+    let doc = doc.submit(); // Document submitted for review
+    // doc.edit("New content"); // ❌ error[E0599]: no method named `edit` found for struct `Document<Review>`
+    let mut doc = doc.reject(); // Document rejected, back to draft
+    doc.edit("Revised content"); // Document edited: Revised content
+    let doc = doc.submit().approve(); // Document submitted for review / Document approved and published!
+    println!("Published: {}", doc.content()); // Published: Revised content
+    // doc.reject(); // ❌ error[E0599]: no method named `reject` found for struct `Document<Published>`
+}
+```
+
+Use typestate when the order of steps is fixed in code: builders, connection handshakes, request pipelines. It cannot model a state that is read from a database or chosen by user input at runtime. Use the enum for that.
 
 ### Classic or Modern?
 
@@ -1435,7 +1925,7 @@ void main() {
 |---|---|
 | States differ mostly in which actions are allowed | Each state has rich behavior of its own (validation, side effects, timers) |
 | You want the whole workflow visible on one screen | Each state's logic is large enough to deserve its own file and tests |
-| The workflow may come from config or a database | You want the compiler to force every state to answer every action, which abstract methods do in all four languages |
+| The workflow may come from config or a database | You want the compiler to force every state to answer every action, which abstract methods (Rust: required trait methods) do in all five languages |
 | You need to list, visualize, or audit transitions | States hold their own data, such as a reviewer name or a retry count |
 
 ## Summary
