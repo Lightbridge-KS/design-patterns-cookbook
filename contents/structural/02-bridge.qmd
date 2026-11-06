@@ -327,6 +327,138 @@ class BasicRadioRemote {
 // ... AdvancedRadioRemote with duplicated code ...
 ```
 
+#### `Rust`
+
+```rust
+struct BasicTvRemote {
+    on: bool,
+    volume: i32,
+}
+
+impl BasicTvRemote {
+    fn new() -> Self {
+        Self {
+            on: false,
+            volume: 30,
+        }
+    }
+
+    fn toggle_power(&mut self) {
+        self.on = !self.on;
+        println!("TV is {}", if self.on { "on" } else { "off" });
+    }
+
+    fn volume_up(&mut self) {
+        self.volume += 10;
+        println!("TV volume: {}", self.volume);
+    }
+
+    fn volume_down(&mut self) {
+        self.volume -= 10;
+        println!("TV volume: {}", self.volume);
+    }
+}
+
+struct AdvancedTvRemote {
+    on: bool,
+    volume: i32,
+}
+
+impl AdvancedTvRemote {
+    fn new() -> Self {
+        Self {
+            on: false,
+            volume: 30,
+        }
+    }
+
+    fn toggle_power(&mut self) {
+        self.on = !self.on;
+        println!("TV is {}", if self.on { "on" } else { "off" });
+    }
+
+    fn volume_up(&mut self) {
+        self.volume += 10;
+        println!("TV volume: {}", self.volume);
+    }
+
+    fn volume_down(&mut self) {
+        self.volume -= 10;
+        println!("TV volume: {}", self.volume);
+    }
+
+    fn mute(&mut self) {
+        // Extra feature
+        self.volume = 0;
+        println!("TV muted");
+    }
+}
+
+struct BasicRadioRemote {
+    on: bool,
+    volume: i32,
+}
+
+impl BasicRadioRemote {
+    fn new() -> Self {
+        Self {
+            on: false,
+            volume: 20,
+        }
+    }
+
+    fn toggle_power(&mut self) {
+        self.on = !self.on;
+        println!("Radio is {}", if self.on { "on" } else { "off" });
+    }
+
+    fn volume_up(&mut self) {
+        self.volume += 10;
+        println!("Radio volume: {}", self.volume);
+    }
+
+    fn volume_down(&mut self) {
+        self.volume -= 10;
+        println!("Radio volume: {}", self.volume);
+    }
+}
+
+// AdvancedRadioRemote: the same code again (Rust must compile it, so it is spelled out)
+struct AdvancedRadioRemote {
+    on: bool,
+    volume: i32,
+}
+
+impl AdvancedRadioRemote {
+    fn new() -> Self {
+        Self {
+            on: false,
+            volume: 20,
+        }
+    }
+
+    fn toggle_power(&mut self) {
+        self.on = !self.on;
+        println!("Radio is {}", if self.on { "on" } else { "off" });
+    }
+
+    fn volume_up(&mut self) {
+        self.volume += 10;
+        println!("Radio volume: {}", self.volume);
+    }
+
+    fn volume_down(&mut self) {
+        self.volume -= 10;
+        println!("Radio volume: {}", self.volume);
+    }
+
+    fn mute(&mut self) {
+        self.volume = 0;
+        println!("Radio muted");
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -383,6 +515,21 @@ void main() {
   final radioRemote = AdvancedRadioRemote();  // Different class!
   radioRemote.togglePower();
   radioRemote.mute();
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    // Must create specific type for each combination
+    let mut tv_remote = BasicTvRemote::new();
+    tv_remote.toggle_power(); // TV is on
+    tv_remote.volume_up(); // TV volume: 40
+
+    let mut radio_remote = AdvancedRadioRemote::new(); // Different type!
+    radio_remote.toggle_power(); // Radio is on
+    radio_remote.mute(); // Radio muted
 }
 ```
 
@@ -862,6 +1009,158 @@ class AdvancedRemote extends RemoteControl {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Implementation interface → a trait
+trait Device {
+    fn is_enabled(&self) -> bool;
+    fn enable(&mut self);
+    fn disable(&mut self);
+    fn get_volume(&self) -> i32;
+    fn set_volume(&mut self, volume: i32);
+}
+
+// Concrete implementations → structs that implement the trait
+struct Tv {
+    on: bool,
+    volume: i32,
+}
+
+impl Tv {
+    fn new() -> Self {
+        Self {
+            on: false,
+            volume: 30,
+        }
+    }
+}
+
+impl Device for Tv {
+    fn is_enabled(&self) -> bool {
+        self.on
+    }
+
+    fn enable(&mut self) {
+        self.on = true;
+        println!("TV is on");
+    }
+
+    fn disable(&mut self) {
+        self.on = false;
+        println!("TV is off");
+    }
+
+    fn get_volume(&self) -> i32 {
+        self.volume
+    }
+
+    fn set_volume(&mut self, volume: i32) {
+        self.volume = volume.clamp(0, 100);
+        println!("TV volume: {}", self.volume);
+    }
+}
+
+struct Radio {
+    on: bool,
+    volume: i32,
+}
+
+impl Radio {
+    fn new() -> Self {
+        Self {
+            on: false,
+            volume: 20,
+        }
+    }
+}
+
+impl Device for Radio {
+    fn is_enabled(&self) -> bool {
+        self.on
+    }
+
+    fn enable(&mut self) {
+        self.on = true;
+        println!("Radio is on");
+    }
+
+    fn disable(&mut self) {
+        self.on = false;
+        println!("Radio is off");
+    }
+
+    fn get_volume(&self) -> i32 {
+        self.volume
+    }
+
+    fn set_volume(&mut self, volume: i32) {
+        self.volume = volume.clamp(0, 100);
+        println!("Radio volume: {}", self.volume);
+    }
+}
+
+// Abstraction → owns a boxed device: the field is the bridge
+struct RemoteControl {
+    device: Box<dyn Device>,
+}
+
+impl RemoteControl {
+    fn new(device: Box<dyn Device>) -> Self {
+        Self { device }
+    }
+
+    fn toggle_power(&mut self) {
+        if self.device.is_enabled() {
+            self.device.disable();
+        } else {
+            self.device.enable();
+        }
+    }
+
+    fn volume_up(&mut self) {
+        let volume = self.device.get_volume();
+        self.device.set_volume(volume + 10);
+    }
+
+    fn volume_down(&mut self) {
+        let volume = self.device.get_volume();
+        self.device.set_volume(volume - 10);
+    }
+}
+
+// Refined abstraction → no inheritance: wrap the base remote and forward to it
+struct AdvancedRemote {
+    remote: RemoteControl,
+}
+
+impl AdvancedRemote {
+    fn new(device: Box<dyn Device>) -> Self {
+        Self {
+            remote: RemoteControl::new(device),
+        }
+    }
+
+    fn toggle_power(&mut self) {
+        self.remote.toggle_power();
+    }
+
+    fn volume_up(&mut self) {
+        self.remote.volume_up();
+    }
+
+    fn volume_down(&mut self) {
+        self.remote.volume_down();
+    }
+
+    fn mute(&mut self) {
+        // Same module, so the private `device` field is visible here
+        self.remote.device.set_volume(0);
+        println!("Muted");
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -945,6 +1244,37 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Any remote can control any device!
+    // Basic remote with TV
+    let mut basic_remote = RemoteControl::new(Box::new(Tv::new()));
+    basic_remote.toggle_power(); // TV is on
+    basic_remote.volume_up(); // TV volume: 40
+
+    // Advanced remote with Radio
+    let mut advanced_remote = AdvancedRemote::new(Box::new(Radio::new()));
+    advanced_remote.toggle_power(); // Radio is on
+    advanced_remote.volume_up(); // Radio volume: 30
+    advanced_remote.mute(); // Radio volume: 0
+    //                         Muted
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Implementation interface | `trait Device` |
+| Concrete implementation | `struct Tv`, `struct Radio` + `impl Device for …` |
+| Abstraction | `struct RemoteControl { device: Box<dyn Device> }`: the field is the bridge |
+| Refined abstraction | `struct AdvancedRemote { remote: RemoteControl }`: wraps the base remote and forwards to it |
+| `protected` device | a private field: `AdvancedRemote` can still reach `self.remote.device`, because Rust privacy is per module, not per type |
+
+**Ownership:** the remote owns its device through the `Box`. Rust has no inheritance, so `AdvancedRemote` cannot *be* a `RemoteControl`; it *has* one and forwards each call. When the forwarding grows, move the shared remote logic into a trait with default methods. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
@@ -994,9 +1324,18 @@ Unlike most patterns in this book, Bridge has **no modern replacement**, because
 | `RemoteControl(this._device)` | unchanged |
 | `AdvancedRemote(super.device)` | unchanged |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Device` + `impl Device for Tv` | unchanged: a Rust trait is already implemented outside the type, much like a structural contract |
+| `device: Box<dyn Device>`: owned, dynamic dispatch | `device: &'a mut D` with `D: Device`: generic, static dispatch, borrowed |
+| `struct RemoteControl` methods | unchanged, inside `impl<'a, D: Device>` |
+| `struct AdvancedRemote { remote: RemoteControl }` + forwarding methods | unchanged shape, generic over `D` |
+
 :::
 
-**Ecosystem:** you already use bridge-shaped APIs, where an abstraction delegates to a swappable implementation. Examples are .NET's `HttpClient` over `HttpMessageHandler` and Python's `logging.Logger` over `logging.Handler`. DI containers then wire the bridge once at startup (`services.AddSingleton<IDevice, TV>()`).
+**Ecosystem:** you already use bridge-shaped APIs, where an abstraction delegates to a swappable implementation. Examples are .NET's `HttpClient` over `HttpMessageHandler` and Python's `logging.Logger` over `logging.Handler`. Rust's `std::io::BufWriter<W: Write>` wraps any writer the same way, with the bridge fixed at compile time. DI containers then wire the bridge once at startup (`services.AddSingleton<IDevice, TV>()`).
 
 ### Modern Code
 
@@ -1322,6 +1661,120 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — generics with a trait bound (static dispatch), borrowed device
+
+// Implementation side → unchanged trait
+trait Device {
+    fn is_enabled(&self) -> bool;
+    fn enable(&mut self);
+    fn disable(&mut self);
+    fn get_volume(&self) -> i32;
+    fn set_volume(&mut self, volume: i32);
+}
+
+// (Radio has the same shape and is omitted here)
+struct Tv {
+    on: bool,
+    volume: i32,
+}
+
+impl Tv {
+    fn new() -> Self {
+        Self {
+            on: false,
+            volume: 30,
+        }
+    }
+}
+
+impl Device for Tv {
+    fn is_enabled(&self) -> bool {
+        self.on
+    }
+
+    fn enable(&mut self) {
+        self.on = true;
+        println!("TV is on");
+    }
+
+    fn disable(&mut self) {
+        self.on = false;
+        println!("TV is off");
+    }
+
+    fn get_volume(&self) -> i32 {
+        self.volume
+    }
+
+    fn set_volume(&mut self, volume: i32) {
+        self.volume = volume.clamp(0, 100);
+        println!("TV volume: {}", self.volume);
+    }
+}
+
+// Abstraction side → generic over the device: no Box, no vtable.
+// The remote borrows the device, so one TV can serve several remotes in turn.
+// (volume_down mirrors volume_up and is omitted here)
+struct RemoteControl<'a, D: Device> {
+    device: &'a mut D,
+}
+
+impl<'a, D: Device> RemoteControl<'a, D> {
+    fn new(device: &'a mut D) -> Self {
+        Self { device }
+    }
+
+    fn toggle_power(&mut self) {
+        if self.device.is_enabled() {
+            self.device.disable();
+        } else {
+            self.device.enable();
+        }
+    }
+
+    fn volume_up(&mut self) {
+        let volume = self.device.get_volume();
+        self.device.set_volume(volume + 10);
+    }
+}
+
+// Refined abstraction → unchanged shape: wraps the basic remote, now generic too
+struct AdvancedRemote<'a, D: Device> {
+    remote: RemoteControl<'a, D>,
+}
+
+impl<'a, D: Device> AdvancedRemote<'a, D> {
+    fn new(device: &'a mut D) -> Self {
+        Self {
+            remote: RemoteControl::new(device),
+        }
+    }
+
+    fn volume_up(&mut self) {
+        self.remote.volume_up();
+    }
+
+    fn mute(&mut self) {
+        self.remote.device.set_volume(0);
+        println!("Muted");
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut tv = Tv::new();
+    RemoteControl::new(&mut tv).toggle_power(); // TV is on
+
+    let mut remote = AdvancedRemote::new(&mut tv);
+    remote.volume_up(); // TV volume: 40
+    remote.mute(); // TV volume: 0
+    //                Muted
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1331,6 +1784,7 @@ void main() {
 | Devices come from code you don't own, since `Protocol` / structural typing lets them fit without inheriting | You want conformance enforced at runtime: a Python `ABC` fails fast on a missing method, while a `Protocol` is checked only by the type checker |
 | The abstraction only stores and forwards the device (C# primary constructor) | The constructor must validate, wrap, or default the device |
 | A device is small enough to be an object literal (TypeScript) | Devices carry enough state and behavior to deserve a named class |
+| Rust: each remote works with one device type known at compile time (generic `D: Device`, no heap) | Rust: one collection holds remotes for different devices, or the device is chosen at runtime (`Box<dyn Device>`) |
 
 ## Summary
 
