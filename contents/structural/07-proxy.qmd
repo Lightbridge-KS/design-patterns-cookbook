@@ -164,6 +164,54 @@ class SecretDocument {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct User {
+    name: String,
+    role: String, // "admin", "user", or "guest"
+}
+
+impl User {
+    fn new(name: &str, role: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            role: role.to_string(),
+        }
+    }
+}
+
+struct SecretDocument {
+    content: String,
+}
+
+impl SecretDocument {
+    fn new(content: &str) -> Self {
+        Self {
+            content: content.to_string(),
+        }
+    }
+
+    fn read(&self, user: &User) -> Result<&str, String> {
+        // Permission check mixed with business logic!
+        if !matches!(user.role.as_str(), "admin" | "user") {
+            return Err(format!("Access denied for {}", user.name));
+        }
+        Ok(&self.content)
+    }
+
+    fn save(&mut self, user: &User, content: &str) -> Result<(), String> {
+        // Permission check mixed with business logic!
+        if user.role != "admin" {
+            return Err(format!("Save access denied for {}", user.name));
+        }
+        self.content = content.to_string();
+        println!("Document updated by {}", user.name);
+        Ok(())
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -232,6 +280,24 @@ void main() {
   print(doc.read(guest));   // Exception!
 
   // Every method needs user parameter for permission checks
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let doc = SecretDocument::new("Top Secret Content");
+
+    let admin = User::new("Alice", "admin");
+    let user = User::new("Bob", "user");
+    let guest = User::new("Charlie", "guest");
+
+    println!("{:?}", doc.read(&admin)); // Ok("Top Secret Content")
+    println!("{:?}", doc.read(&user)); // Ok("Top Secret Content")
+    println!("{:?}", doc.read(&guest)); // Err("Access denied for Charlie")
+
+    // Every method needs user parameter for permission checks
 }
 ```
 
@@ -516,6 +582,100 @@ class DocumentProxy implements Document {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::cell::RefCell;
+use std::rc::Rc;
+
+struct User {
+    name: String,
+    role: String,
+}
+
+impl User {
+    fn new(name: &str, role: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            role: role.to_string(),
+        }
+    }
+}
+
+// No exceptions: a refused call is an `Err` value
+#[derive(Debug)]
+struct AccessDenied(String);
+
+// Subject interface → a trait. Its signatures return `Result`,
+// because a proxy implementing it may refuse the call.
+trait Document {
+    fn read(&self) -> Result<String, AccessDenied>;
+    fn save(&mut self, content: &str) -> Result<(), AccessDenied>;
+}
+
+// Real subject → only business logic, no permission checks
+struct SecretDocument {
+    content: String,
+}
+
+impl SecretDocument {
+    fn new(content: &str) -> Self {
+        Self {
+            content: content.to_string(),
+        }
+    }
+}
+
+impl Document for SecretDocument {
+    fn read(&self) -> Result<String, AccessDenied> {
+        Ok(self.content.clone())
+    }
+
+    fn save(&mut self, content: &str) -> Result<(), AccessDenied> {
+        self.content = content.to_string();
+        println!("Document updated");
+        Ok(())
+    }
+}
+
+// Proxy → implements the same trait, checks access, then delegates.
+// Several proxies share one document, so it lives in an `Rc<RefCell<…>>`.
+struct DocumentProxy {
+    document: Rc<RefCell<SecretDocument>>,
+    user: User,
+}
+
+impl DocumentProxy {
+    fn new(document: Rc<RefCell<SecretDocument>>, user: User) -> Self {
+        Self { document, user }
+    }
+}
+
+impl Document for DocumentProxy {
+    fn read(&self) -> Result<String, AccessDenied> {
+        if !matches!(self.user.role.as_str(), "admin" | "user") {
+            return Err(AccessDenied(format!(
+                "Read access denied for {}",
+                self.user.name
+            )));
+        }
+        println!("{} is reading the document", self.user.name);
+        self.document.borrow().read()
+    }
+
+    fn save(&mut self, content: &str) -> Result<(), AccessDenied> {
+        if self.user.role != "admin" {
+            return Err(AccessDenied(format!(
+                "Save access denied for {}",
+                self.user.name
+            )));
+        }
+        println!("{} is saving the document", self.user.name);
+        self.document.borrow_mut().save(content)
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -663,14 +823,70 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() -> Result<(), AccessDenied> {
+    // Create the real document, shared by every proxy
+    let secret_doc = Rc::new(RefCell::new(SecretDocument::new("Top Secret Content")));
+
+    // Create proxies for different users
+    let admin = User::new("Alice", "admin");
+    let user = User::new("Bob", "user");
+    let guest = User::new("Charlie", "guest");
+
+    let mut admin_proxy: Box<dyn Document> =
+        Box::new(DocumentProxy::new(Rc::clone(&secret_doc), admin));
+    let mut user_proxy: Box<dyn Document> =
+        Box::new(DocumentProxy::new(Rc::clone(&secret_doc), user));
+    let guest_proxy: Box<dyn Document> =
+        Box::new(DocumentProxy::new(Rc::clone(&secret_doc), guest));
+
+    // Admin can read and save (`?` returns early on an Err)
+    println!("{}", admin_proxy.read()?);
+    // Alice is reading the document
+    // Top Secret Content
+
+    admin_proxy.save("Updated by admin")?;
+    // Alice is saving the document
+    // Document updated
+
+    // User can only read
+    println!("{}", user_proxy.read()?);
+    // Bob is reading the document
+    // Updated by admin
+
+    // A refused call is a value, not a crash
+    println!("{:?}", user_proxy.save("Hacked!"));
+    // Err(AccessDenied("Save access denied for Bob"))
+
+    // Guest can't even read
+    println!("{:?}", guest_proxy.read());
+    // Err(AccessDenied("Read access denied for Charlie"))
+    Ok(())
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Subject interface | `trait Document`, with `Result` return types |
+| Real subject | `struct SecretDocument` + `impl Document for SecretDocument` |
+| Proxy | `struct DocumentProxy` + `impl Document for DocumentProxy`: check, then delegate |
+| `PermissionError` | `Err(AccessDenied(…))`: the caller must handle it, and `?` passes it on |
+| Client holds "a Document" | `Box<dyn Document>`: proxy and real subject are interchangeable |
+
+**Ownership:** three proxies point at one document, and one of them writes to it. So the document has shared ownership (`Rc`) and mutation checked at runtime (`RefCell`). Rust has no exceptions, so the interface itself must say that a call can be refused: the real subject always returns `Ok`, but it uses the same `Result` signature as the proxy. Modern Approach shows that when proxies are used one after another, a plain `&mut` borrow replaces `Rc<RefCell<…>>`. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-The classic proxy repeats the same check in every method. Three of the four languages can generate a proxy at runtime instead. JavaScript has a built-in `Proxy` object, .NET has `DispatchProxy`, and Python has `__getattr__`. With these you write the access check **once** and it guards every method of any object. Dart has no runtime reflection in AOT builds (including Flutter), so its proxy stays hand-written.
+The classic proxy repeats the same check in every method. Three of the five languages can generate a proxy at runtime instead. JavaScript has a built-in `Proxy` object, .NET has `DispatchProxy`, and Python has `__getattr__`. With these you write the access check **once** and it guards every method of any object. Dart has no runtime reflection in AOT builds (including Flutter), and Rust has none at all, so their proxies stay hand-written.
 
 ::: {.callout-note appearance="simple"}
-**Verdict: 🟡 Simplifies** — a dynamic proxy writes the check once for every method, and the rules become a data table; Dart keeps the hand-written proxy.
+**Verdict: 🟡 Simplifies** — a dynamic proxy writes the check once for every method, and the rules become a data table; Dart and Rust keep the hand-written proxy.
 :::
 
 ### Feature Map
@@ -715,9 +931,21 @@ The classic proxy repeats the same check in every method. Three of the four lang
 | Permission rules inside `read()` / `save()` | a policy map + one `_guard()` helper |
 | Virtual proxy (lazy loading, not shown) | a `late final` field, initialized on first access |
 
+#### `Rust`
+
+Rust: ⚪ Still the idiom — Rust has no runtime reflection, so there is no dynamic proxy. Macros can generate the forwarding methods at compile time instead (see Ecosystem).
+
+| Classic | Modern |
+|---|---|
+| `trait Document` | unchanged |
+| `struct DocumentProxy` holding `Rc<RefCell<SecretDocument>>` | `struct Guarded<'a, D>` holding `&'a mut D`: generic over any `Document`, and a borrow instead of shared ownership |
+| Permission rules inside `read()` / `save()` | a policy map + one `guard()` helper |
+| `AccessDenied` error | unchanged, plus `Display` for the "Blocked" message |
+| Virtual proxy (lazy loading, not shown) | a `std::cell::OnceCell` field, filled on first access |
+
 :::
 
-**Ecosystem:** frameworks usually enforce access at the boundary instead, with ASP.NET Core `[Authorize]`, Django `@permission_required`, or FastAPI dependencies. Dynamic proxies power a lot of tooling: Castle.DynamicProxy sits under .NET mocking libraries such as Moq and NSubstitute, and Vue 3's reactivity is built on JavaScript's `Proxy`.
+**Ecosystem:** frameworks usually enforce access at the boundary instead, with ASP.NET Core `[Authorize]`, Django `@permission_required`, or FastAPI dependencies. Dynamic proxies power a lot of tooling: Castle.DynamicProxy sits under .NET mocking libraries such as Moq and NSubstitute, and Vue 3's reactivity is built on JavaScript's `Proxy`. In Rust, the `delegate` and `ambassador` crates generate the forwarding methods with macros at compile time.
 
 ### Modern Code
 
@@ -1052,6 +1280,136 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — no dynamic proxies (no runtime reflection): the proxy stays hand-written
+use std::collections::HashMap;
+use std::fmt;
+
+struct User {
+    name: String,
+    role: String,
+}
+
+impl User {
+    fn new(name: &str, role: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            role: role.to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AccessDenied(String);
+
+impl fmt::Display for AccessDenied {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// Subject interface → unchanged
+trait Document {
+    fn read(&self) -> Result<String, AccessDenied>;
+    fn save(&mut self, content: &str) -> Result<(), AccessDenied>;
+}
+
+// Real subject → unchanged: business logic only
+struct SecretDocument {
+    content: String,
+}
+
+impl Document for SecretDocument {
+    fn read(&self) -> Result<String, AccessDenied> {
+        Ok(self.content.clone())
+    }
+
+    fn save(&mut self, content: &str) -> Result<(), AccessDenied> {
+        self.content = content.to_string();
+        println!("Document updated");
+        Ok(())
+    }
+}
+
+type Policy = HashMap<&'static str, Vec<&'static str>>;
+
+// Proxy → generic over any Document, and it borrows the target instead of sharing it.
+// Still one method per subject method, but the rules live in one policy map.
+struct Guarded<'a, D> {
+    target: &'a mut D,
+    user: User,
+    policy: &'a Policy,
+}
+
+impl<'a, D: Document> Guarded<'a, D> {
+    fn new(target: &'a mut D, user: User, policy: &'a Policy) -> Self {
+        Self {
+            target,
+            user,
+            policy,
+        }
+    }
+
+    fn guard(&self, method: &str) -> Result<(), AccessDenied> {
+        let allowed = self
+            .policy
+            .get(method)
+            .is_some_and(|roles| roles.contains(&self.user.role.as_str()));
+        if !allowed {
+            return Err(AccessDenied(format!(
+                "{method} access denied for {}",
+                self.user.name
+            )));
+        }
+        println!("{} is calling {method}()", self.user.name);
+        Ok(())
+    }
+}
+
+impl<D: Document> Document for Guarded<'_, D> {
+    fn read(&self) -> Result<String, AccessDenied> {
+        self.guard("read")?;
+        self.target.read()
+    }
+
+    fn save(&mut self, content: &str) -> Result<(), AccessDenied> {
+        self.guard("save")?;
+        self.target.save(content)
+    }
+}
+
+// --- Usage ---
+fn main() -> Result<(), AccessDenied> {
+    let mut secret_doc = SecretDocument {
+        content: "Top Secret Content".to_string(),
+    };
+    let policy: Policy = HashMap::from([("read", vec!["admin", "user"]), ("save", vec!["admin"])]);
+
+    let mut admin_doc = Guarded::new(&mut secret_doc, User::new("Alice", "admin"), &policy);
+    println!("{}", admin_doc.read()?);
+    // Alice is calling read()
+    // Top Secret Content
+
+    admin_doc.save("Updated by admin")?;
+    // Alice is calling save()
+    // Document updated
+
+    // admin_doc is not used again, so its borrow has ended and Bob can borrow the document
+    let mut user_doc = Guarded::new(&mut secret_doc, User::new("Bob", "user"), &policy);
+    println!("{}", user_doc.read()?);
+    // Bob is calling read()
+    // Updated by admin
+
+    if let Err(e) = user_doc.save("Hacked!") {
+        println!("Blocked: {e}");
+    }
+    // Blocked: save access denied for Bob
+    Ok(())
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1061,7 +1419,7 @@ void main() {
 | The same rule guards many methods, or many interfaces | Each method needs its own logic (different checks, rules based on arguments) |
 | Rules are data (a policy table) that may change | You want full static checking: Python's `cast` and C#'s reflection push errors to runtime |
 | You are writing infrastructure: mocking, logging, reactivity | A call is on a hot path, where reflection-based dispatch costs more than a direct call |
-| | You target Dart / Flutter or .NET Native AOT, where runtime reflection or code generation isn't available |
+| | You target Dart / Flutter, .NET Native AOT, or Rust, where runtime reflection or code generation isn't available |
 
 ## Summary
 
