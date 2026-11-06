@@ -201,6 +201,77 @@ dynamic copyShape(dynamic shape) {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::any::Any;
+
+mod shapes {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn next_id() -> u64 {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub struct Circle {
+        pub x: i32,
+        pub y: i32,
+        pub radius: i32,
+        pub color: String,
+        internal_id: u64, // Private field!
+    }
+
+    impl Circle {
+        pub fn new(x: i32, y: i32, radius: i32, color: &str) -> Self {
+            Self {
+                x,
+                y,
+                radius,
+                color: color.to_string(),
+                internal_id: next_id(),
+            }
+        }
+    }
+
+    pub struct Rectangle {
+        pub x: i32,
+        pub y: i32,
+        pub width: i32,
+        pub height: i32,
+        pub color: String,
+        internal_id: u64, // Private field!
+    }
+
+    impl Rectangle {
+        pub fn new(x: i32, y: i32, width: i32, height: i32, color: &str) -> Self {
+            Self {
+                x,
+                y,
+                width,
+                height,
+                color: color.to_string(),
+                internal_id: next_id(),
+            }
+        }
+    }
+}
+
+use shapes::{Circle, Rectangle};
+
+fn copy_shape(shape: &dyn Any) -> Box<dyn Any> {
+    // Must know the concrete type!
+    if let Some(c) = shape.downcast_ref::<Circle>() {
+        // Must know all fields; can't copy internal_id - it's private to `shapes`!
+        Box::new(Circle::new(c.x, c.y, c.radius, &c.color))
+    } else if let Some(r) = shape.downcast_ref::<Rectangle>() {
+        Box::new(Rectangle::new(r.x, r.y, r.width, r.height, &r.color))
+    } else {
+        panic!("Unknown shape type")
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -245,6 +316,18 @@ void main() {
 
   // Works, but tightly coupled to concrete types
   // Adding a Triangle requires modifying copyShape()
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let original = Circle::new(10, 20, 50, "red");
+    let copy = copy_shape(&original);
+
+    // Works, but tightly coupled to concrete types
+    // Adding a Triangle requires modifying copy_shape()
 }
 ```
 
@@ -535,6 +618,102 @@ class Rectangle extends Shape {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+fn next_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+// Prototype interface → a trait. `Clone` cannot be called through `dyn`
+// (it returns `Self`, whose size is unknown), so each shape clones into a Box.
+trait Shape: fmt::Display {
+    fn clone_box(&self) -> Box<dyn Shape>;
+}
+
+// Concrete Prototype → `#[derive(Clone)]` writes the field-by-field copy
+#[derive(Clone)]
+struct Circle {
+    x: i32,
+    y: i32,
+    color: String,
+    radius: i32,
+    internal_id: u64, // Private outside this module - still gets cloned!
+}
+
+impl Circle {
+    fn new(x: i32, y: i32, color: &str, radius: i32) -> Self {
+        Self {
+            x,
+            y,
+            color: color.to_string(),
+            radius,
+            internal_id: next_id(),
+        }
+    }
+}
+
+impl Shape for Circle {
+    fn clone_box(&self) -> Box<dyn Shape> {
+        Box::new(self.clone())
+    }
+}
+
+impl fmt::Display for Circle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Circle(x={}, y={}, radius={}, color={})",
+            self.x, self.y, self.radius, self.color
+        )
+    }
+}
+
+// Concrete Prototype
+#[derive(Clone)]
+struct Rectangle {
+    x: i32,
+    y: i32,
+    color: String,
+    width: i32,
+    height: i32,
+    internal_id: u64,
+}
+
+impl Rectangle {
+    fn new(x: i32, y: i32, color: &str, width: i32, height: i32) -> Self {
+        Self {
+            x,
+            y,
+            color: color.to_string(),
+            width,
+            height,
+            internal_id: next_id(),
+        }
+    }
+}
+
+impl Shape for Rectangle {
+    fn clone_box(&self) -> Box<dyn Shape> {
+        Box::new(self.clone())
+    }
+}
+
+impl fmt::Display for Rectangle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Rectangle(x={}, y={}, {}x{}, color={})",
+            self.x, self.y, self.width, self.height, self.color
+        )
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -637,11 +816,49 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Clone without knowing concrete type!
+fn duplicate_shape(shape: &dyn Shape) -> Box<dyn Shape> {
+    shape.clone_box()
+}
+
+fn main() {
+    // Create original shapes
+    let circle = Circle::new(10, 20, "red", 50);
+    let rectangle = Rectangle::new(0, 0, "blue", 100, 50);
+
+    // Clone and modify (the concrete type is known here, so plain `clone()` works)
+    let mut circle_copy = circle.clone();
+    circle_copy.x = 100; // Move the copy
+    circle_copy.color = "green".to_string();
+    println!("Original: {circle}"); // Original: Circle(x=10, y=20, radius=50, color=red)
+    println!("Copy: {circle_copy}"); // Copy: Circle(x=100, y=20, radius=50, color=green)
+
+    // Works with any shape
+    let shapes: Vec<Box<dyn Shape>> = vec![Box::new(circle), Box::new(rectangle)];
+    let copies: Vec<Box<dyn Shape>> = shapes.iter().map(|s| duplicate_shape(s.as_ref())).collect();
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Prototype interface | `trait Shape: Display` with `fn clone_box(&self) -> Box<dyn Shape>` |
+| Concrete prototype | `#[derive(Clone)] struct Circle` + `impl Shape for Circle` |
+| `clone()` body | `Box::new(self.clone())`: the derived `Clone` copies every field, private ones too |
+| Shared base fields (`x`, `y`, `color`) | repeated in each struct: a trait cannot hold fields |
+| Clone through the interface | `shape.clone_box()` on a `&dyn Shape` |
+
+**Ownership:** `Clone::clone` returns `Self`, and behind `dyn Shape` the size of `Self` is unknown, so `Clone` cannot be called on a trait object (it is not *dyn-compatible*). `clone_box` is the classic workaround: each type clones itself and boxes the result. The clone is a new owner and shares nothing with the original, unless a field is an `Rc` or `Arc`. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-The classic solution hand-writes `clone()` in every class. Modern languages generate it. Python dataclasses support `copy.replace()`, C# records support `with`, and TypeScript copies plain data with object spread. Each of these copies and modifies in one expression. Because the shapes become immutable values, a copy can never accidentally share changes with its original.
+The classic solution hand-writes `clone()` in every class. Modern languages generate it. Python dataclasses support `copy.replace()`, C# records support `with`, TypeScript copies plain data with object spread, and Rust derives `Clone` and copies with changes through struct update syntax (`..circle.clone()`). Each of these copies and modifies in one expression. Because the shapes become immutable values, a copy can never accidentally share changes with its original.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟢 Replaces** — the language writes the clone for you, and immutable values make copy-and-modify safe. Dart is the exception: its `copyWith` is a convention you write yourself or generate.
@@ -686,9 +903,18 @@ The classic solution hand-writes `clone()` in every class. Modern languages gene
 | Clone, then mutate: `circleCopy.x = 100` | `circle.copyWith(x: 100, color: "green")` on immutable values |
 | Hand-written `clone()` per class | Hand-written `copyWith()` here; `freezed` generates it |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Shape` with `clone_box(&self) -> Box<dyn Shape>` | nothing to write: `#[derive(Clone)]` on the data |
+| Separate `Circle` / `Rectangle` structs, each repeating `x`, `y`, `color` | one `Shape` struct with the shared fields + `enum Kind` for the part that differs |
+| Clone, then mutate: `circle_copy.x = 100` | Copy and modify in one expression: `Shape { x: 100, ..circle.clone() }` |
+| `Box::new(self.clone())` in every `impl Shape` | unchanged where an open set of types still hides behind `dyn` |
+
 :::
 
-**Ecosystem:** in Dart, `freezed` generates `copyWith`, `==`, and `toString`. In TypeScript, Immer (`produce`) copies nested state while sharing unchanged parts. In Python, Pydantic models offer `model_copy(update=…)`.
+**Ecosystem:** in Dart, `freezed` generates `copyWith`, `==`, and `toString`. In TypeScript, Immer (`produce`) copies nested state while sharing unchanged parts. In Python, Pydantic models offer `model_copy(update=…)`. In Rust, `dyn-clone` generates the `clone_box` boilerplate for trait objects.
 
 ### Modern Code
 
@@ -913,6 +1139,86 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — #[derive(Clone)], struct update syntax, enum for the varying part
+use std::fmt;
+
+// The part that differs per shape → an enum
+#[derive(Clone)]
+enum Kind {
+    Circle { radius: i32 },
+    Rectangle { width: i32, height: i32 },
+}
+
+// Prototype → one struct with the shared fields: no clone() to write
+#[derive(Clone)]
+struct Shape {
+    x: i32,
+    y: i32,
+    color: String,
+    kind: Kind,
+}
+
+impl fmt::Display for Shape {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (x, y, color) = (self.x, self.y, &self.color);
+        match self.kind {
+            Kind::Circle { radius } => {
+                write!(f, "Circle(x={x}, y={y}, radius={radius}, color={color})")
+            }
+            Kind::Rectangle { width, height } => {
+                write!(
+                    f,
+                    "Rectangle(x={x}, y={y}, {width}x{height}, color={color})"
+                )
+            }
+        }
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let circle = Shape {
+        x: 10,
+        y: 20,
+        color: "red".to_string(),
+        kind: Kind::Circle { radius: 50 },
+    };
+    let rectangle = Shape {
+        x: 0,
+        y: 0,
+        color: "blue".to_string(),
+        kind: Kind::Rectangle {
+            width: 100,
+            height: 50,
+        },
+    };
+
+    // Clone and modify in one step; the original is untouched
+    let circle_copy = Shape {
+        x: 100,
+        color: "green".to_string(),
+        ..circle.clone()
+    };
+    println!("Original: {circle}"); // Original: Circle(x=10, y=20, radius=50, color=red)
+    println!("Copy: {circle_copy}"); // Copy: Circle(x=100, y=20, radius=50, color=green)
+
+    // Clone without knowing the kind: the same update works on every Shape
+    let shapes = [circle, rectangle];
+    for shape in &shapes {
+        let recolored = Shape {
+            color: "black".to_string(),
+            ..shape.clone()
+        };
+        println!("{recolored}");
+    }
+    // Circle(x=10, y=20, radius=50, color=black)
+    // Rectangle(x=0, y=0, 100x50, color=black)
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -922,6 +1228,7 @@ void main() {
 | Objects are values that you replace rather than mutate | The copy needs custom rules: a fresh ID, reset counters, shared vs. copied resources |
 | You want to clone and modify in one expression | The object owns handles (files, sockets, locks) that must not be duplicated |
 | Types are already records, dataclasses, or plain data | The object is a mutable entity whose identity matters, such as one that must register itself on creation |
+| Rust: the set of shapes is closed, so one struct plus an `enum Kind` lets `..shape.clone()` work for all of them | Rust: shapes are an open set behind `Box<dyn Shape>`. `Clone` is not dyn-compatible, so keep `clone_box()` |
 
 ## Summary
 
