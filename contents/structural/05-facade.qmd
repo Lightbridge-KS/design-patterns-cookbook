@@ -204,6 +204,48 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Cpu;
+
+impl Cpu {
+    fn freeze(&self) {
+        println!("CPU: Freezing processor");
+    }
+
+    fn jump(&self, address: u64) {
+        println!("CPU: Jumping to address {address}");
+    }
+
+    fn execute(&self) {
+        println!("CPU: Executing instructions");
+    }
+}
+
+struct Memory;
+
+impl Memory {
+    fn load(&self, address: u64, data: &[u8]) {
+        println!("Memory: Loading {} bytes at address {address}", data.len());
+    }
+}
+
+struct HardDrive;
+
+impl HardDrive {
+    fn read(&self, sector: u64, size: usize) -> Vec<u8> {
+        println!("HardDrive: Reading {size} bytes from sector {sector}");
+        vec![0; size]
+    }
+}
+
+// Client must coordinate everything manually (see `main` below)
+const BOOT_ADDRESS: u64 = 0x0000;
+const BOOT_SECTOR: u64 = 0;
+const SECTOR_SIZE: usize = 512;
+```
+
 :::
 
 #### Usage
@@ -260,6 +302,25 @@ void main() {
   cpu.execute();
 
   // What if boot sequence changes? All clients must be updated!
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let cpu = Cpu;
+    let memory = Memory;
+    let hard_drive = HardDrive;
+
+    // Every client must know the entire boot sequence
+    cpu.freeze();
+    let boot_data = hard_drive.read(BOOT_SECTOR, SECTOR_SIZE);
+    memory.load(BOOT_ADDRESS, &boot_data);
+    cpu.jump(BOOT_ADDRESS);
+    cpu.execute();
+
+    // What if boot sequence changes? All clients must be updated!
 }
 ```
 
@@ -509,6 +570,75 @@ class Computer {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Subsystems (unchanged)
+struct Cpu;
+
+impl Cpu {
+    fn freeze(&self) {
+        println!("CPU: Freezing processor");
+    }
+
+    fn jump(&self, address: u64) {
+        println!("CPU: Jumping to address {address}");
+    }
+
+    fn execute(&self) {
+        println!("CPU: Executing instructions");
+    }
+}
+
+struct Memory;
+
+impl Memory {
+    fn load(&self, address: u64, data: &[u8]) {
+        println!("Memory: Loading {} bytes at address {address}", data.len());
+    }
+}
+
+struct HardDrive;
+
+impl HardDrive {
+    fn read(&self, sector: u64, size: usize) -> Vec<u8> {
+        println!("HardDrive: Reading {size} bytes from sector {sector}");
+        vec![0; size]
+    }
+}
+
+// Facade → owns the subsystems and runs the sequence
+struct Computer {
+    cpu: Cpu,
+    memory: Memory,
+    hard_drive: HardDrive,
+}
+
+impl Computer {
+    const BOOT_ADDRESS: u64 = 0x0000;
+    const BOOT_SECTOR: u64 = 0;
+    const SECTOR_SIZE: usize = 512;
+
+    fn new() -> Self {
+        Self {
+            cpu: Cpu,
+            memory: Memory,
+            hard_drive: HardDrive,
+        }
+    }
+
+    fn start(&self) {
+        println!("Computer: Starting...");
+        self.cpu.freeze();
+        let boot_data = self.hard_drive.read(Self::BOOT_SECTOR, Self::SECTOR_SIZE);
+        self.memory.load(Self::BOOT_ADDRESS, &boot_data);
+        self.cpu.jump(Self::BOOT_ADDRESS);
+        self.cpu.execute();
+        println!("Computer: Ready!");
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -584,6 +714,35 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Simple! Client only knows about the facade
+    let computer = Computer::new();
+    computer.start();
+    // Output:
+    // Computer: Starting...
+    // CPU: Freezing processor
+    // HardDrive: Reading 512 bytes from sector 0
+    // Memory: Loading 512 bytes at address 0
+    // CPU: Jumping to address 0
+    // CPU: Executing instructions
+    // Computer: Ready!
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Subsystem classes | unit structs `Cpu`, `Memory`, `HardDrive` with inherent methods |
+| Facade | `struct Computer { cpu, memory, hard_drive }` with one `start(&self)` method |
+| Facade constants | associated consts `Computer::BOOT_ADDRESS`, … |
+| "Subsystems stay accessible" | true here: every item sits in one module, and Rust privacy is per module, not per type |
+
+**Ownership:** the facade owns its subsystems as plain fields. Creating a `Computer` creates all three, and dropping it drops them. There is no `Box` and no trait: a facade is plain composition. To hide the subsystems for real, move them into a module and leave them without `pub` (see Modern Approach). See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
@@ -630,9 +789,18 @@ A facade is a small public surface over a larger private one. No language featur
 | `CPU`, `Memory`, `HardDrive` | `_CPU`, `_Memory`, `_HardDrive`: library-private |
 | A package's public surface | `export 'src/computer.dart' show startComputer;` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `struct Computer` holding `cpu`, `memory`, `hard_drive` | `pub fn start_computer()`: a function inside `mod computer` |
+| `Cpu`, `Memory`, `HardDrive`, usable anywhere in the module | the same structs without `pub` inside `mod computer`: outside code gets a compile error (E0603) |
+| `Computer::BOOT_ADDRESS` associated constants | module-private `const BOOT_ADDRESS`, … |
+| A crate's public surface | `pub use computer::start_computer;` in `lib.rs` re-exports only the facade |
+
 :::
 
-**Ecosystem:** no library needed, since visibility is a language feature. In .NET, `InternalsVisibleTo` lets a test project reach `internal` subsystems.
+**Ecosystem:** no library needed, since visibility is a language feature. In .NET, `InternalsVisibleTo` lets a test project reach `internal` subsystems. Rust needs no tool either: unit tests in a `#[cfg(test)] mod tests` inside the module can reach its private items.
 
 ### Modern Code
 
@@ -883,6 +1051,79 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — module privacy: items are private unless marked `pub`
+
+// The module itself is the facade (in a real crate: src/computer.rs)
+mod computer {
+    const BOOT_ADDRESS: u64 = 0x0000;
+    const BOOT_SECTOR: u64 = 0;
+    const SECTOR_SIZE: usize = 512;
+
+    // Subsystems → no `pub`: invisible outside this module, enforced by the compiler
+    struct Cpu;
+
+    impl Cpu {
+        fn freeze(&self) {
+            println!("CPU: Freezing processor");
+        }
+
+        fn jump(&self, address: u64) {
+            println!("CPU: Jumping to address {address}");
+        }
+
+        fn execute(&self) {
+            println!("CPU: Executing instructions");
+        }
+    }
+
+    struct Memory;
+
+    impl Memory {
+        fn load(&self, address: u64, data: &[u8]) {
+            println!("Memory: Loading {} bytes at address {address}", data.len());
+        }
+    }
+
+    struct HardDrive;
+
+    impl HardDrive {
+        fn read(&self, sector: u64, size: usize) -> Vec<u8> {
+            println!("HardDrive: Reading {size} bytes from sector {sector}");
+            vec![0; size]
+        }
+    }
+
+    // Facade → the one `pub` item: a plain function, since it holds no state
+    pub fn start_computer() {
+        let (cpu, memory, hard_drive) = (Cpu, Memory, HardDrive);
+        println!("Computer: Starting...");
+        cpu.freeze();
+        let boot_data = hard_drive.read(BOOT_SECTOR, SECTOR_SIZE);
+        memory.load(BOOT_ADDRESS, &boot_data);
+        cpu.jump(BOOT_ADDRESS);
+        cpu.execute();
+        println!("Computer: Ready!");
+    }
+}
+
+// --- Usage ---
+fn main() {
+    computer::start_computer();
+    // Computer: Starting...
+    // CPU: Freezing processor
+    // HardDrive: Reading 512 bytes from sector 0
+    // Memory: Loading 512 bytes at address 0
+    // CPU: Jumping to address 0
+    // CPU: Executing instructions
+    // Computer: Ready!
+
+    // let cpu = computer::Cpu; // ❌ error[E0603]: unit struct `Cpu` is private
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -890,7 +1131,7 @@ void main() {
 | Prefer a module-level facade when | Keep a facade class when |
 |---|---|
 | The facade holds no state between calls | The facade owns subsystem instances that live across calls (a running computer) |
-| You want the compiler or linter to hide the subsystems (`file`, `_`, no `export`) | Advanced clients still need direct access to the subsystems (the classic facade doesn't hide them) |
+| You want the compiler or linter to hide the subsystems (`file`, `_`, no `export`, no `pub` in Rust) | Advanced clients still need direct access to the subsystems (the classic facade doesn't hide them) |
 | One entry point per package or library is enough | Clients need several configured facades, or a mock facade in tests (inject an interface) |
 
 ## Summary
