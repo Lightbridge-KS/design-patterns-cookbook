@@ -261,6 +261,73 @@ class ShoppingCart {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::collections::HashMap;
+
+struct ShoppingCart {
+    items: Vec<(String, f64)>,
+}
+
+impl ShoppingCart {
+    fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    fn add_item(&mut self, name: &str, price: f64) {
+        self.items.push((name.to_string(), price));
+    }
+
+    fn get_total(&self) -> f64 {
+        self.items.iter().map(|(_, price)| price).sum()
+    }
+
+    fn checkout(&self, payment_type: &str, options: &HashMap<&str, &str>) -> bool {
+        let amount = self.get_total();
+        let option = |key: &str| options.get(key).copied().unwrap_or("");
+
+        match payment_type {
+            "credit_card" => {
+                let card_number = option("card_number");
+                let cvv = option("cvv");
+                if card_number.len() != 16 || cvv.len() != 3 {
+                    println!("Invalid card details");
+                    return false;
+                }
+                println!("Processing credit card payment of ${amount:.2}");
+                println!("Card: ****{}", &card_number[card_number.len() - 4..]);
+                true
+            }
+            "paypal" => {
+                let email = option("email");
+                if !email.contains('@') {
+                    println!("Invalid PayPal email");
+                    return false;
+                }
+                println!("Redirecting to PayPal for ${amount:.2}");
+                println!("Account: {email}");
+                true
+            }
+            "crypto" => {
+                let wallet = option("wallet_address");
+                if !wallet.starts_with("0x") {
+                    println!("Invalid wallet address");
+                    return false;
+                }
+                println!("Sending ${amount:.2} worth of crypto");
+                println!("Wallet: {}...", &wallet[..10]);
+                true
+            }
+            _ => {
+                println!("Unknown payment type: {payment_type}");
+                false
+            }
+        }
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -357,6 +424,31 @@ cart.checkout('paypal', {'email': 'user@example.com'});
 // Account: user@example.com
 
 // Adding new payment method requires modifying checkout()!
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let mut cart = ShoppingCart::new();
+    cart.add_item("Laptop", 999.99);
+    cart.add_item("Mouse", 29.99);
+
+    // Pay with credit card
+    cart.checkout(
+        "credit_card",
+        &HashMap::from([("card_number", "1234567890123456"), ("cvv", "123")]),
+    );
+    // Processing credit card payment of $1029.98
+    // Card: ****3456
+
+    // Pay with PayPal
+    cart.checkout("paypal", &HashMap::from([("email", "user@example.com")]));
+    // Redirecting to PayPal for $1029.98
+    // Account: user@example.com
+
+    // Adding new payment method requires modifying checkout()!
+}
 ```
 
 :::
@@ -779,6 +871,130 @@ class ShoppingCart {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Strategy interface → a trait
+trait PaymentStrategy {
+    fn pay(&self, amount: f64) -> bool;
+}
+
+// Concrete strategies → structs that implement the trait
+struct CreditCardPayment {
+    card_number: String,
+    cvv: String,
+}
+
+impl CreditCardPayment {
+    fn new(card_number: &str, cvv: &str) -> Self {
+        Self {
+            card_number: card_number.to_string(),
+            cvv: cvv.to_string(),
+        }
+    }
+}
+
+impl PaymentStrategy for CreditCardPayment {
+    fn pay(&self, amount: f64) -> bool {
+        if self.card_number.len() != 16 || self.cvv.len() != 3 {
+            println!("Invalid card details");
+            return false;
+        }
+        println!("Processing credit card payment of ${amount:.2}");
+        println!("Card: ****{}", &self.card_number[self.card_number.len() - 4..]);
+        true
+    }
+}
+
+struct PayPalPayment {
+    email: String,
+}
+
+impl PayPalPayment {
+    fn new(email: &str) -> Self {
+        Self {
+            email: email.to_string(),
+        }
+    }
+}
+
+impl PaymentStrategy for PayPalPayment {
+    fn pay(&self, amount: f64) -> bool {
+        if !self.email.contains('@') {
+            println!("Invalid PayPal email");
+            return false;
+        }
+        println!("Redirecting to PayPal for ${amount:.2}");
+        println!("Account: {}", self.email);
+        true
+    }
+}
+
+struct CryptoPayment {
+    wallet_address: String,
+}
+
+impl CryptoPayment {
+    fn new(wallet_address: &str) -> Self {
+        Self {
+            wallet_address: wallet_address.to_string(),
+        }
+    }
+}
+
+impl PaymentStrategy for CryptoPayment {
+    fn pay(&self, amount: f64) -> bool {
+        if !self.wallet_address.starts_with("0x") {
+            println!("Invalid wallet address");
+            return false;
+        }
+        println!("Sending ${amount:.2} worth of crypto");
+        println!("Wallet: {}...", &self.wallet_address[..10]);
+        true
+    }
+}
+
+// Context → owns its strategy as a boxed trait object
+struct ShoppingCart {
+    items: Vec<(String, f64)>,
+    payment_strategy: Option<Box<dyn PaymentStrategy>>,
+}
+
+impl ShoppingCart {
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            payment_strategy: None,
+        }
+    }
+
+    fn add_item(&mut self, name: &str, price: f64) {
+        self.items.push((name.to_string(), price));
+        println!("Added {name} - ${price:.2}");
+    }
+
+    fn get_total(&self) -> f64 {
+        self.items.iter().map(|(_, price)| price).sum()
+    }
+
+    fn set_payment_strategy(&mut self, strategy: Box<dyn PaymentStrategy>) {
+        self.payment_strategy = Some(strategy); // the old strategy is dropped here
+    }
+
+    fn checkout(&self) -> bool {
+        let Some(strategy) = &self.payment_strategy else {
+            println!("No payment method selected");
+            return false;
+        };
+        if self.items.is_empty() {
+            println!("Cart is empty");
+            return false;
+        }
+        strategy.pay(self.get_total()) // dynamic dispatch through the vtable
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -924,11 +1140,62 @@ cart.checkout();
 // Wallet: 0x742d35Cc...
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Create shopping cart and add items
+    let mut cart = ShoppingCart::new();
+    cart.add_item("Laptop", 999.99);
+    cart.add_item("Mouse", 29.99);
+    // Added Laptop - $999.99
+    // Added Mouse - $29.99
+
+    println!("\nTotal: ${:.2}", cart.get_total());
+    // Total: $1029.98
+
+    // Pay with credit card
+    println!("\n=== Paying with Credit Card ===");
+    cart.set_payment_strategy(Box::new(CreditCardPayment::new("1234567890123456", "123")));
+    cart.checkout();
+    // Processing credit card payment of $1029.98
+    // Card: ****3456
+
+    // Switch to PayPal at runtime
+    println!("\n=== Switching to PayPal ===");
+    cart.set_payment_strategy(Box::new(PayPalPayment::new("user@example.com")));
+    cart.checkout();
+    // Redirecting to PayPal for $1029.98
+    // Account: user@example.com
+
+    // Switch to Crypto
+    println!("\n=== Switching to Crypto ===");
+    cart.set_payment_strategy(Box::new(CryptoPayment::new(
+        "0x742d35Cc6634C0532925a3b844Bc9e7595f",
+    )));
+    cart.checkout();
+    // Sending $1029.98 worth of crypto
+    // Wallet: 0x742d35Cc...
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Strategy interface | `trait PaymentStrategy` |
+| Concrete strategy | `struct CreditCardPayment` + `impl PaymentStrategy for CreditCardPayment` |
+| Context's strategy reference | `Option<Box<dyn PaymentStrategy>>` field |
+| Polymorphic call | `strategy.pay(…)` on a `dyn PaymentStrategy`: dynamic dispatch through a vtable |
+| No strategy yet (`null`) | `None`, unpacked with `let Some(strategy) = … else` |
+
+**Ownership:** the cart *owns* its strategy through the `Box`. `set_payment_strategy` moves the new strategy in and drops the old one, so nothing outside the cart can change it. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Each concrete strategy above is a class with **one method** plus a constructor that stores some config. All four languages already have a name for that shape: a **function**. The strategy interface becomes a function type. Each concrete strategy becomes a closure that captures its config, and the context simply receives a function.
+Each concrete strategy above is a class with **one method** plus a constructor that stores some config. All five languages already have a name for that shape: a **function**. The strategy interface becomes a function type. Each concrete strategy becomes a closure that captures its config, and the context simply receives a function. In Rust a closure's type has no name, so the context asks for the trait bound `impl Fn(f64) -> bool` instead of an alias.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟢 Replaces** — a one-method strategy *is* a function, and the closure holds the config the constructor used to hold.
@@ -977,9 +1244,19 @@ Each concrete strategy above is a class with **one method** plus a constructor t
 | `setPaymentStrategy()` + `null` check | `checkout(pay)` parameter |
 | A `MockPayment` class for tests | `(_) => true` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait PaymentStrategy` with `fn pay(&self, amount: f64) -> bool` | The built-in closure trait `Fn(f64) -> bool` |
+| `struct CreditCardPayment` + `impl PaymentStrategy for CreditCardPayment` | `fn credit_card_payment(...) -> impl Fn(f64) -> bool` returning a `move` closure |
+| `card_number: String` field, filled in `new()` | `card_number` captured by the closure (borrowed, no copy) |
+| `Option<Box<dyn PaymentStrategy>>` + `set_payment_strategy()` | `checkout(pay: impl Fn(f64) -> bool)`: static dispatch, no heap, no `Option` |
+| A `MockPayment` struct for tests | A one-line closure that returns `true` |
+
 :::
 
-**Ecosystem:** no library needed, because the language is the feature. In .NET apps that resolve strategies from DI, *keyed services* (.NET 8+, `AddKeyedSingleton<IPaymentStrategy, PayPalPayment>("paypal")`) select a class-based strategy by name.
+**Ecosystem:** no library needed, because the language is the feature. In .NET apps that resolve strategies from DI, *keyed services* (.NET 8+, `AddKeyedSingleton<IPaymentStrategy, PayPalPayment>("paypal")`) select a class-based strategy by name. In Rust, `enum_dispatch` turns a trait plus an enum of its implementors into static dispatch.
 
 ### Modern Code
 
@@ -1342,6 +1619,105 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — closures, impl Fn
+// Strategy interface → the built-in closure trait `Fn(f64) -> bool`
+
+// Concrete strategies → functions returning a closure that captures the config.
+// Edition 2024: the returned closure may borrow its `&str` arguments.
+fn credit_card_payment(card_number: &str, cvv: &str) -> impl Fn(f64) -> bool {
+    move |amount| {
+        if card_number.len() != 16 || cvv.len() != 3 {
+            println!("Invalid card details");
+            return false;
+        }
+        println!("Processing credit card payment of ${amount:.2}");
+        println!("Card: ****{}", &card_number[card_number.len() - 4..]);
+        true
+    }
+}
+
+fn paypal_payment(email: &str) -> impl Fn(f64) -> bool {
+    move |amount| {
+        if !email.contains('@') {
+            println!("Invalid PayPal email");
+            return false;
+        }
+        println!("Redirecting to PayPal for ${amount:.2}");
+        println!("Account: {email}");
+        true
+    }
+}
+
+fn crypto_payment(wallet_address: &str) -> impl Fn(f64) -> bool {
+    move |amount| {
+        if !wallet_address.starts_with("0x") {
+            println!("Invalid wallet address");
+            return false;
+        }
+        println!("Sending ${amount:.2} worth of crypto");
+        println!("Wallet: {}...", &wallet_address[..10]);
+        true
+    }
+}
+
+// Context → receives the strategy per call: no setter, no Option
+struct ShoppingCart {
+    items: Vec<(String, f64)>,
+}
+
+impl ShoppingCart {
+    fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    fn add_item(&mut self, name: &str, price: f64) {
+        self.items.push((name.to_string(), price));
+        println!("Added {name} - ${price:.2}");
+    }
+
+    fn get_total(&self) -> f64 {
+        self.items.iter().map(|(_, price)| price).sum()
+    }
+
+    fn checkout(&self, pay: impl Fn(f64) -> bool) -> bool {
+        if self.items.is_empty() {
+            println!("Cart is empty");
+            return false;
+        }
+        pay(self.get_total())
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut cart = ShoppingCart::new();
+    cart.add_item("Laptop", 999.99);
+    cart.add_item("Mouse", 29.99);
+    // Added Laptop - $999.99
+    // Added Mouse - $29.99
+
+    // Switching strategy = passing a different closure
+    cart.checkout(credit_card_payment("1234567890123456", "123"));
+    // Processing credit card payment of $1029.98
+    // Card: ****3456
+
+    cart.checkout(paypal_payment("user@example.com"));
+    // Redirecting to PayPal for $1029.98
+    // Account: user@example.com
+
+    cart.checkout(crypto_payment("0x742d35Cc6634C0532925a3b844Bc9e7595f"));
+    // Sending $1029.98 worth of crypto
+    // Wallet: 0x742d35Cc...
+
+    // A test double is just a closure — no MockPayment struct
+    println!("{}", cart.checkout(|_| true));
+    // true
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1352,6 +1728,7 @@ void main() {
 | Config fits in a few captured values | The strategy needs identity: a name for logging, serialization, or a settings screen |
 | You want one-line test doubles | A DI container must construct the strategy and inject *its* dependencies |
 | Strategies are chosen in code at the call site | Strategies are plug-ins discovered at runtime (see [Microkernel](../plugins-arch/microkernel-registry-manifest-first.qmd)) |
+| Rust: the strategy is passed and called, so `impl Fn` costs nothing | Rust: strategies are stored or picked from config at runtime (`Vec<Box<dyn PaymentStrategy>>`), or the set is closed and an `enum` with one `match` reads better |
 
 ## Summary
 
