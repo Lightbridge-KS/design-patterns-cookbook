@@ -162,6 +162,51 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Song {
+    title: String,
+    artist: String,
+}
+
+impl Song {
+    fn new(title: &str, artist: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            artist: artist.to_string(),
+        }
+    }
+}
+
+struct Playlist {
+    name: String,
+    pub songs: Vec<Song>, // Internal structure exposed!
+}
+
+impl Playlist {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            songs: Vec::new(),
+        }
+    }
+
+    fn add_song(&mut self, song: Song) {
+        self.songs.push(song);
+    }
+}
+
+// Client must know it's a Vec and use index access
+fn print_playlist(playlist: &Playlist) {
+    // Tightly coupled to Vec implementation
+    for i in 0..playlist.songs.len() {
+        let song = &playlist.songs[i];
+        println!("{} by {}", song.title, song.artist);
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -229,6 +274,31 @@ for (int i = playlist.songs.length - 1; i >= 0; i--) {
 
 // What if playlist changes to use a database or linked list?
 // All this code breaks!
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let mut playlist = Playlist::new("My Favorites");
+    playlist.add_song(Song::new("Bohemian Rhapsody", "Queen"));
+    playlist.add_song(Song::new("Stairway to Heaven", "Led Zeppelin"));
+    playlist.add_song(Song::new("Hotel California", "Eagles"));
+    print_playlist(&playlist);
+
+    // Client is coupled to Vec internals
+    for i in 0..playlist.songs.len() {
+        println!("{}", playlist.songs[i].title);
+    }
+
+    // Want reverse? Client must implement it
+    for i in (0..playlist.songs.len()).rev() {
+        println!("{}", playlist.songs[i].title);
+    }
+
+    // What if playlist changes to use a database or linked list?
+    // All this code breaks!
+}
 ```
 
 :::
@@ -558,6 +628,98 @@ class Playlist {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Song {
+    title: String,
+    artist: String,
+}
+
+impl Song {
+    fn new(title: &str, artist: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            artist: artist.to_string(),
+        }
+    }
+}
+
+// Iterator interface → a trait. The lifetime `'a` ties every song
+// it returns to the playlist the iterator borrows.
+trait SongIterator<'a> {
+    fn has_next(&self) -> bool;
+    fn next(&mut self) -> &'a Song;
+}
+
+// Concrete iterators → structs that borrow the playlist and keep a position
+struct SequentialIterator<'a> {
+    playlist: &'a Playlist,
+    index: usize,
+}
+
+impl<'a> SongIterator<'a> for SequentialIterator<'a> {
+    fn has_next(&self) -> bool {
+        self.index < self.playlist.songs.len()
+    }
+
+    fn next(&mut self) -> &'a Song {
+        let song = &self.playlist.songs[self.index];
+        self.index += 1;
+        song
+    }
+}
+
+struct ReverseIterator<'a> {
+    playlist: &'a Playlist,
+    remaining: usize, // counts down; a usize cannot go below 0
+}
+
+impl<'a> SongIterator<'a> for ReverseIterator<'a> {
+    fn has_next(&self) -> bool {
+        self.remaining > 0
+    }
+
+    fn next(&mut self) -> &'a Song {
+        self.remaining -= 1;
+        &self.playlist.songs[self.remaining]
+    }
+}
+
+// Aggregate
+struct Playlist {
+    name: String,
+    songs: Vec<Song>, // Now private (no `pub`)!
+}
+
+impl Playlist {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            songs: Vec::new(),
+        }
+    }
+
+    fn add_song(&mut self, song: Song) {
+        self.songs.push(song);
+    }
+
+    fn create_sequential_iterator(&self) -> Box<dyn SongIterator<'_> + '_> {
+        Box::new(SequentialIterator {
+            playlist: self,
+            index: 0,
+        })
+    }
+
+    fn create_reverse_iterator(&self) -> Box<dyn SongIterator<'_> + '_> {
+        Box::new(ReverseIterator {
+            playlist: self,
+            remaining: self.songs.len(),
+        })
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -722,11 +884,70 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Create playlist
+    let mut playlist = Playlist::new("Rock Classics");
+    playlist.add_song(Song::new("Bohemian Rhapsody", "Queen"));
+    playlist.add_song(Song::new("Stairway to Heaven", "Led Zeppelin"));
+    playlist.add_song(Song::new("Hotel California", "Eagles"));
+
+    // Sequential iteration
+    println!("Playing in order:");
+    let mut iterator = playlist.create_sequential_iterator();
+    while iterator.has_next() {
+        let song = iterator.next();
+        println!("  ♪ {} - {}", song.title, song.artist);
+    }
+
+    // Playing in order:
+    //   ♪ Bohemian Rhapsody - Queen
+    //   ♪ Stairway to Heaven - Led Zeppelin
+    //   ♪ Hotel California - Eagles
+
+    // Reverse iteration — same interface!
+    println!("\nPlaying in reverse:");
+    let mut reverse_iter = playlist.create_reverse_iterator();
+    while reverse_iter.has_next() {
+        let song = reverse_iter.next();
+        println!("  ♪ {} - {}", song.title, song.artist);
+    }
+
+    // Playing in reverse:
+    //   ♪ Hotel California - Eagles
+    //   ♪ Stairway to Heaven - Led Zeppelin
+    //   ♪ Bohemian Rhapsody - Queen
+
+    // Multiple iterators can borrow the playlist at the same time
+    let mut iter1 = playlist.create_sequential_iterator();
+    let mut iter2 = playlist.create_sequential_iterator();
+    println!("\nIter1: {}", iter1.next().title); // Bohemian Rhapsody
+    println!("Iter1: {}", iter1.next().title); // Stairway to Heaven
+    println!("Iter2: {}", iter2.next().title); // Bohemian Rhapsody (independent!)
+
+    // playlist.add_song(…) here would not compile while iter1 or iter2 is still used
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Iterator interface | `trait SongIterator<'a>` with `has_next()` / `next()` |
+| Concrete iterator | `struct SequentialIterator<'a> { playlist: &'a Playlist, index }` + `impl SongIterator<'a> for …` |
+| Aggregate's factory methods | `create_sequential_iterator(&self) -> Box<dyn SongIterator<'_> + '_>` |
+| Lifetime `'a` | ties each iterator, and each `&Song` it returns, to the playlist it borrows |
+| Private `_songs` | a field without `pub`: private to the module |
+
+**Ownership:** an iterator *borrows* the playlist (`&'a Playlist`); it does not own or copy it. Any number of iterators may share-borrow it at once, which is why `iter1` and `iter2` run independently. While one of them is still in use, `add_song(&mut self)` is a compile error (E0502), so "collection modified during iteration" cannot happen at runtime. Rust's own `Iterator` trait merges `has_next()` and `next()` into a single `next()` that returns `Option<Item>`; Modern Approach uses it. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-All four languages ship the iterator protocol as part of the language. Implement it once and `for` loops, spreads, and lazy pipelines work on your collection. **Generators** (`yield`) write the iterator classes for you: the traversal state lives in local variables, and the compiler or runtime builds the `has_next()` / `next()` machinery.
+All five languages ship the iterator protocol as part of the language. Implement it once and `for` loops, spreads, and lazy pipelines work on your collection. **Generators** (`yield`) write the iterator classes for you: the traversal state lives in local variables, and the compiler or runtime builds the `has_next()` / `next()` machinery. Rust has no stable generators yet, but it rarely needs them: a `Vec` already hands out iterators, and adapters such as `.rev()` and `.take()` replace the concrete iterator structs.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟢 Replaces** — the iterator interface is built into every language, and a generator replaces each concrete iterator class.
@@ -779,9 +1000,20 @@ All four languages ship the iterator protocol as part of the language. Implement
 | Independent `_index` per iterator object | each `for` loop gets a fresh iterator |
 | Filtering or limiting needs another iterator class | inherited lazy `Iterable` methods: `take(2).map(…)` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait SongIterator<'a>` with `has_next()` / `next()` | the std `Iterator` trait: one `next()` that returns `Option<&Song>` |
+| `SequentialIterator<'a>` struct with an `index` field | `self.songs.iter()`, exposed through `impl IntoIterator for &Playlist` |
+| `ReverseIterator<'a>` | `.rev()`: free for any `DoubleEndedIterator` |
+| `while it.has_next() { it.next() }` | `for song in &playlist` |
+| Filtering or limiting needs another iterator struct | lazy adapters: `.take(2)`, `.map()`, `.filter()` |
+| A custom traversal (shuffle, every other song) | `std::iter::from_fn` with a `move` closure that keeps local state: the stand-in for generators (`gen` blocks are still unstable) |
+
 :::
 
-**Ecosystem:** Python `more-itertools` and Dart `package:collection` add extra lazy operations. When items are *pushed* to you over time instead of *pulled*, reach for Rx (RxPY, Rx.NET, RxJS) or Dart `Stream`; see the Observer chapter.
+**Ecosystem:** Python `more-itertools`, Dart `package:collection`, and Rust `itertools` add extra lazy operations; Rust's `rayon` turns `.iter()` into a parallel `.par_iter()`. When items are *pushed* to you over time instead of *pulled*, reach for Rx (RxPY, Rx.NET, RxJS) or Dart `Stream`; see the Observer chapter.
 
 ### Modern Code
 
@@ -1026,6 +1258,90 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — the std Iterator trait, IntoIterator for &Playlist, lazy adapters
+struct Song {
+    title: String,
+    artist: String,
+}
+
+impl Song {
+    fn new(title: &str, artist: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            artist: artist.to_string(),
+        }
+    }
+}
+
+struct Playlist {
+    songs: Vec<Song>, // still private
+}
+
+impl Playlist {
+    fn new() -> Self {
+        Self { songs: Vec::new() }
+    }
+
+    fn add_song(&mut self, song: Song) {
+        self.songs.push(song);
+    }
+
+    // Sequential iterator → the slice's own iterator; `.rev()` comes free with it
+    fn iter(&self) -> std::slice::Iter<'_, Song> {
+        self.songs.iter()
+    }
+}
+
+// `for song in &playlist` just works
+impl<'a> IntoIterator for &'a Playlist {
+    type Item = &'a Song;
+    type IntoIter = std::slice::Iter<'a, Song>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.songs.iter()
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut playlist = Playlist::new();
+    playlist.add_song(Song::new("Bohemian Rhapsody", "Queen"));
+    playlist.add_song(Song::new("Stairway to Heaven", "Led Zeppelin"));
+    playlist.add_song(Song::new("Hotel California", "Eagles"));
+
+    println!("Playing in order:");
+    for song in &playlist {
+        println!("  ♪ {} - {}", song.title, song.artist);
+    }
+    // Playing in order:
+    //   ♪ Bohemian Rhapsody - Queen
+    //   ♪ Stairway to Heaven - Led Zeppelin
+    //   ♪ Hotel California - Eagles
+
+    // Reverse iterator → `.rev()`: no ReverseIterator struct
+    println!("\nPlaying in reverse:");
+    for song in playlist.iter().rev() {
+        println!("  ♪ {} - {}", song.title, song.artist);
+    }
+    // Playing in reverse:
+    //   ♪ Hotel California - Eagles
+    //   ♪ Stairway to Heaven - Led Zeppelin
+    //   ♪ Bohemian Rhapsody - Queen
+
+    // Lazy pipelines come free: take 2 without copying the list
+    let up_next: Vec<&str> = playlist
+        .iter()
+        .take(2)
+        .map(|song| song.title.as_str())
+        .collect();
+    println!("\nUp next: {}", up_next.join(", "));
+    // Up next: Bohemian Rhapsody, Stairway to Heaven
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1035,6 +1351,7 @@ void main() {
 | Clients just need to loop over the collection | The iterator needs extra operations such as `peek()`, `remove()`, `reset()`, or moving backward |
 | Traversals are orderings or filters (forward, reverse, shuffled) | The position must be saved and resumed later, like a database cursor or a pagination token |
 | You want lazy pipelines (`take`, `map`, `filter`) for free | The traversal crosses an API boundary where callers need a named, documented cursor type |
+| Rust: the loop finishes while the playlist is borrowed | Rust: the position must outlive the borrow (stored in a struct, sent to another thread), so keep an index-based cursor or own the items with `into_iter()` |
 
 ## Summary
 
