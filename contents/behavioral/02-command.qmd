@@ -132,6 +132,42 @@ class Editor {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Document {
+    content: String,
+}
+
+struct Editor {
+    document: Document,
+}
+
+impl Editor {
+    fn new() -> Self {
+        Self {
+            document: Document {
+                content: String::new(),
+            },
+        }
+    }
+
+    fn type_text(&mut self, text: &str) {
+        self.document.content.push_str(text); // No history!
+    }
+
+    fn delete(&mut self, count: usize) {
+        // Deleted text is lost forever!
+        let new_len = self.document.content.len() - count;
+        self.document.content.truncate(new_len);
+    }
+
+    fn get_content(&self) -> &str {
+        &self.document.content
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -196,6 +232,23 @@ void main() {
 
   // Oops! User wants to undo... but we can't!
   // The deleted text " World" is gone forever
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let mut editor = Editor::new();
+    editor.type_text("Hello");
+    editor.type_text(" World");
+    println!("{}", editor.get_content()); // "Hello World"
+
+    editor.delete(6); // Delete " World"
+    println!("{}", editor.get_content()); // "Hello"
+
+    // Oops! User wants to undo... but we can't!
+    // The deleted text " World" is gone forever
 }
 ```
 
@@ -673,6 +726,138 @@ class Editor {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Receiver
+struct Document {
+    content: String,
+}
+
+impl Document {
+    fn new() -> Self {
+        Self {
+            content: String::new(),
+        }
+    }
+
+    fn insert(&mut self, position: usize, text: &str) {
+        self.content.insert_str(position, text);
+    }
+
+    fn delete(&mut self, position: usize, length: usize) -> String {
+        self.content.drain(position..position + length).collect()
+    }
+
+    fn get_content(&self) -> &str {
+        &self.content
+    }
+}
+
+// Command interface → a trait. The receiver is a parameter of each call,
+// not a field: a stored `&mut Document` would lock the document.
+trait Command {
+    fn execute(&mut self, document: &mut Document);
+    fn undo(&mut self, document: &mut Document);
+}
+
+// Concrete commands → structs that own only their own data
+struct TypeCommand {
+    text: String,
+    position: usize,
+}
+
+impl TypeCommand {
+    fn new(text: &str, position: usize) -> Self {
+        Self {
+            text: text.to_string(),
+            position,
+        }
+    }
+}
+
+impl Command for TypeCommand {
+    fn execute(&mut self, document: &mut Document) {
+        document.insert(self.position, &self.text);
+    }
+
+    fn undo(&mut self, document: &mut Document) {
+        document.delete(self.position, self.text.len());
+    }
+}
+
+struct DeleteCommand {
+    position: usize,
+    length: usize,
+    deleted_text: String, // Stored for undo!
+}
+
+impl DeleteCommand {
+    fn new(position: usize, length: usize) -> Self {
+        Self {
+            position,
+            length,
+            deleted_text: String::new(),
+        }
+    }
+}
+
+impl Command for DeleteCommand {
+    fn execute(&mut self, document: &mut Document) {
+        self.deleted_text = document.delete(self.position, self.length);
+    }
+
+    fn undo(&mut self, document: &mut Document) {
+        document.insert(self.position, &self.deleted_text);
+    }
+}
+
+// Invoker → owns the document and lends it to one command at a time
+struct Editor {
+    document: Document,
+    history: Vec<Box<dyn Command>>,
+    redo_stack: Vec<Box<dyn Command>>,
+}
+
+impl Editor {
+    fn new() -> Self {
+        Self {
+            document: Document::new(),
+            history: Vec::new(),
+            redo_stack: Vec::new(),
+        }
+    }
+
+    fn execute_command(&mut self, mut command: Box<dyn Command>) {
+        command.execute(&mut self.document);
+        self.history.push(command);
+        self.redo_stack.clear(); // Clear redo after new command
+    }
+
+    fn undo(&mut self) {
+        let Some(mut command) = self.history.pop() else {
+            println!("Nothing to undo");
+            return;
+        };
+        command.undo(&mut self.document);
+        self.redo_stack.push(command);
+    }
+
+    fn redo(&mut self) {
+        let Some(mut command) = self.redo_stack.pop() else {
+            println!("Nothing to redo");
+            return;
+        };
+        command.execute(&mut self.document);
+        self.history.push(command);
+    }
+
+    fn get_content(&self) -> &str {
+        self.document.get_content()
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -795,11 +980,52 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    let mut editor = Editor::new();
+
+    // Type "Hello World": no document argument, the editor passes it in
+    editor.execute_command(Box::new(TypeCommand::new("Hello", 0)));
+    editor.execute_command(Box::new(TypeCommand::new(" World", 5)));
+    println!("Content: '{}'", editor.get_content());
+    // Content: 'Hello World'
+
+    // Delete " World" (position 5, length 6)
+    editor.execute_command(Box::new(DeleteCommand::new(5, 6)));
+    println!("After delete: '{}'", editor.get_content());
+    // After delete: 'Hello'
+
+    // Undo the delete — " World" comes back!
+    editor.undo();
+    println!("After undo: '{}'", editor.get_content());
+    // After undo: 'Hello World'
+
+    // Redo the delete
+    editor.redo();
+    println!("After redo: '{}'", editor.get_content());
+    // After redo: 'Hello'
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Command interface | `trait Command` with `execute()` / `undo()` |
+| Concrete command | `struct TypeCommand`, `struct DeleteCommand` + `impl Command for …` |
+| Receiver | `Document`, **passed in** to each call: `execute(&mut self, document: &mut Document)` |
+| Invoker | `Editor`: owns the document and two `Vec<Box<dyn Command>>` stacks |
+| State saved for undo | the `deleted_text` field, written in `execute(&mut self, …)` |
+
+**Ownership:** in the UML every command keeps a reference to the document. In Rust that field would be a `&mut Document`, and an exclusive borrow lasts as long as the command that holds it. A history full of such commands would lock the document, and the editor could no longer use it. So the receiver moves out of the command and into the method parameters: the editor owns the document and lends it to one command at a time. Each command owns only its own data, which also makes it easy to store, move, or replay. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-A command object is "something to run, plus how to reverse it". In all four languages that is just **two closures**. The command interface becomes a small record of two functions. Each concrete command becomes a factory that captures its arguments, and the text a delete removes is kept in a variable both closures share. The editor's history stacks stay exactly as they were.
+A command object is "something to run, plus how to reverse it". In Python, C#, TypeScript, and Dart that is just **two closures**. The command interface becomes a small record of two functions. Each concrete command becomes a factory that captures its arguments, and the text a delete removes is kept in a variable both closures share. The editor's history stacks stay exactly as they were. Rust takes the other road: two closures sharing one mutable variable would need `Rc<RefCell<…>>`, so each command becomes a variant of one `enum`, and `execute` and `undo` become two `match` expressions.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — each command becomes a pair of closures with no class per command, while the invoker and its undo/redo stacks stay.
@@ -852,9 +1078,20 @@ A command object is "something to run, plus how to reverse it". In all four lang
 | `Editor` with `_history` / `_redoStack` | unchanged |
 | `Document` | unchanged |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Command` + `TypeCommand` / `DeleteCommand` structs | one `enum Command` with a variant per command |
+| `impl Command for …` in each struct | two `match` expressions: `execute()` and `undo()` |
+| `DeleteCommand.deleted_text` field | the `deleted` field of the `Delete` variant (two closures sharing it would need `Rc<RefCell<String>>`) |
+| A new struct for every one-off action | the `Custom` variant: two non-capturing closures, coerced to `fn(&mut Document)` |
+| `Vec<Box<dyn Command>>` stacks | `Vec<Command>`: plain values, no `Box`, no vtable |
+| `Document` passed to each call | unchanged |
+
 :::
 
-**Ecosystem:** UI frameworks ship their own command types. CommunityToolkit.Mvvm's `[RelayCommand]` generates `ICommand`s from plain methods, and Flutter pairs `Intent` with `Action`. When commands must travel (queues, CQRS), libraries in the MediatR style keep them as serializable data objects with separate handlers.
+**Ecosystem:** UI frameworks ship their own command types. CommunityToolkit.Mvvm's `[RelayCommand]` generates `ICommand`s from plain methods, and Flutter pairs `Intent` with `Action`. When commands must travel (queues, CQRS), libraries in the MediatR style keep them as serializable data objects with separate handlers. In Rust, an `enum` command that derives `serde`'s `Serialize` is already that data object.
 
 ### Modern Code
 
@@ -1256,6 +1493,167 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — commands as enum data + match; fn pointers for one-off actions
+
+// Receiver → unchanged
+struct Document {
+    content: String,
+}
+
+impl Document {
+    fn new() -> Self {
+        Self {
+            content: String::new(),
+        }
+    }
+
+    fn insert(&mut self, position: usize, text: &str) {
+        self.content.insert_str(position, text);
+    }
+
+    fn delete(&mut self, position: usize, length: usize) -> String {
+        self.content.drain(position..position + length).collect()
+    }
+
+    fn get_content(&self) -> &str {
+        &self.content
+    }
+}
+
+// Command interface + concrete commands → one enum: a variant holds one command's data
+enum Command {
+    Type {
+        text: String,
+        position: usize,
+    },
+    Delete {
+        position: usize,
+        length: usize,
+        deleted: String, // written by execute, read by undo
+    },
+    // A one-off action: closures that capture nothing coerce to plain fn pointers
+    Custom {
+        execute: fn(&mut Document),
+        undo: fn(&mut Document),
+    },
+}
+
+impl Command {
+    fn type_text(text: &str, position: usize) -> Self {
+        Command::Type {
+            text: text.to_string(),
+            position,
+        }
+    }
+
+    fn delete_text(position: usize, length: usize) -> Self {
+        Command::Delete {
+            position,
+            length,
+            deleted: String::new(),
+        }
+    }
+
+    fn execute(&mut self, doc: &mut Document) {
+        match self {
+            Command::Type { text, position } => doc.insert(*position, text),
+            Command::Delete {
+                position,
+                length,
+                deleted,
+            } => *deleted = doc.delete(*position, *length),
+            Command::Custom { execute, .. } => execute(doc),
+        }
+    }
+
+    fn undo(&mut self, doc: &mut Document) {
+        match self {
+            Command::Type { text, position } => {
+                doc.delete(*position, text.len());
+            }
+            Command::Delete {
+                position, deleted, ..
+            } => doc.insert(*position, deleted),
+            Command::Custom { undo, .. } => undo(doc),
+        }
+    }
+}
+
+// Invoker → unchanged, except the stacks hold plain values: no Box, no vtable
+struct Editor {
+    document: Document,
+    history: Vec<Command>,
+    redo_stack: Vec<Command>,
+}
+
+impl Editor {
+    fn new() -> Self {
+        Self {
+            document: Document::new(),
+            history: Vec::new(),
+            redo_stack: Vec::new(),
+        }
+    }
+
+    fn execute_command(&mut self, mut command: Command) {
+        command.execute(&mut self.document);
+        self.history.push(command);
+        self.redo_stack.clear();
+    }
+
+    fn undo(&mut self) {
+        if let Some(mut command) = self.history.pop() {
+            command.undo(&mut self.document);
+            self.redo_stack.push(command);
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(mut command) = self.redo_stack.pop() {
+            command.execute(&mut self.document);
+            self.history.push(command);
+        }
+    }
+
+    fn get_content(&self) -> &str {
+        self.document.get_content()
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut editor = Editor::new();
+
+    editor.execute_command(Command::type_text("Hello", 0));
+    editor.execute_command(Command::type_text(" World", 5));
+    println!("Content: '{}'", editor.get_content()); // Content: 'Hello World'
+
+    editor.execute_command(Command::delete_text(5, 6));
+    println!("After delete: '{}'", editor.get_content()); // After delete: 'Hello'
+
+    editor.undo();
+    println!("After undo: '{}'", editor.get_content()); // After undo: 'Hello World'
+
+    editor.redo();
+    println!("After redo: '{}'", editor.get_content()); // After redo: 'Hello'
+
+    // A one-off command needs no new variant: two closures that capture nothing
+    editor.execute_command(Command::Custom {
+        execute: |doc| doc.insert(0, ">> "),
+        undo: |doc| {
+            doc.delete(0, 3);
+        },
+    });
+    println!("One-off: '{}'", editor.get_content()); // One-off: '>> Hello'
+
+    editor.undo();
+    println!("After undo: '{}'", editor.get_content()); // After undo: 'Hello'
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1265,6 +1663,7 @@ void main() {
 | Commands live in memory only, for undo/redo | Commands must be serialized: saved, sent over a network, or replayed after a restart |
 | Each command is a few lines | Commands need a name or metadata for menus, logging, or an audit trail |
 | One-off actions shouldn't need a new type | Commands are queued and handled elsewhere (CQRS: the command is data, a handler runs it) |
+| Rust: the set of commands is known, so one `enum` is both the data and the code | Rust: other crates or plug-ins add their own commands, which needs `Box<dyn Command>` |
 
 ## Summary
 
