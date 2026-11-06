@@ -161,6 +161,48 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Character {
+    char: char,
+    font: String,  // Duplicated across all characters!
+    size: u32,     // Duplicated!
+    color: String, // Duplicated!
+    row: usize,
+    col: usize,
+}
+
+impl Character {
+    fn new(char: char, font: &str, size: u32, color: &str, row: usize, col: usize) -> Self {
+        Self {
+            char,
+            font: font.to_string(),
+            size,
+            color: color.to_string(),
+            row,
+            col,
+        }
+    }
+
+    fn render(&self) {
+        println!(
+            "'{}' at ({},{}) [{}, {}pt, {}]",
+            self.char, self.row, self.col, self.font, self.size, self.color
+        );
+    }
+}
+
+// Creating 10,000 characters = 10,000 copies of "Arial", 12, "black"
+fn create_characters() -> Vec<Character> {
+    let text = "Hello World! ".repeat(770); // ~10,000 characters
+    text.chars()
+        .enumerate()
+        .map(|(i, char)| Character::new(char, "Arial", 12, "black", i / 80, i % 80))
+        .collect()
+}
+```
+
 :::
 
 #### Usage
@@ -209,6 +251,20 @@ void main() {
   characters[1].render();  // 'e' at (0,1) [Arial, 12pt, black]
 
   // Memory: 10,000 × (char + font + size + color + position)
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    // 10,000 character objects, each with duplicated font data
+    let characters = create_characters();
+    println!("Created {} characters", characters.len());
+    characters[0].render(); // 'H' at (0,0) [Arial, 12pt, black]
+    characters[1].render(); // 'e' at (0,1) [Arial, 12pt, black]
+
+    // Memory: 10,000 × (char + font + size + color + position)
 }
 ```
 
@@ -457,6 +513,75 @@ class Character {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::collections::HashMap;
+use std::rc::Rc;
+
+// Flyweight → stores intrinsic state only, never changed after creation
+struct CharacterStyle {
+    font: String,
+    size: u32,
+    color: String,
+}
+
+impl CharacterStyle {
+    fn render(&self, char: char, row: usize, col: usize) {
+        println!(
+            "'{char}' at ({row},{col}) [{}, {}pt, {}]",
+            self.font, self.size, self.color
+        );
+    }
+}
+
+// Flyweight factory → caches styles and hands out shared `Rc` handles
+struct StyleFactory {
+    cache: HashMap<String, Rc<CharacterStyle>>,
+}
+
+impl StyleFactory {
+    fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+        }
+    }
+
+    fn get_style(&mut self, font: &str, size: u32, color: &str) -> Rc<CharacterStyle> {
+        let key = format!("{font}_{size}_{color}");
+        if let Some(style) = self.cache.get(&key) {
+            return Rc::clone(style); // copies the pointer, not the style
+        }
+        println!("StyleFactory: Created new style '{key}'");
+        let style = Rc::new(CharacterStyle {
+            font: font.to_string(),
+            size,
+            color: color.to_string(),
+        });
+        self.cache.insert(key, Rc::clone(&style));
+        style
+    }
+
+    fn get_style_count(&self) -> usize {
+        self.cache.len()
+    }
+}
+
+// Context → stores extrinsic state + a shared handle to the flyweight
+struct Character {
+    char: char,
+    style: Rc<CharacterStyle>, // Shared reference!
+    row: usize,
+    col: usize,
+}
+
+impl Character {
+    fn render(&self) {
+        self.style.render(self.char, self.row, self.col);
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -576,11 +701,61 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Create 10,000 characters with shared styles
+    let mut factory = StyleFactory::new();
+    let text = "Hello World! ".repeat(770);
+
+    let characters: Vec<Character> = text
+        .chars()
+        .enumerate()
+        .map(|(i, char)| Character {
+            char,
+            // Factory returns cached style — same object for same parameters
+            style: factory.get_style("Arial", 12, "black"),
+            row: i / 80,
+            col: i % 80,
+        })
+        .collect();
+
+    println!("\nCreated {} characters", characters.len());
+    println!("Using only {} style object(s)!", factory.get_style_count());
+
+    characters[0].render(); // 'H' at (0,0) [Arial, 12pt, black]
+    characters[1].render(); // 'e' at (0,1) [Arial, 12pt, black]
+
+    // Verify same style object is shared
+    let same = Rc::ptr_eq(&characters[0].style, &characters[1].style);
+    println!("\nSame style? {same}"); // true
+
+    // Output:
+    // StyleFactory: Created new style 'Arial_12_black'
+    // Created 10010 characters
+    // Using only 1 style object(s)!
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Flyweight (intrinsic state) | `struct CharacterStyle`, never changed after creation |
+| Flyweight factory | `struct StyleFactory` that owns a `HashMap<String, Rc<CharacterStyle>>` |
+| Shared reference | `Rc<CharacterStyle>`: `Rc::clone` copies a pointer and bumps a count, not the style |
+| Context (extrinsic state) | `struct Character { char, style: Rc<CharacterStyle>, row, col }` |
+| "Same object?" | `Rc::ptr_eq` |
+| Class-level `_cache` | a factory value created in `main` and passed by `&mut` |
+
+**Ownership:** a shared style has many owners at once, the factory and every character that uses it. `Rc` counts them and frees the style when the last one goes. An `Rc` gives only shared `&` access, so a flyweight is immutable without any extra work. The class-level cache of the other languages becomes an ordinary value, because a global mutable `HashMap` would need a `Mutex` or `thread_local!`. `Rc` is single-threaded; styles shared across threads need `Arc`. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-The flyweight factory is a cache that returns the same object for the same arguments. Modern languages have that built in. Python memoizes a function with `@cache`, C# has `ConcurrentDictionary.GetOrAdd`, and Dart's compiler shares every equal `const` value automatically. You still decide what is intrinsic (shared) and what is extrinsic (per character); only the factory disappears.
+The flyweight factory is a cache that returns the same object for the same arguments. Modern languages have that built in. Python memoizes a function with `@cache`, C# has `ConcurrentDictionary.GetOrAdd`, and Dart's compiler shares every equal `const` value automatically. Rust has no memo decorator, but `#[derive(Hash, Eq)]` lets a `HashSet` of `Rc` handles intern equal styles. You still decide what is intrinsic (shared) and what is extrinsic (per character); only the factory disappears.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — the factory class collapses into a memo cache (or the Dart compiler), but splitting intrinsic from extrinsic state is still your design work.
@@ -624,9 +799,18 @@ The flyweight factory is a cache that returns the same object for the same argum
 | `StyleFactory` for styles known only at runtime | `Map.putIfAbsent` keyed by a record `(font, size, color)` |
 | `class Character` | a record typedef + an `extension` providing `render()` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `struct CharacterStyle` looked up by a string key `"{font}_{size}_{color}"` | `#[derive(PartialEq, Eq, Hash)]`: the style is its own key |
+| `struct StyleFactory` with a `HashMap<String, Rc<CharacterStyle>>` | `type StylePool = HashSet<Rc<CharacterStyle>>` + a `get_style()` function that interns |
+| `get_style_count()` | not needed: count distinct `Rc::as_ptr` addresses to prove sharing |
+| `Rc<CharacterStyle>` in `Character` | unchanged |
+
 :::
 
-**Ecosystem:** strings already get this treatment from the runtime, via Python's `sys.intern()` and .NET's `string.Intern()`. Flutter leans on Dart's `const` canonicalization the same way: `const SizedBox(height: 8)` written in a thousand places is one object.
+**Ecosystem:** strings already get this treatment from the runtime, via Python's `sys.intern()` and .NET's `string.Intern()`. Flutter leans on Dart's `const` canonicalization the same way: `const SizedBox(height: 8)` written in a thousand places is one object. In Rust, `internment` and `lasso` intern values and strings.
 
 ### Modern Code
 
@@ -830,6 +1014,95 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — #[derive(PartialEq, Eq, Hash)], HashSet<Rc<T>> as an interning pool
+use std::collections::HashSet;
+use std::rc::Rc;
+
+// Flyweight → an immutable value; derive gives the equality and hashing a pool needs
+#[derive(PartialEq, Eq, Hash)]
+struct CharacterStyle {
+    font: String,
+    size: u32,
+    color: String,
+}
+
+impl CharacterStyle {
+    fn new(font: &str, size: u32, color: &str) -> Self {
+        Self {
+            font: font.to_string(),
+            size,
+            color: color.to_string(),
+        }
+    }
+
+    fn render(&self, char: char, row: usize, col: usize) {
+        println!(
+            "'{char}' at ({row},{col}) [{}, {}pt, {}]",
+            self.font, self.size, self.color
+        );
+    }
+}
+
+// Flyweight factory → interning: the style is its own key, the pool keeps one copy
+type StylePool = HashSet<Rc<CharacterStyle>>;
+
+fn get_style(pool: &mut StylePool, style: CharacterStyle) -> Rc<CharacterStyle> {
+    if let Some(shared) = pool.get(&style) {
+        return Rc::clone(shared); // an equal style exists: share it
+    }
+    let shared = Rc::new(style);
+    pool.insert(Rc::clone(&shared));
+    shared
+}
+
+// Context → extrinsic state + a shared handle
+struct Character {
+    char: char,
+    style: Rc<CharacterStyle>,
+    row: usize,
+    col: usize,
+}
+
+impl Character {
+    fn render(&self) {
+        self.style.render(self.char, self.row, self.col);
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut pool = StylePool::new();
+    let text = "Hello World! ".repeat(770);
+    let characters: Vec<Character> = text
+        .chars()
+        .enumerate()
+        .map(|(i, char)| Character {
+            char,
+            style: get_style(&mut pool, CharacterStyle::new("Arial", 12, "black")),
+            row: i / 80,
+            col: i % 80,
+        })
+        .collect();
+
+    // Count distinct addresses: the proof that all characters share one style
+    let distinct: HashSet<*const CharacterStyle> =
+        characters.iter().map(|c| Rc::as_ptr(&c.style)).collect();
+    println!("Created {} characters", characters.len());
+    println!("Using only {} style object(s)!", distinct.len());
+    // Created 10010 characters
+    // Using only 1 style object(s)!
+
+    characters[0].render(); // 'H' at (0,0) [Arial, 12pt, black]
+    characters[1].render(); // 'e' at (0,1) [Arial, 12pt, black]
+    let same = Rc::ptr_eq(&characters[0].style, &characters[1].style);
+    println!("Same style? {same}");
+    // Same style? true
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -839,6 +1112,7 @@ void main() {
 | Flyweights are immutable values identified by their fields | The pool needs weak references so unused flyweights can be collected |
 | A memo cache (or Dart `const`) covers the lookup | Creation must run exactly once under concurrency (`GetOrAdd` may call its factory twice) |
 | You only need sharing, not pool management | You need to preload, inspect, or report on the pool |
+| Rust: one thread, so `Rc` handles are enough | Rust: styles cross threads (`Arc` and a `Mutex` around the pool), or the pool should hold `Weak` so unused styles are freed |
 
 ## Summary
 
