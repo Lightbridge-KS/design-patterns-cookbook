@@ -183,6 +183,60 @@ class EspressoWithMilkAndSugarAndWhippedCream {
 // ... and many more classes for every combination!
 ```
 
+#### `Rust`
+
+```rust
+struct Espresso;
+
+impl Espresso {
+    fn get_description(&self) -> String {
+        "Espresso".to_string()
+    }
+
+    fn get_cost(&self) -> f64 {
+        2.00
+    }
+}
+
+struct EspressoWithMilk;
+
+impl EspressoWithMilk {
+    fn get_description(&self) -> String {
+        "Espresso, Milk".to_string()
+    }
+
+    fn get_cost(&self) -> f64 {
+        2.50
+    }
+}
+
+struct EspressoWithMilkAndSugar;
+
+impl EspressoWithMilkAndSugar {
+    fn get_description(&self) -> String {
+        "Espresso, Milk, Sugar".to_string()
+    }
+
+    fn get_cost(&self) -> f64 {
+        2.75
+    }
+}
+
+struct EspressoWithMilkAndSugarAndWhippedCream;
+
+impl EspressoWithMilkAndSugarAndWhippedCream {
+    fn get_description(&self) -> String {
+        "Espresso, Milk, Sugar, WhippedCream".to_string()
+    }
+
+    fn get_cost(&self) -> f64 {
+        3.50
+    }
+}
+
+// ... and many more types for every combination!
+```
+
 :::
 
 #### Usage
@@ -235,6 +289,21 @@ void main() {
 
   print("${order3.getDescription()}: \$${order3.getCost().toStringAsFixed(2)}");
   // Can't easily add another condiment at runtime!
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    // Must choose the exact type for each combination
+    let order1 = Espresso;
+    let order2 = EspressoWithMilk;
+    let order3 = EspressoWithMilkAndSugarAndWhippedCream;
+    println!("{}: ${:.2}", order3.get_description(), order3.get_cost());
+    // Espresso, Milk, Sugar, WhippedCream: $3.50
+
+    // Can't easily add another condiment at runtime!
 }
 ```
 
@@ -550,6 +619,109 @@ class WhippedCream extends CondimentDecorator {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Component interface → a trait
+trait Beverage {
+    fn get_description(&self) -> String;
+    fn get_cost(&self) -> f64;
+}
+
+// Concrete components → unit structs
+struct Espresso;
+
+impl Beverage for Espresso {
+    fn get_description(&self) -> String {
+        "Espresso".to_string()
+    }
+
+    fn get_cost(&self) -> f64 {
+        2.00
+    }
+}
+
+struct Latte;
+
+impl Beverage for Latte {
+    fn get_description(&self) -> String {
+        "Latte".to_string()
+    }
+
+    fn get_cost(&self) -> f64 {
+        2.50
+    }
+}
+
+// Concrete decorators → each IS-A Beverage (the trait) and HAS-A Beverage (the field).
+// No decorator base class: Rust has no field inheritance.
+struct Milk {
+    beverage: Box<dyn Beverage>,
+}
+
+impl Milk {
+    fn new(beverage: impl Beverage + 'static) -> Self {
+        Self {
+            beverage: Box::new(beverage),
+        }
+    }
+}
+
+impl Beverage for Milk {
+    fn get_description(&self) -> String {
+        format!("{}, Milk", self.beverage.get_description())
+    }
+
+    fn get_cost(&self) -> f64 {
+        self.beverage.get_cost() + 0.50
+    }
+}
+
+struct Sugar {
+    beverage: Box<dyn Beverage>,
+}
+
+impl Sugar {
+    fn new(beverage: impl Beverage + 'static) -> Self {
+        Self {
+            beverage: Box::new(beverage),
+        }
+    }
+}
+
+impl Beverage for Sugar {
+    fn get_description(&self) -> String {
+        format!("{}, Sugar", self.beverage.get_description())
+    }
+
+    fn get_cost(&self) -> f64 {
+        self.beverage.get_cost() + 0.25
+    }
+}
+
+struct WhippedCream {
+    beverage: Box<dyn Beverage>,
+}
+
+impl WhippedCream {
+    fn new(beverage: impl Beverage + 'static) -> Self {
+        Self {
+            beverage: Box::new(beverage),
+        }
+    }
+}
+
+impl Beverage for WhippedCream {
+    fn get_description(&self) -> String {
+        format!("{}, WhippedCream", self.beverage.get_description())
+    }
+
+    fn get_cost(&self) -> f64 {
+        self.beverage.get_cost() + 0.75
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -645,14 +817,50 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Build orders by stacking decorators
+    let order1: Box<dyn Beverage> = Box::new(Espresso);
+    println!("{}: ${:.2}", order1.get_description(), order1.get_cost());
+    // Espresso: $2.00
+
+    let order2: Box<dyn Beverage> = Box::new(Milk::new(Espresso));
+    println!("{}: ${:.2}", order2.get_description(), order2.get_cost());
+    // Espresso, Milk: $2.50
+
+    let order3: Box<dyn Beverage> = Box::new(WhippedCream::new(Sugar::new(Milk::new(Espresso))));
+    println!("{}: ${:.2}", order3.get_description(), order3.get_cost());
+    // Espresso, Milk, Sugar, WhippedCream: $3.50
+
+    // Double milk? No problem!
+    let order4: Box<dyn Beverage> = Box::new(Milk::new(Milk::new(Latte)));
+    println!("{}: ${:.2}", order4.get_description(), order4.get_cost());
+    // Latte, Milk, Milk: $3.50
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Component interface | `trait Beverage` |
+| Concrete component | unit structs `Espresso`, `Latte` + `impl Beverage` |
+| Decorator base class | none: Rust has no field inheritance, so each decorator declares its own `beverage` field |
+| Concrete decorator | `struct Milk { beverage: Box<dyn Beverage> }` + `impl Beverage for Milk` |
+| IS-A and HAS-A | implements the trait (IS-A) and owns the wrapped drink (HAS-A) |
+
+**Ownership:** each decorator owns the drink it wraps, so an order is a chain of owned boxes. `new()` takes `impl Beverage + 'static` and boxes it, which keeps `Box::new` out of the call site. Without the `Box`, a decorator can be generic, `struct Milk<B: Beverage> { beverage: B }`, and the whole stack becomes one type, `WhippedCream<Sugar<Milk<Espresso>>>`: no heap, static dispatch. The standard library's iterator adapters (`Map<Filter<I>>`) are decorators built this way. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-In this coffee shop, each decorator only **adds data**: a name to the description and a price to the cost. A beverage can therefore be an immutable **value**, and each condiment a **function** from beverage to beverage. Stacking decorators becomes folding a list of functions over a base drink. One factory replaces the decorator base class and all of its subclasses.
+In this coffee shop, each decorator only **adds data**: a name to the description and a price to the cost. A beverage can therefore be an immutable **value**, and each condiment a **function** from beverage to beverage. Stacking decorators becomes folding a list of functions over a base drink. One factory replaces the decorator base class and all of its subclasses. Rust keeps each condiment as plain data, a `const` value whose `add()` method is that function.
 
 ::: {.callout-warning appearance="simple"}
-**Name clash:** Python's `@decorator` and TypeScript's `@decorator` (TC39, TS 5.0+) are *not* this pattern. They wrap a function, method, or class **once, when it is defined**. The GoF Decorator wraps an **object at runtime**, so each order can stack condiments differently. Both share the "wrap and delegate" idea, but not the timing. Dart has no decorator syntax, because its annotations are metadata only.
+**Name clash:** Python's `@decorator` and TypeScript's `@decorator` (TC39, TS 5.0+) are *not* this pattern. They wrap a function, method, or class **once, when it is defined**. The GoF Decorator wraps an **object at runtime**, so each order can stack condiments differently. Both share the "wrap and delegate" idea, but not the timing. Dart has no decorator syntax, because its annotations are metadata only. Rust's attribute macros (such as `#[tracing::instrument]`) are not this pattern either: they rewrite code at compile time.
 :::
 
 ::: {.callout-note appearance="simple"}
@@ -698,9 +906,18 @@ In this coffee shop, each decorator only **adds data**: a name to the descriptio
 | `CondimentDecorator` + `Milk` / `Sugar` / `WhippedCream` | one `condiment(name, price)` factory returning a `Condiment` function |
 | `WhippedCream(Sugar(Milk(Espresso())))` | `order(espresso, [milk, sugar, whippedCream])`: `fold` runs left to right |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Beverage` with `get_description()` / `get_cost()` | `struct Beverage { description: String, cost: f64 }`: a plain value |
+| `struct Espresso`, `struct Latte` + `impl Beverage` | values: `Beverage::new("Espresso", 2.00)` |
+| `Milk` / `Sugar` / `WhippedCream` structs, each owning a `Box<dyn Beverage>` | one `Condiment { name, price }` struct and three `const` values |
+| `WhippedCream::new(Sugar::new(Milk::new(Espresso)))`, read inside out | `order(&espresso, &[MILK, SUGAR, WHIPPED_CREAM])`: `fold` applies them left to right |
+
 :::
 
-**Ecosystem:** to decorate *services* rather than values, .NET apps register wrappers in DI with Scrutor's `Decorate<>()`, and Polly builds resilience pipelines (retry, timeout) as stacked decorators. In Python, `functools.wraps` (stdlib) and `tenacity` serve function-level decorators.
+**Ecosystem:** to decorate *services* rather than values, .NET apps register wrappers in DI with Scrutor's `Decorate<>()`, and Polly builds resilience pipelines (retry, timeout) as stacked decorators. In Python, `functools.wraps` (stdlib) and `tenacity` serve function-level decorators. In Rust, `tower` layers wrap services with timeouts, retries, and rate limits.
 
 ### Modern Code
 
@@ -906,6 +1123,88 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — plain structs, const values, Iterator::fold
+
+// Component → a plain value instead of a trait
+#[derive(Clone)]
+struct Beverage {
+    description: String,
+    cost: f64,
+}
+
+impl Beverage {
+    fn new(description: &str, cost: f64) -> Self {
+        Self {
+            description: description.to_string(),
+            cost,
+        }
+    }
+}
+
+// Decorator → a condiment is data (a name and a price)...
+#[derive(Clone, Copy)]
+struct Condiment {
+    name: &'static str,
+    price: f64,
+}
+
+impl Condiment {
+    // ...and applying it is a function from Beverage to Beverage
+    fn add(self, beverage: Beverage) -> Beverage {
+        Beverage {
+            description: format!("{}, {}", beverage.description, self.name),
+            cost: beverage.cost + self.price,
+        }
+    }
+}
+
+// One struct replaces the decorator types: each condiment is a constant
+const MILK: Condiment = Condiment {
+    name: "Milk",
+    price: 0.50,
+};
+const SUGAR: Condiment = Condiment {
+    name: "Sugar",
+    price: 0.25,
+};
+const WHIPPED_CREAM: Condiment = Condiment {
+    name: "WhippedCream",
+    price: 0.75,
+};
+
+// Stacking decorators → folding condiments over a base beverage
+fn order(start: &Beverage, condiments: &[Condiment]) -> Beverage {
+    condiments
+        .iter()
+        .fold(start.clone(), |beverage, condiment| condiment.add(beverage))
+}
+
+fn show(beverage: &Beverage) {
+    println!("{}: ${:.2}", beverage.description, beverage.cost);
+}
+
+// --- Usage ---
+fn main() {
+    let espresso = Beverage::new("Espresso", 2.00);
+    let latte = Beverage::new("Latte", 2.50);
+
+    show(&order(&espresso, &[]));
+    // Espresso: $2.00
+
+    show(&order(&espresso, &[MILK]));
+    // Espresso, Milk: $2.50
+
+    show(&order(&espresso, &[MILK, SUGAR, WHIPPED_CREAM])); // reads left to right
+    // Espresso, Milk, Sugar, WhippedCream: $3.50
+
+    show(&order(&latte, &[MILK, MILK])); // Double milk? No problem!
+    // Latte, Milk, Milk: $3.50
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -916,6 +1215,7 @@ void main() {
 | The result can be computed once | Every call must pass through each layer (the inner object can change) |
 | You want the list of layers as data, to show, save, or reorder | A layer keeps private state between calls (a cache, a counter) |
 | Layers are picked at runtime from data, like an order form | A DI container must hand out the decorated service |
+| Rust: the layers are data, so they fit in a `const` slice with no heap | Rust: the layers wrap behavior; make each wrapper generic (`Milk<B: Beverage>`) to drop the `Box`, as std iterator adapters do |
 
 ## Summary
 
