@@ -1,0 +1,2 @@
+# Matches the existing style of scripts/verify_modern.py
+line-length = 150

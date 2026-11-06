@@ -1,12 +1,14 @@
 # Design Pattern Cookbook
 
-This is an educational design pattern cookbook that show various design pattern strategy with example code in Python, C#, TypeScript, Dart. 
+This is an educational design pattern cookbook that show various design pattern strategy with example code in Python, C#, TypeScript, Dart, Rust. 
 
 - **Book format:** Quarto Book (HTML-only)
 
-- **Content style:** The content of this cookbook provide a UML-diagram of design pattern and easy-to-understand implementation for each language in the style of Quarto's `.panel-tabset` (arrange: "Python", "C#", "TypeScript", "Dart") that the reader can click to see or compare the implementation for each language. 
+- **Content style:** The content of this cookbook provide a UML-diagram of design pattern and easy-to-understand implementation for each language in the style of Quarto's `.panel-tabset` (arrange: "Python", "C#", "TypeScript", "Dart", "Rust") that the reader can click to see or compare the implementation for each language. 
 
 - **Target Audience:** The reader already knows the basic programming for each language. So, focus on the design pattern and its application. 
+
+- **Rust:** Rust has no classes and no inheritance. In GoF chapters the Solution's Rust code keeps the GoF shape (`trait` + `struct` + `Box<dyn Trait>`), a collapsed `🦀 Rust lens` callout at the end of Solution maps each GoF role to Rust, and Modern Approach shows the idiomatic shape (enum + `match`, closures, generics). Rust usage blocks in Problem and Solution go inside `fn main()`.
 
 - **Code example theme:** 
   - Use a simple general "classic" real-world or fictional example for code example (e.g., class name, methods, etc.). Emphasis on the design architecture over specific implementation (you can simply print stuff out for that matter).
@@ -57,9 +59,9 @@ Here are the topics/chapers of this book. Each sub-bullet corresponding to one `
 ## Template
 
 - For chapter that related to design pattern, use this template: @_template/design-pattern-chapter.qmd
-- For chapter that related to DDD, use this template: @_template/ddd-chapter.qmd (C# & Python only)
+- For chapter that related to DDD, use this template: @_template/ddd-chapter.qmd (C# & Python only; no Rust)
 
 ## After Writting Content
 
 - After you writting a `.qmd` file in `contents/`, please update `_quarto.yml`
-- After writing or changing a `## Modern Approach` section, run `just verify <chapter.qmd>` (must print PASS) and `quarto render <chapter.qmd>` (no warnings). `just check` runs every example and renders the whole book.
+- After writing or changing a `## Modern Approach` section, run `just verify <chapter.qmd>` (must print PASS) and `quarto render <chapter.qmd>` (no warnings). `just verify` also compiles and runs the Rust blocks of `## Problem` and `## Solution`. `just check` runs every example and renders the whole book.

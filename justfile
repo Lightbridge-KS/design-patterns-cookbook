@@ -12,7 +12,7 @@ preview:
 render:
     quarto render
 
-# Type-check and run the Modern Approach examples: all chapters, or the given ones (-h for options)
+# Type-check and run the chapter examples (Modern, plus classic Rust): all chapters, or the given ones (-h for options)
 verify *args:
     uv run scripts/verify_modern.py {{args}}
 

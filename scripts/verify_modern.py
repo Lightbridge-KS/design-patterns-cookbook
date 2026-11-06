@@ -2,14 +2,21 @@
 # requires-python = ">=3.13"
 # dependencies = ["mypy==2.4.0"]
 # ///
-"""Verify that the `## Modern Approach` code in each chapter really runs.
+"""Verify that the code examples in each pattern chapter really run.
 
-The .qmd chapter is the source of truth. For each chapter, the first Python,
-C#, TypeScript, and Dart block inside `## Modern Approach` is extracted,
-type-checked, and run. All four programs must print the same output
-(compared case-insensitively against Python's).
+The .qmd chapter is the source of truth. Two checks run per chapter:
 
-Requires on PATH: uv, dotnet (10+), node (23.6+, runs .ts directly), tsc, dart.
+1. Modern: the first Python, C#, TypeScript, Dart, and Rust block inside
+   `## Modern Approach` is extracted, type-checked (Rust: clippy with warnings
+   denied), and run. All five programs must print the same output (compared
+   case-insensitively against Python's).
+2. Classic Rust: all Rust blocks inside `## Problem` are joined into one
+   program, and so are those inside `## Solution` (definitions, then the usage
+   block with `fn main()`). Each program must compile and exit 0. The borrow
+   checker makes Rust snippets break more easily than the other languages.
+
+Requires on PATH: uv, dotnet (10+), node (23.6+, runs .ts directly), tsc, dart,
+rustc + clippy-driver (Rust 1.85+, edition 2024; `rustup component add clippy`).
 Run through uv so the pinned mypy is installed: `uv run scripts/verify_modern.py`.
 
 Examples:
@@ -37,7 +44,6 @@ ROOT = Path(__file__).resolve().parent.parent
 CONTENTS = ROOT / "contents"
 OUT_ROOT = ROOT / ".verify"
 
-SECTION = re.compile(r"^## Modern Approach\n(.*?)(?=^## |\Z)", re.S | re.M)
 FENCE = re.compile(r"^```(\w+)\n(.*?)^```", re.S | re.M)
 USAGE_MARKER = "--- Usage ---"
 ENV = os.environ | {"DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"}
@@ -50,6 +56,7 @@ class Lang:
     filename: str
     check: list[str] | None  # type-check command; None when the run step compiles
     run: list[str]
+    check_builds: bool = False  # the check step produces the program; skip the run when it fails
 
 
 LANGS = [
@@ -62,7 +69,17 @@ LANGS = [
         ["node", "main.ts"],
     ),
     Lang("dart", "main.dart", ["dart", "--suppress-analytics", "analyze", "main.dart"], ["dart", "--suppress-analytics", "run", "main.dart"]),
+    Lang(
+        "rust",
+        "main.rs",
+        # `new_without_default` is allowed: an `impl Default` beside every `fn new()` is noise next to the pattern
+        ["clippy-driver", "--edition", "2024", "-D", "warnings", "-A", "clippy::new_without_default", "-o", "main", "main.rs"],
+        ["./main"],
+        check_builds=True,
+    ),
 ]
+CLASSIC_SECTIONS = ("Problem", "Solution")  # Rust-only compile-and-run check
+RUSTC_CLASSIC = ["rustc", "--edition", "2024", "-A", "unused", "-o", "main", "main.rs"]
 
 
 @dataclass
@@ -109,7 +126,8 @@ def main() -> int:
 
 
 def preflight() -> list[str]:
-    problems = [f"`{tool}` not found on PATH" for tool in ("dotnet", "node", "tsc", "dart") if shutil.which(tool) is None]
+    tools = ("dotnet", "node", "tsc", "dart", "rustc", "clippy-driver")
+    problems = [f"`{tool}` not found on PATH" for tool in tools if shutil.which(tool) is None]
     if sys.version_info < (3, 13):
         problems.append("Python 3.13+ required (examples use copy.replace); run via `uv run scripts/verify_modern.py`")
     if importlib.util.find_spec("mypy") is None:
@@ -118,19 +136,26 @@ def preflight() -> list[str]:
 
 
 def default_chapters() -> list[Path]:
-    return sorted(path for path in CONTENTS.rglob("*.qmd") if SECTION.search(path.read_text()))
+    return sorted(path for path in CONTENTS.rglob("*.qmd") if section(path.read_text(), "Modern Approach") is not None)
+
+
+def section(text: str, title: str) -> str | None:
+    """Body of the `## <title>` section, up to the next H2 (None when absent)."""
+    match = re.search(rf"^## {re.escape(title)}[ \t]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    return match.group(1) if match else None
 
 
 def verify_chapter(qmd: Path, verbose: bool) -> Result:
     name = str(qmd.relative_to(CONTENTS).with_suffix("")) if qmd.is_relative_to(CONTENTS) else qmd.stem
     result = Result(name)
-    section = SECTION.search(qmd.read_text())
-    if section is None:
+    text = qmd.read_text()
+    modern = section(text, "Modern Approach")
+    if modern is None:
         result.fail("no `## Modern Approach` section", "")
         return result
 
     blocks: dict[str, str] = {}
-    for fence, code in FENCE.findall(section.group(1)):
+    for fence, code in FENCE.findall(modern):
         blocks.setdefault(fence, code)
 
     out_dir = OUT_ROOT / name
@@ -142,9 +167,13 @@ def verify_chapter(qmd: Path, verbose: bool) -> Result:
             continue
         (out_dir / lang.filename).write_text(to_runnable(lang.fence, blocks[lang.fence]))
         if lang.check:
+            if lang.check_builds:
+                (out_dir / "main").unlink(missing_ok=True)  # never run a stale binary
             code, output = run(lang.check, out_dir)
             if code != 0:
                 result.fail(f"{lang.fence}: type check failed", output)
+                if lang.check_builds:
+                    continue
         code, output = run(lang.run, out_dir)
         if code != 0:
             result.fail(f"{lang.fence}: run failed (exit {code})", output)
@@ -156,9 +185,33 @@ def verify_chapter(qmd: Path, verbose: bool) -> Result:
         if fence != "python" and diff:
             result.fail(f"{fence}: output differs from python", "\n".join(diff))
 
+    verify_classic_rust(text, OUT_ROOT / name, result)
+
     if verbose and result.ok:
         result.details += [f"    {line}" for line in stdouts.get("python", "").splitlines()]
     return result
+
+
+def verify_classic_rust(text: str, out_root: Path, result: Result) -> None:
+    """Join each classic section's Rust blocks into one program; it must compile and exit 0."""
+    for title in CLASSIC_SECTIONS:
+        step = f"rust ({title.lower()})"
+        body = section(text, title)
+        rust_blocks = [code for fence, code in FENCE.findall(body or "") if fence == "rust"]
+        if not rust_blocks:
+            result.fail(f"{step}: no ```rust block in `## {title}`", "")
+            continue
+        out_dir = out_root / f"classic-{title.lower()}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "main.rs").write_text("\n".join(rust_blocks))
+        (out_dir / "main").unlink(missing_ok=True)
+        code, output = run(RUSTC_CLASSIC, out_dir)
+        if code != 0:
+            result.fail(f"{step}: compile failed", output)
+            continue
+        code, output = run(["./main"], out_dir)
+        if code != 0:
+            result.fail(f"{step}: run failed (exit {code})", output)
 
 
 def to_runnable(fence: str, code: str) -> str:

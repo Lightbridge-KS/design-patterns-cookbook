@@ -27,6 +27,8 @@ title: "[type-of-this-design-pattern]"
 
 #### `Dart`
 
+#### `Rust`
+
 :::
 
 #### Usage
@@ -41,6 +43,8 @@ title: "[type-of-this-design-pattern]"
 #### `TypeScript`
 
 #### `Dart`
+
+#### `Rust`
 
 :::
 
@@ -59,6 +63,8 @@ title: "[type-of-this-design-pattern]"
 
 [Write your refactored code for each language below that use the design pattern. Emphasize at the "design pattern", NOT Specific implementation.]
 
+[Rust: write the GoF-faithful shape (`trait` + `struct` + `impl Trait for`, `Box<dyn Trait>` where the UML holds an interface reference). The idiomatic shape (enum + `match`, closures, generics) belongs in Modern Approach. Rust usage blocks in Problem and Solution go inside `fn main() { … }`: `just verify` joins each section's Rust blocks and compiles them.]
+
 ::: {.panel-tabset}
 #### `Python`
 
@@ -67,6 +73,8 @@ title: "[type-of-this-design-pattern]"
 #### `TypeScript`
 
 #### `Dart`
+
+#### `Rust`
 
 :::
 
@@ -83,6 +91,18 @@ title: "[type-of-this-design-pattern]"
 
 #### `Dart`
 
+#### `Rust`
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+[Rust has no classes and no inheritance. Map each GoF role of this pattern to the Rust construct used in the Rust Solution code above. Inline code only: no fenced code block here (`just verify` joins the Rust blocks of this section into one program).]
+
+| GoF role | Rust |
+|---|---|
+|   |   |
+
+**Ownership:** [1–2 lines on what ownership or borrowing changes in this pattern, e.g. who owns the strategy, why the observer list needs `Weak`.] See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
@@ -122,6 +142,14 @@ title: "[type-of-this-design-pattern]"
 |---|---|
 |   |   |
 
+#### `Rust`
+
+[If Rust's verdict differs from the chapter verdict, say so in the first line, e.g. "Rust: ⚪ Still the idiom — no runtime proxies."]
+
+| Classic | Modern |
+|---|---|
+|   |   |
+
 :::
 
 **Ecosystem:** [popular 3rd-party packages, by name only — never used in the code below]
@@ -131,7 +159,8 @@ title: "[type-of-this-design-pattern]"
 [Code + usage in ONE block per language:
 - Language, stdlib, and first-party frameworks only — no 3rd-party packages.
 - First line is a comment naming the minimum version + feature, e.g. `# Python 3.12+ — closures, type alias`.
-- Separate definitions from usage with `# --- Usage ---` / `// --- Usage ---` (Dart: put it above `void main()`).
+- Separate definitions from usage with `# --- Usage ---` / `// --- Usage ---` (Dart: put it above `void main()`; Rust: above `fn main()`).
+- Rust: first line like `// Rust 1.85+ (edition 2024) — closures, impl Fn`. Code must pass clippy with warnings denied (`clippy::new_without_default` is allowed).
 - Each block must run as-is as a complete program; expected output goes in comments, identical across languages. Check with `just verify <chapter.qmd>`.
 - ⚪ verdicts: show only the modernized parts; omit unchanged siblings with a comment (e.g., "Radio has the same shape and is omitted here").]
 
@@ -143,6 +172,8 @@ title: "[type-of-this-design-pattern]"
 #### `TypeScript`
 
 #### `Dart`
+
+#### `Rust`
 
 :::
 
