@@ -158,6 +158,56 @@ class House {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::fmt;
+
+struct House {
+    walls: String,
+    doors: u32,
+    windows: u32,
+    roof: String,
+    has_garage: bool,
+    has_swimming_pool: bool,
+    garden_size: u32,
+}
+
+impl House {
+    // Telescoping constructor - hard to read!
+    // Rust has no default arguments, so every caller passes all seven.
+    fn new(
+        walls: &str,
+        doors: u32,
+        windows: u32,
+        roof: &str,
+        has_garage: bool,
+        has_swimming_pool: bool,
+        garden_size: u32,
+    ) -> Self {
+        Self {
+            walls: walls.to_string(),
+            doors,
+            windows,
+            roof: roof.to_string(),
+            has_garage,
+            has_swimming_pool,
+            garden_size,
+        }
+    }
+}
+
+impl fmt::Display for House {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "House(walls={}, doors={}, windows={})",
+            self.walls, self.doors, self.windows
+        )
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -213,6 +263,20 @@ void main() {
     hasSwimmingPool: false,
     gardenSize: 100,
   );
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    // What do these parameters mean?
+    let house = House::new("wood", 4, 8, "shingles", true, false, 100);
+
+    // Or with mutable fields - no order control
+    let mut house = House::new("", 0, 0, "", false, false, 0);
+    house.roof = "tiles".to_string(); // Roof before walls?
+    house.walls = "stone".to_string(); // This seems backwards...
 }
 ```
 
@@ -816,6 +880,170 @@ class Director {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::fmt;
+
+// Product
+#[derive(Default)]
+struct House {
+    walls: String,
+    doors: u32,
+    windows: u32,
+    roof: String,
+    has_garage: bool,
+    has_swimming_pool: bool,
+}
+
+impl fmt::Display for House {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut features = Vec::new();
+        if self.has_garage {
+            features.push("garage");
+        }
+        if self.has_swimming_pool {
+            features.push("pool");
+        }
+        let extras = if features.is_empty() {
+            String::new()
+        } else {
+            format!(" with {}", features.join(", "))
+        };
+        write!(f, "House({} walls, {} roof{extras})", self.walls, self.roof)
+    }
+}
+
+// Builder interface → a trait; every step mutates the builder (`&mut self`)
+trait HouseBuilder {
+    fn reset(&mut self);
+    fn build_walls(&mut self);
+    fn build_doors(&mut self, count: u32);
+    fn build_windows(&mut self, count: u32);
+    fn build_roof(&mut self);
+    fn build_garage(&mut self);
+    fn build_swimming_pool(&mut self);
+    fn get_result(&mut self) -> House;
+}
+
+// Concrete Builder - Wooden House
+struct WoodenHouseBuilder {
+    house: House,
+}
+
+impl WoodenHouseBuilder {
+    fn new() -> Self {
+        Self {
+            house: House::default(),
+        }
+    }
+}
+
+impl HouseBuilder for WoodenHouseBuilder {
+    fn reset(&mut self) {
+        self.house = House::default();
+    }
+
+    fn build_walls(&mut self) {
+        self.house.walls = "wooden".to_string();
+    }
+
+    fn build_doors(&mut self, count: u32) {
+        self.house.doors = count;
+    }
+
+    fn build_windows(&mut self, count: u32) {
+        self.house.windows = count;
+    }
+
+    fn build_roof(&mut self) {
+        self.house.roof = "shingle".to_string();
+    }
+
+    fn build_garage(&mut self) {
+        self.house.has_garage = true;
+    }
+
+    fn build_swimming_pool(&mut self) {
+        self.house.has_swimming_pool = true;
+    }
+
+    fn get_result(&mut self) -> House {
+        // Move the house out and leave a fresh default behind (the reset)
+        std::mem::take(&mut self.house)
+    }
+}
+
+// Concrete Builder - Stone House
+struct StoneHouseBuilder {
+    house: House,
+}
+
+impl StoneHouseBuilder {
+    fn new() -> Self {
+        Self {
+            house: House::default(),
+        }
+    }
+}
+
+impl HouseBuilder for StoneHouseBuilder {
+    fn reset(&mut self) {
+        self.house = House::default();
+    }
+
+    fn build_walls(&mut self) {
+        self.house.walls = "stone".to_string();
+    }
+
+    fn build_doors(&mut self, count: u32) {
+        self.house.doors = count;
+    }
+
+    fn build_windows(&mut self, count: u32) {
+        self.house.windows = count;
+    }
+
+    fn build_roof(&mut self) {
+        self.house.roof = "concrete".to_string();
+    }
+
+    fn build_garage(&mut self) {
+        self.house.has_garage = true;
+    }
+
+    fn build_swimming_pool(&mut self) {
+        self.house.has_swimming_pool = true;
+    }
+
+    fn get_result(&mut self) -> House {
+        std::mem::take(&mut self.house)
+    }
+}
+
+// Director (optional - orchestrates build steps).
+// It borrows a builder for one recipe instead of storing it.
+struct Director;
+
+impl Director {
+    fn build_minimal_house(&self, builder: &mut dyn HouseBuilder) {
+        builder.build_walls();
+        builder.build_doors(1);
+        builder.build_windows(2);
+        builder.build_roof();
+    }
+
+    fn build_full_featured_house(&self, builder: &mut dyn HouseBuilder) {
+        builder.build_walls();
+        builder.build_doors(4);
+        builder.build_windows(8);
+        builder.build_roof();
+        builder.build_garage();
+        builder.build_swimming_pool();
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -947,15 +1175,60 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Using Director for predefined configurations
+    let director = Director;
+
+    // Build a minimal wooden house
+    let mut wooden_builder = WoodenHouseBuilder::new();
+    director.build_minimal_house(&mut wooden_builder);
+    let wooden_house = wooden_builder.get_result();
+    println!("{wooden_house}"); // House(wooden walls, shingle roof)
+
+    // Build a full-featured stone house
+    let mut stone_builder = StoneHouseBuilder::new();
+    director.build_full_featured_house(&mut stone_builder);
+    let stone_house = stone_builder.get_result();
+    println!("{stone_house}"); // House(stone walls, concrete roof with garage, pool)
+
+    // Or use builder directly for custom configuration
+    let mut custom_builder = WoodenHouseBuilder::new();
+    custom_builder.build_walls();
+    custom_builder.build_doors(2);
+    custom_builder.build_windows(4);
+    custom_builder.build_roof();
+    custom_builder.build_garage(); // Garage but no pool
+    let custom_house = custom_builder.get_result();
+    println!("{custom_house}"); // House(wooden walls, shingle roof with garage)
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Product | `struct House` with `#[derive(Default)]` for the empty start |
+| Builder interface | `trait HouseBuilder`; every step takes `&mut self` |
+| Concrete builder | `struct WoodenHouseBuilder { house: House }` + `impl HouseBuilder for …` |
+| `get_result()` + `reset()` | `std::mem::take(&mut self.house)`: move the house out, leave a fresh default behind |
+| Director | `struct Director` whose recipes take `&mut dyn HouseBuilder` |
+
+**Ownership:** the classic Director stores its builder with `set_builder()`. In Rust a stored `&mut` borrow would lock the builder for the Director's whole lifetime, so the caller could not call `get_result()` afterwards. Passing `&mut dyn HouseBuilder` to each recipe borrows the builder only for that call. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Most builders exist to avoid the **telescoping constructor**, where a call like `House("wood", 4, 2, 6, true, false, "red")` is unreadable. All four languages now fix that at the call site with three features:
+Most builders exist to avoid the **telescoping constructor**, where a call like `House("wood", 4, 2, 6, true, false, "red")` is unreadable. Python, C#, TypeScript, and Dart now fix that at the call site with three features:
 
 - **Named arguments with defaults** label every parameter.
 - **Required markers** make it impossible to construct an incomplete object.
 - **Non-destructive copies** (`replace` / `with` / spread / `copyWith`) turn a preset into a variant in one expression.
+
+Rust has no named or default arguments, but a struct literal names every field, and struct update syntax (`House { has_garage: true, ..WOODEN }`) is its non-destructive copy.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — named arguments and immutable copies remove the builder *classes*, while the Director's recipes survive as plain functions.
@@ -1008,9 +1281,20 @@ Most builders exist to avoid the **telescoping constructor**, where a call like 
 | `WoodenHouseBuilder` / `StoneHouseBuilder` | `const` presets `wooden` / `stone` |
 | `Director.buildFullFeaturedHouse()` | `fullFeatured(base)` using `copyWith()` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `struct House` with `String` fields, filled step by step | a `Copy` struct; a struct literal names every field |
+| `build_garage()` and the other optional steps | defaults from `const fn new(walls, roof)`, overridden with struct update syntax: `House { has_garage: true, ..WOODEN }` |
+| `build_walls()` / `build_roof()`: steps you must remember to call | `walls` and `roof` are `new()` parameters, and a literal that skips a field does not compile |
+| Half-built house until `get_result()` (`mem::take`) | complete once constructed, and immutable unless bound with `let mut` |
+| `WoodenHouseBuilder` / `StoneHouseBuilder` | `const` presets `WOODEN` / `STONE` |
+| `Director::build_full_featured_house(&mut builder)` | `full_featured(base)` returning `House { …, ..base }` |
+
 :::
 
-**Ecosystem:** in Python, `attrs` and Pydantic (`model_copy(update=…)`) add validation on top of the same idea. In Dart, `freezed` generates `copyWith`, `==`, and `toString` so you don't have to write them by hand.
+**Ecosystem:** in Python, `attrs` and Pydantic (`model_copy(update=…)`) add validation on top of the same idea. In Dart, `freezed` generates `copyWith`, `==`, and `toString` so you don't have to write them by hand. In Rust, `bon`, `typed-builder`, and `derive_builder` generate builders, and `typed-builder` makes a missing required field a compile error.
 
 ### Modern Code
 
@@ -1247,6 +1531,92 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — struct literals, struct update syntax (`..base`), const fn
+use std::fmt;
+
+// Product → a plain `Copy` value; the struct literal IS the builder
+#[derive(Clone, Copy)]
+#[allow(dead_code)] // `doors` and `windows` are set but not printed in this example
+struct House {
+    walls: &'static str,
+    roof: &'static str,
+    doors: u32,
+    windows: u32,
+    has_garage: bool,
+    has_swimming_pool: bool,
+}
+
+impl House {
+    // Required parts are parameters; the optional ones get defaults
+    const fn new(walls: &'static str, roof: &'static str) -> Self {
+        Self {
+            walls,
+            roof,
+            doors: 1,
+            windows: 2,
+            has_garage: false,
+            has_swimming_pool: false,
+        }
+    }
+}
+
+impl fmt::Display for House {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut features = Vec::new();
+        if self.has_garage {
+            features.push("garage");
+        }
+        if self.has_swimming_pool {
+            features.push("pool");
+        }
+        let extras = if features.is_empty() {
+            String::new()
+        } else {
+            format!(" with {}", features.join(", "))
+        };
+        write!(f, "House({} walls, {} roof{extras})", self.walls, self.roof)
+    }
+}
+
+// Concrete builders → presets (they only ever differed in materials)
+const WOODEN: House = House::new("wooden", "shingle");
+const STONE: House = House::new("stone", "concrete");
+
+// Director recipe → a function over any preset
+fn full_featured(base: House) -> House {
+    House {
+        doors: 4,
+        windows: 8,
+        has_garage: true,
+        has_swimming_pool: true,
+        ..base
+    }
+}
+
+// --- Usage ---
+fn main() {
+    println!("{WOODEN}"); // House(wooden walls, shingle roof)
+    println!("{}", full_featured(STONE)); // House(stone walls, concrete roof with garage, pool)
+
+    // Custom configuration: named, any order, starting from a preset
+    let custom = House {
+        doors: 2,
+        windows: 4,
+        has_garage: true,
+        ..WOODEN
+    };
+    println!("{custom}"); // House(wooden walls, shingle roof with garage)
+
+    // Mistakes are compile errors instead of a half-built house:
+    // House { roof: "shingle", doors: 1 } → error[E0063]: missing fields `has_garage`, `has_swimming_pool`, `walls` and 1 other field
+    // House::new("wooden")                → error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    // custom.doors = 9;                   → error[E0594]: cannot assign to `custom.doors`, as `custom` is not declared as mutable
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1257,6 +1627,7 @@ void main() {
 | The product is a value (immutable data) | Steps must run in an enforced order, or cross-field rules apply mid-build |
 | Variants differ only in data (wooden vs stone) | The same steps must produce different product *types* (e.g., an HTML vs a PDF report) |
 | The whole object is known in one place, in one expression | The object accumulates piece by piece over time (`StringBuilder`, SQL query builders) |
+| Rust: the fields can be public, so callers may write the struct literal | Rust: the fields are private or the type lives in another crate. A struct literal needs every field visible, so a consuming builder is the std idiom (`Command::new("ls").arg("-l")`) |
 
 ## Summary
 
