@@ -230,6 +230,74 @@ class WeatherData {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct CurrentConditionsDisplay;
+
+impl CurrentConditionsDisplay {
+    fn update(&self, temperature: f64, humidity: f64) {
+        println!("Current: {temperature:.1}°C and {humidity:.1}% humidity");
+    }
+}
+
+struct StatisticsDisplay {
+    temperatures: Vec<f64>,
+}
+
+impl StatisticsDisplay {
+    fn update(&mut self, temperature: f64) {
+        self.temperatures.push(temperature);
+        let t = &self.temperatures;
+        let avg = t.iter().sum::<f64>() / t.len() as f64;
+        let max = t.iter().copied().fold(f64::MIN, f64::max);
+        let min = t.iter().copied().fold(f64::MAX, f64::min);
+        println!("Avg/Max/Min: {avg:.1}/{max:.1}/{min:.1}");
+    }
+}
+
+struct ForecastDisplay {
+    last_pressure: f64,
+}
+
+impl ForecastDisplay {
+    fn update(&mut self, pressure: f64) {
+        if pressure > self.last_pressure {
+            println!("Forecast: Improving weather!");
+        } else {
+            println!("Forecast: Cooler, rainy weather");
+        }
+        self.last_pressure = pressure;
+    }
+}
+
+struct WeatherData {
+    // Tightly coupled to specific display types!
+    current_display: CurrentConditionsDisplay,
+    stats_display: StatisticsDisplay,
+    forecast_display: ForecastDisplay,
+}
+
+impl WeatherData {
+    fn new() -> Self {
+        Self {
+            current_display: CurrentConditionsDisplay,
+            stats_display: StatisticsDisplay {
+                temperatures: Vec::new(),
+            },
+            forecast_display: ForecastDisplay { last_pressure: 0.0 },
+        }
+    }
+
+    fn set_measurements(&mut self, temp: f64, humidity: f64, pressure: f64) {
+        // Must update each display manually with different parameters
+        self.current_display.update(temp, humidity);
+        self.stats_display.update(temp);
+        self.forecast_display.update(pressure);
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -301,6 +369,25 @@ weather.setMeasurements(28.0, 70.0, 1010.0);
 // Forecast: Cooler, rainy weather
 
 // Can't add new displays or remove existing ones at runtime!
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let mut weather = WeatherData::new();
+    weather.set_measurements(25.0, 65.0, 1013.0);
+    // Current: 25.0°C and 65.0% humidity
+    // Avg/Max/Min: 25.0/25.0/25.0
+    // Forecast: Improving weather!
+
+    weather.set_measurements(28.0, 70.0, 1010.0);
+    // Current: 28.0°C and 70.0% humidity
+    // Avg/Max/Min: 26.5/28.0/25.0
+    // Forecast: Cooler, rainy weather
+
+    // Can't add new displays or remove existing ones at runtime!
+}
 ```
 
 :::
@@ -733,6 +820,131 @@ class ForecastDisplay implements Observer {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::cell::RefCell;
+use std::rc::Rc;
+
+// Observer interface → a trait; `&mut self` because displays keep state
+trait Observer {
+    fn update(&mut self, temperature: f64, humidity: f64, pressure: f64);
+}
+
+// Subject → shares ownership of each observer with the client
+struct WeatherData {
+    observers: Vec<Rc<RefCell<dyn Observer>>>,
+    temperature: f64,
+    humidity: f64,
+    pressure: f64,
+}
+
+impl WeatherData {
+    fn new() -> Self {
+        Self {
+            observers: Vec::new(),
+            temperature: 0.0,
+            humidity: 0.0,
+            pressure: 0.0,
+        }
+    }
+
+    fn attach(&mut self, observer: Rc<RefCell<dyn Observer>>) {
+        self.observers.push(observer);
+    }
+
+    fn detach(&mut self, observer: &Rc<RefCell<dyn Observer>>) {
+        // Identity = same allocation, not equal values
+        self.observers.retain(|o| !Rc::ptr_eq(o, observer));
+    }
+
+    fn notify(&self) {
+        for observer in &self.observers {
+            // RefCell: a mutable borrow checked at runtime
+            observer
+                .borrow_mut()
+                .update(self.temperature, self.humidity, self.pressure);
+        }
+    }
+
+    fn set_measurements(&mut self, temperature: f64, humidity: f64, pressure: f64) {
+        self.temperature = temperature;
+        self.humidity = humidity;
+        self.pressure = pressure;
+        self.notify();
+    }
+}
+
+// Concrete observers → structs that implement the trait
+struct CurrentConditionsDisplay {
+    temperature: f64,
+    humidity: f64,
+}
+
+impl Observer for CurrentConditionsDisplay {
+    fn update(&mut self, temperature: f64, humidity: f64, _pressure: f64) {
+        self.temperature = temperature;
+        self.humidity = humidity;
+        self.display();
+    }
+}
+
+impl CurrentConditionsDisplay {
+    fn display(&self) {
+        println!(
+            "Current: {:.1}°C and {:.1}% humidity",
+            self.temperature, self.humidity
+        );
+    }
+}
+
+struct StatisticsDisplay {
+    temperatures: Vec<f64>,
+}
+
+impl Observer for StatisticsDisplay {
+    fn update(&mut self, temperature: f64, _humidity: f64, _pressure: f64) {
+        self.temperatures.push(temperature);
+        self.display();
+    }
+}
+
+impl StatisticsDisplay {
+    fn display(&self) {
+        let t = &self.temperatures;
+        let avg = t.iter().sum::<f64>() / t.len() as f64;
+        let max = t.iter().copied().fold(f64::MIN, f64::max);
+        let min = t.iter().copied().fold(f64::MAX, f64::min);
+        println!("Avg/Max/Min: {avg:.1}/{max:.1}/{min:.1}");
+    }
+}
+
+struct ForecastDisplay {
+    last_pressure: f64,
+    current_pressure: f64,
+}
+
+impl Observer for ForecastDisplay {
+    fn update(&mut self, _temperature: f64, _humidity: f64, pressure: f64) {
+        self.last_pressure = self.current_pressure;
+        self.current_pressure = pressure;
+        self.display();
+    }
+}
+
+impl ForecastDisplay {
+    fn display(&self) {
+        if self.current_pressure > self.last_pressure {
+            println!("Forecast: Improving weather!");
+        } else if self.current_pressure < self.last_pressure {
+            println!("Forecast: Cooler, rainy weather");
+        } else {
+            println!("Forecast: Same weather");
+        }
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -890,14 +1102,76 @@ weatherData.setMeasurements(22.0, 90.0, 1005.0);
 // (No forecast - it was detached!)
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Create subject
+    let mut weather_data = WeatherData::new();
+
+    // Create observers; the client keeps an `Rc` to each one
+    let current_display: Rc<RefCell<dyn Observer>> =
+        Rc::new(RefCell::new(CurrentConditionsDisplay {
+            temperature: 0.0,
+            humidity: 0.0,
+        }));
+    let stats_display: Rc<RefCell<dyn Observer>> = Rc::new(RefCell::new(StatisticsDisplay {
+        temperatures: Vec::new(),
+    }));
+    let forecast_display: Rc<RefCell<dyn Observer>> = Rc::new(RefCell::new(ForecastDisplay {
+        last_pressure: 0.0,
+        current_pressure: 0.0,
+    }));
+
+    // Attach: the subject gets its own `Rc` (a cheap pointer copy)
+    weather_data.attach(Rc::clone(&current_display));
+    weather_data.attach(Rc::clone(&stats_display));
+    weather_data.attach(Rc::clone(&forecast_display));
+
+    // Update weather - all displays notified automatically
+    println!("=== Weather Update 1 ===");
+    weather_data.set_measurements(25.0, 65.0, 1013.0);
+    // Current: 25.0°C and 65.0% humidity
+    // Avg/Max/Min: 25.0/25.0/25.0
+    // Forecast: Improving weather!
+
+    println!("\n=== Weather Update 2 ===");
+    weather_data.set_measurements(28.0, 70.0, 1010.0);
+    // Current: 28.0°C and 70.0% humidity
+    // Avg/Max/Min: 26.5/28.0/25.0
+    // Forecast: Cooler, rainy weather
+
+    // Dynamically remove an observer
+    weather_data.detach(&forecast_display);
+
+    println!("\n=== Weather Update 3 (forecast removed) ===");
+    weather_data.set_measurements(22.0, 90.0, 1005.0);
+    // Current: 22.0°C and 90.0% humidity
+    // Avg/Max/Min: 25.0/28.0/22.0
+    // (No forecast - it was detached!)
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Observer interface | `trait Observer` with `fn update(&mut self, …)` |
+| Concrete observer | struct + `impl Observer for StatisticsDisplay` |
+| Subject's observer list | `Vec<Rc<RefCell<dyn Observer>>>` |
+| `detach(observer)` identity | `Rc::ptr_eq`: the same allocation, not an equal value |
+| Observer updates its own state | `borrow_mut()` on the `RefCell` during `notify()` |
+
+**Ownership:** each observer has two owners. The client keeps it (to detach or read it later), and the subject keeps it (to notify it). Shared ownership is `Rc`. An `Rc` gives only shared `&` access, but `update` changes the display's fields, so `RefCell` moves that borrow check to runtime. If the subject should not keep a display alive, store `Weak` instead and skip observers whose `upgrade()` returns `None`. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Observer is built into three of the four platforms: C# has `event`, Dart has `Stream`, and JavaScript has `EventTarget`. Python needs nothing more than a list of callables. Each platform keeps the observer list for you, and any function can be an observer: a lambda, or a method of a small stateful class. Unsubscribing hands back a handle (`-=`, `cancel()`, an unsubscribe function). Use it, because a live subscription keeps the observer alive.
+Observer is built into three of the four platforms: C# has `event`, Dart has `Stream`, and JavaScript has `EventTarget`. Python needs nothing more than a list of callables, and Rust needs nothing more than a `Vec` of boxed closures. Each platform keeps the observer list for you, and any function can be an observer: a lambda, or a method of a small stateful class. Unsubscribing hands back a handle (`-=`, `cancel()`, an unsubscribe function, or in Rust a key). Use it, because a live subscription keeps the observer alive.
 
 ::: {.callout-note appearance="simple"}
-**Verdict: 🟢 Replaces** — C# events, Dart streams, and `EventTarget` are the Observer pattern built into the platform, and in Python a list of callables is enough.
+**Verdict: 🟢 Replaces** — C# events, Dart streams, and `EventTarget` are the Observer pattern built into the platform, and in Python and Rust a list of callables is enough.
 :::
 
 ### Feature Map
@@ -946,9 +1220,20 @@ Observer is built into three of the four platforms: C# has `event`, Dart has `St
 | `CurrentConditionsDisplay` class | a lambda |
 | Displays implementing `Observer` | plain classes; subscribe the tear-off `stats.update` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Observer` with `update(&mut self, temperature, humidity, pressure)` | `type Listener = Box<dyn FnMut(&Measurement)>` |
+| Three loose `update()` parameters | one `Measurement` struct (`Copy`) |
+| `CurrentConditionsDisplay` struct | a closure |
+| `StatisticsDisplay` / `ForecastDisplay` structs with fields | functions returning a `move` closure that owns its state (`FnMut`) |
+| `Rc<RefCell<dyn Observer>>` shared by client and subject | the subject alone owns each listener (`Box`): no `Rc`, no `RefCell` |
+| `detach(&observer)` with `Rc::ptr_eq` | `subscribe()` returns a `Subscription` key for `unsubscribe()`. An unsubscribe *closure* would need a second mutable borrow of the subject. |
+
 :::
 
-**Ecosystem:** Rx libraries (Rx.NET, RxJS, RxPY) add operators such as filter, debounce, and combine on top of the same idea. UI frameworks have their own flavors: signals in Angular, Preact, and Solid, Flutter's `ChangeNotifier` / `ValueNotifier`, and .NET's `INotifyPropertyChanged` with CommunityToolkit's `[ObservableProperty]`. Python's `blinker` provides named signals.
+**Ecosystem:** Rx libraries (Rx.NET, RxJS, RxPY) add operators such as filter, debounce, and combine on top of the same idea. UI frameworks have their own flavors: signals in Angular, Preact, and Solid, Flutter's `ChangeNotifier` / `ValueNotifier`, and .NET's `INotifyPropertyChanged` with CommunityToolkit's `[ObservableProperty]`. Python's `blinker` provides named signals. In async Rust, `tokio::sync::broadcast` and `watch` channels deliver each value to many receivers.
 
 ### Modern Code
 
@@ -1268,6 +1553,126 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — boxed FnMut closures as observers; subscribe() returns a key
+#[derive(Clone, Copy)]
+struct Measurement {
+    temperature: f64,
+    humidity: f64,
+    pressure: f64,
+}
+
+impl Measurement {
+    fn new(temperature: f64, humidity: f64, pressure: f64) -> Self {
+        Self {
+            temperature,
+            humidity,
+            pressure,
+        }
+    }
+}
+
+type Listener = Box<dyn FnMut(&Measurement)>;
+
+// The "detach" handle: a key into the subject's list
+#[derive(Clone, Copy)]
+struct Subscription(usize);
+
+// Subject → owns a list of closures: no Observer trait, no Rc, no RefCell
+struct WeatherData {
+    listeners: Vec<(usize, Listener)>,
+    next_id: usize,
+}
+
+impl WeatherData {
+    fn new() -> Self {
+        Self {
+            listeners: Vec::new(),
+            next_id: 0,
+        }
+    }
+
+    fn subscribe(&mut self, listener: impl FnMut(&Measurement) + 'static) -> Subscription {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.listeners.push((id, Box::new(listener)));
+        Subscription(id)
+    }
+
+    fn unsubscribe(&mut self, subscription: Subscription) {
+        self.listeners.retain(|(id, _)| *id != subscription.0);
+    }
+
+    fn set_measurements(&mut self, m: Measurement) {
+        for (_, listener) in &mut self.listeners {
+            listener(&m);
+        }
+    }
+}
+
+// Stateful observers → closures that own their state (`move` + FnMut)
+fn statistics_display() -> impl FnMut(&Measurement) {
+    let mut temperatures: Vec<f64> = Vec::new();
+    move |m| {
+        temperatures.push(m.temperature);
+        let t = &temperatures;
+        let avg = t.iter().sum::<f64>() / t.len() as f64;
+        let max = t.iter().copied().fold(f64::MIN, f64::max);
+        let min = t.iter().copied().fold(f64::MAX, f64::min);
+        println!("Avg/Max/Min: {avg:.1}/{max:.1}/{min:.1}");
+    }
+}
+
+fn forecast_display() -> impl FnMut(&Measurement) {
+    let mut last_pressure = 0.0;
+    move |m| {
+        if m.pressure > last_pressure {
+            println!("Forecast: Improving weather!");
+        } else if m.pressure < last_pressure {
+            println!("Forecast: Cooler, rainy weather");
+        } else {
+            println!("Forecast: Same weather");
+        }
+        last_pressure = m.pressure;
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut weather_data = WeatherData::new();
+
+    // A stateless observer is just a closure
+    weather_data.subscribe(|m| {
+        println!(
+            "Current: {:.1}°C and {:.1}% humidity",
+            m.temperature, m.humidity
+        );
+    });
+    weather_data.subscribe(statistics_display());
+    let stop_forecast = weather_data.subscribe(forecast_display());
+
+    println!("=== Weather Update 1 ===");
+    weather_data.set_measurements(Measurement::new(25.0, 65.0, 1013.0));
+    // Current: 25.0°C and 65.0% humidity
+    // Avg/Max/Min: 25.0/25.0/25.0
+    // Forecast: Improving weather!
+
+    println!("\n=== Weather Update 2 ===");
+    weather_data.set_measurements(Measurement::new(28.0, 70.0, 1010.0));
+    // Current: 28.0°C and 70.0% humidity
+    // Avg/Max/Min: 26.5/28.0/25.0
+    // Forecast: Cooler, rainy weather
+
+    weather_data.unsubscribe(stop_forecast); // detach at runtime
+    println!("\n=== Weather Update 3 (forecast removed) ===");
+    weather_data.set_measurements(Measurement::new(22.0, 90.0, 1005.0));
+    // Current: 22.0°C and 90.0% humidity
+    // Avg/Max/Min: 25.0/28.0/22.0
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1277,6 +1682,7 @@ void main() {
 | Each observer reacts with a single operation | Observers handle several kinds of notification (`on_reading`, `on_alert`, `on_offline`) as one contract |
 | Subscriptions are added and removed ad hoc | Observers are long-lived components you want to register, list, and inspect by type |
 | You want stream operators (filter, debounce, combine) from Rx or Dart streams | You need explicit control over delivery: ordering, error isolation between observers, or weak references |
+| Rust: each listener belongs to the subject alone (`Box<dyn FnMut>`) | Rust: the client keeps using the observer after it subscribes, so both sides share it (`Rc<RefCell<…>>`, or `Weak` so the subject does not keep it alive) |
 
 ## Summary
 
