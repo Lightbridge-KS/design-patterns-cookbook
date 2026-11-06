@@ -236,6 +236,76 @@ class SaveManager {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::collections::HashMap;
+
+struct Player {
+    pub name: String,
+    pub health: i32, // Public!
+    pub level: i32,  // Public!
+    pub x: i32,      // Public!
+    pub y: i32,      // Public!
+}
+
+impl Player {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            health: 100,
+            level: 1,
+            x: 0,
+            y: 0,
+        }
+    }
+
+    fn take_damage(&mut self, amount: i32) {
+        self.health -= amount;
+        println!(
+            "{} took {amount} damage. Health: {}",
+            self.name, self.health
+        );
+    }
+
+    // `move` is a Rust keyword, so the method is `move_to`
+    fn move_to(&mut self, x: i32, y: i32) {
+        (self.x, self.y) = (x, y);
+        println!("{} moved to ({x}, {y})", self.name);
+    }
+}
+
+struct SaveManager {
+    saves: Vec<HashMap<&'static str, i32>>,
+}
+
+impl SaveManager {
+    fn new() -> Self {
+        Self { saves: Vec::new() }
+    }
+
+    fn save_game(&mut self, player: &Player) {
+        // Directly accessing player internals!
+        let save = HashMap::from([
+            ("health", player.health),
+            ("level", player.level),
+            ("x", player.x),
+            ("y", player.y),
+        ]);
+        self.saves.push(save);
+    }
+
+    fn load_game(&self, player: &mut Player, index: usize) {
+        let save = &self.saves[index];
+        // Directly modifying player internals!
+        player.health = save["health"];
+        player.level = save["level"];
+        player.x = save["x"];
+        player.y = save["y"];
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -320,6 +390,28 @@ void main() {
 
   // Problem: SaveManager knows too much about Player's structure
   // What if we add "mana" field? Must update SaveManager!
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let mut player = Player::new("Hero");
+    let mut save_manager = SaveManager::new();
+
+    player.move_to(10, 20);
+    player.take_damage(30);
+    save_manager.save_game(&player); // Save checkpoint
+
+    player.take_damage(80); // Oops, nearly dead!
+    println!("Health before load: {}", player.health); // 0 or negative!
+
+    save_manager.load_game(&mut player, 0); // Restore
+    println!("Health after load: {}", player.health); // 70
+
+    // Problem: SaveManager knows too much about Player's structure
+    // What if we add a "mana" field? Must update SaveManager!
 }
 ```
 
@@ -719,6 +811,132 @@ class SaveManager {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust privacy is per module: Memento and Originator share `mod game`
+mod game {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Memento → `pub` type, private fields
+    pub struct GameSave {
+        health: i32,
+        level: i32,
+        x: i32,
+        y: i32,
+        timestamp: u64, // seconds since the Unix epoch (std has no date formatting)
+    }
+
+    impl GameSave {
+        // The only thing the caretaker may read
+        pub fn get_timestamp(&self) -> u64 {
+            self.timestamp
+        }
+    }
+
+    // Originator → in the same module, so it can read GameSave's private fields
+    pub struct Player {
+        name: String,
+        health: i32,
+        level: i32,
+        x: i32,
+        y: i32,
+    }
+
+    impl Player {
+        pub fn new(name: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                health: 100,
+                level: 1,
+                x: 0,
+                y: 0,
+            }
+        }
+
+        /// Create a memento with current state.
+        pub fn save(&self) -> GameSave {
+            println!("{}: Game saved!", self.name);
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs());
+            GameSave {
+                health: self.health,
+                level: self.level,
+                x: self.x,
+                y: self.y,
+                timestamp,
+            }
+        }
+
+        /// Restore state from a memento.
+        pub fn restore(&mut self, save: &GameSave) {
+            self.health = save.health;
+            self.level = save.level;
+            self.x = save.x;
+            self.y = save.y;
+            println!("{}: Game loaded from {}", self.name, save.get_timestamp());
+        }
+
+        pub fn take_damage(&mut self, amount: i32) {
+            self.health -= amount;
+            println!(
+                "{} took {amount} damage. Health: {}",
+                self.name, self.health
+            );
+        }
+
+        // `move` is a Rust keyword, so the method is `move_to`
+        pub fn move_to(&mut self, x: i32, y: i32) {
+            (self.x, self.y) = (x, y);
+            println!("{} moved to ({x}, {y})", self.name);
+        }
+
+        pub fn level_up(&mut self) {
+            self.level += 1;
+            self.health = 100; // Restore health on level up
+            println!("{} leveled up to {}!", self.name, self.level);
+        }
+
+        pub fn get_status(&self) -> String {
+            format!(
+                "{} [Lv.{}] HP:{} Pos:({},{})",
+                self.name, self.level, self.health, self.x, self.y
+            )
+        }
+    }
+}
+
+use game::{GameSave, Player};
+
+// Caretaker → outside `mod game`: it stores saves but cannot read their fields
+struct SaveManager {
+    saves: Vec<GameSave>,
+}
+
+impl SaveManager {
+    fn new() -> Self {
+        Self { saves: Vec::new() }
+    }
+
+    fn add_save(&mut self, save: GameSave) {
+        self.saves.push(save);
+    }
+
+    fn get_save(&self, index: usize) -> &GameSave {
+        &self.saves[index]
+    }
+
+    fn list_saves(&self) {
+        println!("=== Save Slots ===");
+        for (i, save) in self.saves.iter().enumerate() {
+            println!("  [{i}] {}", save.get_timestamp());
+            // save.health → ❌ error[E0616]: field `health` of struct `GameSave` is private
+        }
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -846,11 +1064,55 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    let mut player = Player::new("Hero");
+    let mut save_manager = SaveManager::new();
+
+    // Play the game
+    player.move_to(10, 20);
+    player.take_damage(30);
+    println!("{}", player.get_status());
+    // Hero [Lv.1] HP:70 Pos:(10,20)
+
+    // Create a save point
+    save_manager.add_save(player.save());
+
+    // Continue playing...
+    player.move_to(50, 50);
+    player.take_damage(80); // Almost dead!
+    println!("{}", player.get_status());
+    // Hero [Lv.1] HP:-10 Pos:(50,50)
+
+    // Restore from save
+    save_manager.list_saves();
+    player.restore(save_manager.get_save(0));
+    println!("{}", player.get_status());
+    // Hero [Lv.1] HP:70 Pos:(10,20)
+
+    // Player now back to saved state!
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Memento | `pub struct GameSave` with private fields, inside `mod game` |
+| Originator | `Player` in the same module: it reads `GameSave`'s private fields, like a C++ `friend` |
+| Caretaker | `SaveManager` outside the module: it stores `GameSave` values but cannot read their fields |
+| Narrow interface for the caretaker | `get_timestamp()`, the only `pub` method on `GameSave` |
+| Save / restore | `save(&self) -> GameSave` builds a new value; `restore(&mut self, &GameSave)` borrows one |
+
+**Ownership:** privacy in Rust is per module, not per type, and that is exactly what Memento needs. Put the originator and the memento in one module and the caretaker outside it. The compiler then enforces the "opaque to the caretaker" rule that Python leaves to the `_` convention (`save.health` in `SaveManager` is error E0616). `SaveManager` owns its saves, and `get_save()` lends one out as `&GameSave`, so a restore copies no save. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Model the player's state as one **immutable value** and the memento disappears into it. Every state is already a snapshot. Saving returns the current value with no copy, restoring is one assignment, and the caretaker is a plain list. The trade-off is encapsulation: a snapshot is now readable by anyone, though nobody can change it.
+Model the player's state as one **immutable value** and the memento disappears into it. Every state is already a snapshot. Saving returns the current value with no copy, restoring is one assignment, and the caretaker is a plain list. The trade-off is encapsulation: a snapshot is now readable by anyone, though nobody can change it. Rust reaches the same place from the other side. A `Copy` struct is copied on every assignment, so a saved snapshot never aliases the live state, and the player can even change its state in place.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — immutable state makes every state its own memento, but the originator still decides what that state contains.
@@ -903,9 +1165,20 @@ Model the player's state as one **immutable value** and the memento disappears i
 | `class SaveManager` (caretaker) | a plain `List<PlayerState>` |
 | Public getters expose the state anyway | readable, but `final` fields reject writes |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `struct GameSave` copying `health`, `level`, `x`, `y` | `#[derive(Clone, Copy)] struct PlayerState`: the state *is* the snapshot |
+| Four private fields on `Player` | one `state: PlayerState` field, changed in place (`self.state.health -= amount`) |
+| `save()` builds a new `GameSave` | `save()` returns `self.state`: `Copy` gives the caller its own snapshot |
+| `restore(&GameSave)` copies fields back | `restore(snapshot)` is one assignment |
+| `struct SaveManager` (caretaker) | a plain `Vec<PlayerState>` |
+| `mod game` privacy hides the memento's fields | readable by anyone, and a write changes only that copy: values never alias |
+
 :::
 
-**Ecosystem:** Immer (`produceWithPatches` / `applyPatches`) stores undo history as small patches instead of full snapshots, and Redux-style stores keep past states for time travel. Dart's `freezed` generates `copyWith`. To persist a save to disk, serialize the snapshot (`json`, `System.Text.Json`, `JSON.stringify`, `json_serializable`).
+**Ecosystem:** Immer (`produceWithPatches` / `applyPatches`) stores undo history as small patches instead of full snapshots, and Redux-style stores keep past states for time travel. Dart's `freezed` generates `copyWith`. To persist a save to disk, serialize the snapshot (`json`, `System.Text.Json`, `JSON.stringify`, `json_serializable`, Rust's `serde`).
 
 ### Modern Code
 
@@ -1181,6 +1454,101 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — Copy structs as snapshots
+// Memento → the player's state itself, as a plain `Copy` value
+#[derive(Clone, Copy)]
+struct PlayerState {
+    health: i32,
+    level: i32,
+    x: i32,
+    y: i32,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        Self {
+            health: 100,
+            level: 1,
+            x: 0,
+            y: 0,
+        }
+    }
+}
+
+// Originator → holds one state value. Mutating it in place is safe:
+// every saved snapshot is a separate copy, so nothing aliases the live state.
+struct Player {
+    name: String,
+    state: PlayerState,
+}
+
+impl Player {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            state: PlayerState::default(),
+        }
+    }
+
+    fn save(&self) -> PlayerState {
+        println!("{}: Game saved!", self.name);
+        self.state // `Copy`: the caller gets its own snapshot
+    }
+
+    fn restore(&mut self, snapshot: PlayerState) {
+        self.state = snapshot;
+        println!("{}: Game loaded", self.name);
+    }
+
+    fn take_damage(&mut self, amount: i32) {
+        self.state.health -= amount;
+        println!(
+            "{} took {amount} damage. Health: {}",
+            self.name, self.state.health
+        );
+    }
+
+    fn move_to(&mut self, x: i32, y: i32) {
+        (self.state.x, self.state.y) = (x, y);
+        println!("{} moved to ({x}, {y})", self.name);
+    }
+
+    fn get_status(&self) -> String {
+        let s = self.state;
+        format!(
+            "{} [Lv.{}] HP:{} Pos:({},{})",
+            self.name, s.level, s.health, s.x, s.y
+        )
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let mut player = Player::new("Hero");
+    let mut saves: Vec<PlayerState> = Vec::new(); // Caretaker → a plain Vec
+
+    player.move_to(10, 20);
+    player.take_damage(30);
+    println!("{}", player.get_status()); // Hero [Lv.1] HP:70 Pos:(10,20)
+
+    saves.push(player.save()); // Hero: Game saved!
+
+    player.move_to(50, 50);
+    player.take_damage(80);
+    println!("{}", player.get_status()); // Hero [Lv.1] HP:-10 Pos:(50,50)
+
+    player.restore(saves[0]); // Hero: Game loaded
+    println!("{}", player.get_status()); // Hero [Lv.1] HP:70 Pos:(10,20)
+
+    // The caretaker CAN read a snapshot. A write would change only its own copy,
+    // never the player: snapshots and live state never alias.
+    println!("Slot 0 health: {}", saves[0].health); // Slot 0 health: 70
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1190,6 +1558,7 @@ void main() {
 | State is small, plain data | State holds things you can't share or copy cheaply: open files, sockets, large buffers |
 | You want undo/redo as a simple list of past states | The snapshot must stay opaque to the caretaker (a narrow interface), e.g. across a plugin API |
 | The object is already modeled as a value (Redux, Bloc, or Elm style) | Saves need a custom format or only a delta, e.g. save files that must survive version upgrades |
+| Rust: the state is plain data, so `#[derive(Clone)]` or `Copy` makes snapshots for free | Rust: the state holds a value with no `Clone` (a `File`, a socket), and the compiler refuses to copy it |
 
 ## Summary
 
