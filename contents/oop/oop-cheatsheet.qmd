@@ -1745,3 +1745,507 @@ type Union = Type1 | Type2;            // Union type
 type Intersection = Type1 & Type2;      // Intersection type
 ```
 
+
+## Rust
+
+Rust has **no `class` keyword and no inheritance**. A type's data lives in a `struct` (or an `enum`), its methods live in separate `impl` blocks, and shared behavior lives in a `trait`. Ownership adds one more rule: every value has exactly one owner, and each method says how it uses `self`.
+
+### Concept Map
+
+| OOP concept | Rust | Note |
+|---|---|---|
+| Class | `struct` (data) + `impl` block (methods) | Data and behavior are declared apart |
+| Constructor | associated fn `new(...) -> Self` | A naming convention, not a keyword; named constructors (`from_csv_row`) are normal |
+| Destructor | `impl Drop` | Runs at a known point: when the owner goes out of scope |
+| `this` / `self` | `&self`, `&mut self`, `self` | The receiver states read, write, or consume |
+| Access modifiers | private to the module by default; `pub`, `pub(crate)` | Privacy is per module, not per type; there is no `protected` |
+| Properties, getters, setters | plain methods: `balance()`, `set_pin()` | No property syntax |
+| Static field | `static` item (thread-safe: atomics, `Mutex`) or associated `const` | A struct has no static fields |
+| Static method | associated fn without `self`: `BankAccount::total_accounts()` | |
+| Interface | `trait` + `impl Trait for Type` | The implementation is a separate block, so you can add it later |
+| Abstract class | `trait` with default methods | A trait has no fields |
+| Inheritance | composition + delegation; supertraits (`trait B: A`) for interface inheritance | No `extends` |
+| Method overriding | replace a trait's default method in the `impl` | Only trait methods can be "overridden" |
+| Polymorphism | generics (`impl Trait`, `T: Trait`), trait objects (`dyn Trait`), `enum` | See the diagram below |
+| Method overloading | none: distinct names, generics, or conversion traits (`impl Into<String>`) | |
+| Operator overloading | `std::ops` traits: `Add`, `Index`, ... | |
+| `toString` / `__str__` | `impl Display`; `#[derive(Debug)]` for debug output | |
+| Equality, comparison | `PartialEq`, `PartialOrd`, `Ord` (derive or implement) | |
+| `null` | `Option<T>` | The compiler makes you handle `None` |
+| Exceptions | `Result<T, E>` + the `?` operator | Errors are values; `panic!` is for bugs |
+| Extension methods | a trait implemented for a foreign type | |
+| `with` / `using` / `try-finally` | RAII guard with `Drop` | |
+| Enum | `enum` with data per variant + `match` | A sum type, like Dart `sealed` or TS unions |
+
+### Three Ways to Be Polymorphic
+
+Every pattern in this book that holds "a reference to an interface" picks one of these. The Solution code in each chapter uses trait objects, because they match the UML. The Modern Approach code often moves to an `enum` or to generics.
+
+```{mermaid}
+flowchart TD
+    Q{"Is the set of types<br/>closed and known?"}
+    Q -->|Yes| ENUM["<b>enum + match</b><br/>exhaustive check, no heap"]
+    Q -->|No| Q2{"Can one variable hold<br/>different types at runtime?"}
+    Q2 -->|"No: one type per use"| GEN["<b>generics</b>: impl Trait, T: Trait<br/>static dispatch, one copy per type"]
+    Q2 -->|"Yes: mixed collection"| DYN["<b>trait object</b>: Box&lt;dyn Trait&gt;, &dyn Trait<br/>dynamic dispatch through a vtable"]
+```
+
+### BankAccount Example
+
+```rust
+// RUST OOP CHEATSHEET - BankAccount Example
+// Rust 1.85+ (edition 2024). There is no `class` and no inheritance:
+// data lives in a `struct`, behavior in `impl` blocks, shared behavior in `trait`s.
+
+use std::cmp;
+use std::fmt;
+use std::ops::{Add, Deref, DerefMut, Index};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+// ===== "CLASS VARIABLE" → a module-level static =====
+// Shared mutable state must be thread-safe, so the counter is an atomic.
+static TOTAL_ACCOUNTS: AtomicU32 = AtomicU32::new(0);
+
+// ===== ENUM: a closed set of variants =====
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TransactionKind {
+    Deposit,
+    Withdrawal,
+}
+
+#[derive(Debug, Clone)]
+pub struct Transaction {
+    pub kind: TransactionKind,
+    pub amount: f64,
+    pub balance_after: f64,
+}
+
+// ===== ERRORS ARE VALUES (no exceptions) =====
+// Each variant can carry its own data.
+#[derive(Debug, PartialEq)]
+pub enum AccountError {
+    InvalidPin,
+    InvalidAmount,
+    InsufficientFunds { available: f64 },
+}
+
+impl fmt::Display for AccountError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AccountError::InvalidPin => write!(f, "PIN must be 4 digits"),
+            AccountError::InvalidAmount => write!(f, "amount must be positive"),
+            AccountError::InsufficientFunds { available } => {
+                write!(f, "insufficient funds (available ${available:.2})")
+            }
+        }
+    }
+}
+
+// ===== INTERFACE / ABSTRACT CLASS → trait =====
+pub trait Account {
+    // Required methods: like abstract methods
+    fn holder(&self) -> &str;
+    fn balance(&self) -> f64;
+
+    // Default methods: like concrete methods of an abstract class
+    fn kind(&self) -> &'static str {
+        "Account"
+    }
+
+    fn summary(&self) -> String {
+        format!("{} {}: ${:.2}", self.kind(), self.holder(), self.balance())
+    }
+}
+
+// ===== "CLASS" → struct (data) + impl (behavior) =====
+#[derive(Debug)]
+pub struct BankAccount {
+    pub account_holder: String, // `pub`: visible outside this module
+    balance: f64,               // no `pub`: private to this module (the default)
+    pin: Option<String>,        // no null: an absent value is `None`
+    transactions: Vec<Transaction>,
+}
+
+impl BankAccount {
+    // ===== ASSOCIATED CONSTANTS =====
+    pub const BANK_NAME: &'static str = "SimpleBank";
+    pub const MINIMUM_BALANCE: f64 = 100.0;
+
+    // ===== CONSTRUCTORS → associated functions (no `self`) =====
+    // `new` is a naming convention, not a keyword.
+    pub fn new(account_holder: impl Into<String>, initial_balance: f64) -> Self {
+        TOTAL_ACCOUNTS.fetch_add(1, Ordering::SeqCst);
+        Self {
+            account_holder: account_holder.into(),
+            balance: initial_balance,
+            pin: None,
+            transactions: Vec::new(),
+        }
+    }
+
+    // A named constructor that can fail returns a Result
+    pub fn from_csv_row(row: &str) -> Result<Self, String> {
+        let (name, balance) = row.split_once(',').ok_or("expected `name,balance`")?;
+        let balance: f64 = balance
+            .trim()
+            .parse()
+            .map_err(|_| format!("bad balance: {balance}"))?;
+        Ok(Self::new(name, balance))
+    }
+
+    // ===== GETTERS / SETTERS → plain methods (no property syntax) =====
+    pub fn has_pin(&self) -> bool {
+        self.pin.is_some() // &self: a shared, read-only borrow
+    }
+
+    pub fn set_pin(&mut self, pin: &str) -> Result<(), AccountError> {
+        // &mut self: an exclusive borrow, so the method may change fields
+        if pin.len() == 4 && pin.chars().all(|c| c.is_ascii_digit()) {
+            self.pin = Some(pin.to_string());
+            Ok(())
+        } else {
+            Err(AccountError::InvalidPin)
+        }
+    }
+
+    // ===== INSTANCE METHODS =====
+    pub fn deposit(&mut self, amount: f64) -> Result<(), AccountError> {
+        if amount <= 0.0 {
+            return Err(AccountError::InvalidAmount);
+        }
+        self.balance += amount;
+        self.record(TransactionKind::Deposit, amount);
+        Ok(())
+    }
+
+    pub fn withdraw(&mut self, amount: f64) -> Result<(), AccountError> {
+        let available = self.balance - Self::MINIMUM_BALANCE;
+        if amount <= 0.0 {
+            return Err(AccountError::InvalidAmount);
+        }
+        if amount > available {
+            return Err(AccountError::InsufficientFunds { available });
+        }
+        self.balance -= amount;
+        self.record(TransactionKind::Withdrawal, amount);
+        Ok(())
+    }
+
+    pub fn transactions(&self) -> &[Transaction] {
+        &self.transactions
+    }
+
+    // Private method: no `pub`
+    fn record(&mut self, kind: TransactionKind, amount: f64) {
+        let balance_after = self.balance;
+        self.transactions.push(Transaction {
+            kind,
+            amount,
+            balance_after,
+        });
+    }
+
+    // `self` by value: the method takes ownership; the caller's variable is gone after it
+    pub fn close(self) -> f64 {
+        self.balance
+    }
+
+    // ===== "STATIC METHODS" → associated functions =====
+    pub fn total_accounts() -> u32 {
+        TOTAL_ACCOUNTS.load(Ordering::SeqCst)
+    }
+
+    pub fn calculate_interest(principal: f64, rate: f64, years: u32) -> f64 {
+        principal * rate * f64::from(years)
+    }
+
+    // RAII guard instead of a context manager (see TransactionScope below)
+    pub fn begin(&mut self) -> TransactionScope<'_> {
+        println!("Starting transaction for {}", self.account_holder);
+        TransactionScope { account: self }
+    }
+}
+
+// ===== IMPLEMENTING AN INTERFACE =====
+impl Account for BankAccount {
+    fn holder(&self) -> &str {
+        &self.account_holder
+    }
+
+    fn balance(&self) -> f64 {
+        self.balance
+    }
+}
+
+// ===== DESTRUCTOR → Drop (runs when the owner goes out of scope) =====
+impl Drop for BankAccount {
+    fn drop(&mut self) {
+        TOTAL_ACCOUNTS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+// ===== STRING REPRESENTATION → Display (Debug comes from #[derive(Debug)]) =====
+impl fmt::Display for BankAccount {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Account({}, Balance: ${:.2})",
+            self.account_holder, self.balance
+        )
+    }
+}
+
+// ===== EQUALITY AND COMPARISON → PartialEq / PartialOrd =====
+impl PartialEq for BankAccount {
+    fn eq(&self, other: &Self) -> bool {
+        self.balance == other.balance
+    }
+}
+
+impl PartialOrd for BankAccount {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.balance.partial_cmp(&other.balance)
+    }
+}
+
+// ===== OPERATOR OVERLOADING → std::ops traits =====
+// Implemented for `&BankAccount`, so `&acc + 500.0` borrows instead of consuming `acc`.
+impl Add<f64> for &BankAccount {
+    type Output = BankAccount;
+
+    fn add(self, amount: f64) -> BankAccount {
+        BankAccount::new(self.account_holder.clone(), self.balance + amount)
+    }
+}
+
+impl Index<usize> for BankAccount {
+    type Output = Transaction;
+
+    fn index(&self, index: usize) -> &Transaction {
+        &self.transactions[index]
+    }
+}
+
+// ===== CONTEXT MANAGER → RAII guard =====
+// The guard borrows the account; its Drop runs at the end of the scope.
+pub struct TransactionScope<'a> {
+    account: &'a mut BankAccount,
+}
+
+impl Deref for TransactionScope<'_> {
+    type Target = BankAccount;
+
+    fn deref(&self) -> &BankAccount {
+        self.account
+    }
+}
+
+impl DerefMut for TransactionScope<'_> {
+    fn deref_mut(&mut self) -> &mut BankAccount {
+        self.account
+    }
+}
+
+impl Drop for TransactionScope<'_> {
+    fn drop(&mut self) {
+        println!(
+            "Transaction completed. Current balance: ${:.2}",
+            self.account.balance
+        );
+    }
+}
+
+// ===== INHERITANCE → composition + a shared trait =====
+pub struct SavingsAccount {
+    account: BankAccount, // the "base class" is a field
+    interest_rate: f64,
+}
+
+impl SavingsAccount {
+    pub fn new(holder: &str, balance: f64, interest_rate: f64) -> Self {
+        Self {
+            account: BankAccount::new(holder, balance),
+            interest_rate,
+        }
+    }
+
+    pub fn apply_interest(&mut self) -> Result<(), AccountError> {
+        let interest = self.account.balance * self.interest_rate;
+        self.account.deposit(interest) // delegate to the wrapped account
+    }
+}
+
+impl Account for SavingsAccount {
+    fn holder(&self) -> &str {
+        self.account.holder()
+    }
+
+    fn balance(&self) -> f64 {
+        self.account.balance()
+    }
+
+    // "Override": replace a default method
+    fn kind(&self) -> &'static str {
+        "Savings"
+    }
+}
+
+// ===== GENERIC STRUCT WITH A TRAIT BOUND =====
+pub struct Ledger<T: Account> {
+    accounts: Vec<T>,
+}
+
+impl<T: Account> Ledger<T> {
+    pub fn total(&self) -> f64 {
+        self.accounts.iter().map(|account| account.balance()).sum()
+    }
+}
+
+// ===== POLYMORPHISM =====
+// Static dispatch: the compiler makes one copy per concrete type
+fn print_summary(account: &impl Account) {
+    println!("{}", account.summary());
+}
+
+// Dynamic dispatch: one function, the method is looked up at runtime (vtable)
+fn print_all(accounts: &[&dyn Account]) {
+    for account in accounts {
+        println!("{}", account.summary());
+    }
+}
+
+// ===== EXTENSION METHODS → a trait implemented for a foreign type =====
+trait Money {
+    fn usd(&self) -> String;
+}
+
+impl Money for f64 {
+    fn usd(&self) -> String {
+        format!("${self:.2}")
+    }
+}
+
+// ===== USAGE EXAMPLES =====
+fn main() {
+    // Create instances (`new` is an ordinary function, not an operator)
+    let mut acc1 = BankAccount::new("Alice", 1000.0);
+    let acc2 = BankAccount::from_csv_row("Bob,2000").expect("valid CSV row");
+    println!("{} holds {}", acc1.holder(), acc1.balance().usd()); // Alice holds $1000.00
+
+    // Methods that can fail return Result: handle it, there is nothing to catch
+    acc1.deposit(500.0).expect("positive amount");
+    if let Err(error) = acc1.withdraw(5000.0) {
+        println!("Error: {error}"); // Error: insufficient funds (available $1400.00)
+    }
+    match acc1.set_pin("12a4") {
+        Ok(()) => println!("PIN set"),
+        Err(error) => println!("Error: {error}"), // Error: PIN must be 4 digits
+    }
+    println!("Has PIN: {}", acc1.has_pin()); // Has PIN: false
+
+    // Associated constants and functions ("static" members)
+    println!(
+        "{} minimum: {}",
+        BankAccount::BANK_NAME,
+        BankAccount::MINIMUM_BALANCE.usd()
+    );
+    // SimpleBank minimum: $100.00
+    println!("Total accounts: {}", BankAccount::total_accounts()); // Total accounts: 2
+    let interest = BankAccount::calculate_interest(1000.0, 0.05, 2);
+    println!("Interest: {}", interest.usd()); // Interest: $100.00
+
+    // Behavior that comes from traits
+    println!("{acc1}"); // Account(Alice, Balance: $1500.00)
+    println!("{}", acc1 == acc2); // false
+    println!("{}", acc1 < acc2); // true
+    let acc3 = &acc1 + 500.0; // borrows acc1, so acc1 stays usable
+    println!("{acc3}"); // Account(Alice, Balance: $2000.00)
+    println!(
+        "{} transaction(s), first: {:?}",
+        acc1.transactions().len(),
+        acc1[0].kind
+    );
+    // 1 transaction(s), first: Deposit
+
+    // RAII guard: the scope's end runs Drop
+    {
+        let mut scope = acc1.begin(); // Starting transaction for Alice
+        scope.deposit(100.0).expect("positive amount");
+    } // Transaction completed. Current balance: $1600.00
+
+    // Ownership: a value has exactly one owner
+    let moved = acc3; // acc3 is moved; using acc3 now is a compile error (E0382)
+    let final_balance = moved.close(); // close(self) consumes it, then Drop runs
+    println!("Closed with {}", final_balance.usd()); // Closed with $2000.00
+    println!("Total accounts: {}", BankAccount::total_accounts()); // Total accounts: 2
+
+    // Composition + traits instead of inheritance
+    let mut savings = SavingsAccount::new("Eve", 5000.0, 0.03);
+    savings.apply_interest().expect("positive amount");
+    print_summary(&savings); // Savings Eve: $5150.00
+    print_all(&[&acc1, &acc2, &savings]);
+    // Account Alice: $1600.00
+    // Account Bob: $2000.00
+    // Savings Eve: $5150.00
+
+    // Generic struct
+    let ledger = Ledger {
+        accounts: vec![SavingsAccount::new("Finn", 300.0, 0.01)],
+    };
+    println!("Ledger total: {}", ledger.total().usd()); // Ledger total: $300.00
+}
+```
+
+### Quick Reference Summary
+
+**Type Declaration Patterns:**
+
+```rust
+struct Name { field: Type }             // Struct with named fields
+struct Name(Type);                      // Tuple struct (newtype)
+enum Name { A, B(Type), C { f: Type } } // Enum: variants can carry data
+trait Name { fn m(&self); }             // Trait (interface)
+trait Name: Parent { }                  // Supertrait (interface inheritance)
+struct Name<T: Trait> { }               // Generic struct with a bound
+impl Trait for Name { }                 // Implement a trait
+#[derive(Debug, Clone, PartialEq)]      // Generate common trait impls
+```
+
+**Constructor Patterns:**
+
+```rust
+fn new(arg: Type) -> Self { Self { .. } }        // Conventional constructor
+fn from_x(x: X) -> Result<Self, E> { }           // Named constructor that can fail
+Name { field: value, ..Default::default() }      // Struct update syntax
+impl Default for Name { fn default() -> Self { } } // Default values
+```
+
+**Method Patterns:**
+
+```rust
+fn method(&self) { }                    // Read-only borrow
+fn method(&mut self) { }                // Exclusive (mutable) borrow
+fn method(self) { }                     // Takes ownership (consumes)
+fn function() { }                       // Associated fn ("static")
+fn method(&self) -> Result<T, E> { }    // Fallible method
+trait T { fn m(&self) { } }             // Default method (overridable)
+```
+
+**Polymorphism Patterns:**
+
+```rust
+fn f(x: &impl Trait) { }                // Static dispatch (generic)
+fn f<T: Trait>(x: &T) { }               // Same, explicit generic
+fn f(x: &dyn Trait) { }                 // Dynamic dispatch (trait object)
+let v: Vec<Box<dyn Trait>> = vec![];    // Mixed collection
+match value { Enum::A => .., Enum::B(x) => .. } // Closed set
+```
+
+**Visibility:**
+
+```rust
+field                                   // Private to the module (default)
+pub field                               // Public
+pub(crate) field                        // Visible in this crate only
+pub(super) field                        // Visible in the parent module
+```
