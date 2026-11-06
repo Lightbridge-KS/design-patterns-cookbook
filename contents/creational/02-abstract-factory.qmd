@@ -198,6 +198,60 @@ class GameFactory {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust needs one return type for "Knight or Robot", so each product kind
+// becomes an enum, and every method still switches on the theme string
+enum Warrior {
+    Knight,
+    Robot,
+}
+
+impl Warrior {
+    fn attack(&self) {
+        match self {
+            Warrior::Knight => println!("Knight swings sword!"),
+            Warrior::Robot => println!("Robot fires laser!"),
+        }
+    }
+}
+
+enum Building {
+    Castle,
+    Spaceship,
+}
+
+impl Building {
+    fn describe(&self) {
+        match self {
+            Building::Castle => println!("A medieval stone castle"),
+            Building::Spaceship => println!("A futuristic spaceship base"),
+        }
+    }
+}
+
+struct GameFactory;
+
+impl GameFactory {
+    fn create_warrior(&self, theme: &str) -> Warrior {
+        match theme {
+            "medieval" => Warrior::Knight,
+            "scifi" => Warrior::Robot,
+            _ => panic!("Unknown theme: {theme}"),
+        }
+    }
+
+    fn create_building(&self, theme: &str) -> Building {
+        match theme {
+            "medieval" => Building::Castle,
+            "scifi" => Building::Spaceship,
+            _ => panic!("Unknown theme: {theme}"),
+        }
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -254,6 +308,21 @@ void main() {
 
   warrior.attack();
   building.describe();
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let factory = GameFactory;
+
+    // Easy to accidentally mix themes!
+    let warrior = factory.create_warrior("medieval"); // Knight
+    let building = factory.create_building("scifi"); // Spaceship - WRONG MIX!
+
+    warrior.attack();
+    building.describe();
 }
 ```
 
@@ -572,6 +641,84 @@ class SciFiFactory implements GameFactory {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Product interfaces → traits
+trait Warrior {
+    fn attack(&self);
+}
+
+trait Building {
+    fn describe(&self);
+}
+
+// Concrete Products - Medieval
+struct Knight;
+
+impl Warrior for Knight {
+    fn attack(&self) {
+        println!("Knight swings sword!");
+    }
+}
+
+struct Castle;
+
+impl Building for Castle {
+    fn describe(&self) {
+        println!("A medieval stone castle");
+    }
+}
+
+// Concrete Products - Sci-Fi
+struct Robot;
+
+impl Warrior for Robot {
+    fn attack(&self) {
+        println!("Robot fires laser!");
+    }
+}
+
+struct Spaceship;
+
+impl Building for Spaceship {
+    fn describe(&self) {
+        println!("A futuristic spaceship base");
+    }
+}
+
+// Abstract Factory → a trait with one creation method per product
+trait GameFactory {
+    fn create_warrior(&self) -> Box<dyn Warrior>;
+    fn create_building(&self) -> Box<dyn Building>;
+}
+
+// Concrete Factories → unit structs, one per family
+struct MedievalFactory;
+
+impl GameFactory for MedievalFactory {
+    fn create_warrior(&self) -> Box<dyn Warrior> {
+        Box::new(Knight)
+    }
+
+    fn create_building(&self) -> Box<dyn Building> {
+        Box::new(Castle)
+    }
+}
+
+struct SciFiFactory;
+
+impl GameFactory for SciFiFactory {
+    fn create_warrior(&self) -> Box<dyn Warrior> {
+        Box::new(Robot)
+    }
+
+    fn create_building(&self) -> Box<dyn Building> {
+        Box::new(Spaceship)
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -643,11 +790,40 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn play_game(factory: &dyn GameFactory) {
+    let warrior = factory.create_warrior();
+    let building = factory.create_building();
+    warrior.attack();
+    building.describe();
+}
+
+fn main() {
+    // Products are guaranteed to match!
+    play_game(&MedievalFactory); // Knight + Castle
+    play_game(&SciFiFactory); // Robot + Spaceship
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Product interfaces | `trait Warrior`, `trait Building` |
+| Concrete products | unit structs `Knight`, `Castle`, `Robot`, `Spaceship` |
+| Abstract factory | `trait GameFactory` with one `create_*` method per product |
+| Concrete factory | `struct MedievalFactory` + `impl GameFactory for MedievalFactory` |
+| Client's factory reference | `&dyn GameFactory` |
+
+**Ownership:** each `create_*` method returns a `Box<dyn …>`, so the client owns products whose concrete types it never names. The factories are unit structs with no fields, so passing `&MedievalFactory` costs nothing. The Problem code shows the other side: without traits, "Knight or Robot" needs an enum per product kind, and nothing ties the two enums to one theme. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Each concrete factory above is a class whose methods only call constructors. A product family is really just *a fixed set of constructors that belong together*. All four languages can hold that set in one small immutable value, such as a record or an object literal. Each theme then becomes a one-line preset instead of a class.
+Each concrete factory above is a class whose methods only call constructors. A product family is really just *a fixed set of constructors that belong together*. All five languages can hold that set in one small immutable value, such as a record, an object literal, or a Rust struct of `fn` pointers. Each theme then becomes a one-line preset instead of a class. Rust can also tie a family together at the type level with associated types, shown after the code.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — a factory family becomes a record of constructors, so the factory classes disappear. The product interfaces stay.
@@ -690,6 +866,16 @@ Each concrete factory above is a class whose methods only call constructors. A p
 | `abstract class GameFactory` with `createWarrior()` / `createBuilding()` | `typedef GameFactory = ({Warrior Function() createWarrior, Building Function() createBuilding})` |
 | `class MedievalFactory implements GameFactory` | `const medieval = (createWarrior: Knight.new, createBuilding: Castle.new)` |
 | `Warrior createWarrior() => Knight();` | `Knight.new`: a constructor tear-off |
+| `Warrior`, `Building`, and the four products | unchanged |
+
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait GameFactory` with `create_warrior()` / `create_building()` | `struct GameFactory` with two `fn() -> Box<dyn …>` fields |
+| `struct MedievalFactory` + `impl GameFactory for MedievalFactory` | preset `const MEDIEVAL: GameFactory = GameFactory { … }` |
+| `fn create_warrior(&self) -> Box<dyn Warrior> { Box::new(Knight) }` | a closure that captures nothing, coerced to a `fn` pointer |
+| `&dyn GameFactory` | `&GameFactory`: a plain struct, so the factory itself needs no vtable |
 | `Warrior`, `Building`, and the four products | unchanged |
 
 :::
@@ -955,7 +1141,188 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — struct of fn pointers, const presets
+// Products → unchanged
+trait Warrior {
+    fn attack(&self);
+}
+
+trait Building {
+    fn describe(&self);
+}
+
+struct Knight;
+
+impl Warrior for Knight {
+    fn attack(&self) {
+        println!("Knight swings sword!");
+    }
+}
+
+struct Castle;
+
+impl Building for Castle {
+    fn describe(&self) {
+        println!("A medieval stone castle");
+    }
+}
+
+struct Robot;
+
+impl Warrior for Robot {
+    fn attack(&self) {
+        println!("Robot fires laser!");
+    }
+}
+
+struct Spaceship;
+
+impl Building for Spaceship {
+    fn describe(&self) {
+        println!("A futuristic spaceship base");
+    }
+}
+
+// Abstract factory → a record of constructors
+struct GameFactory {
+    create_warrior: fn() -> Box<dyn Warrior>,
+    create_building: fn() -> Box<dyn Building>,
+}
+
+// Concrete factories → presets (a closure that captures nothing is a `fn` pointer)
+const MEDIEVAL: GameFactory = GameFactory {
+    create_warrior: || Box::new(Knight),
+    create_building: || Box::new(Castle),
+};
+
+const SCI_FI: GameFactory = GameFactory {
+    create_warrior: || Box::new(Robot),
+    create_building: || Box::new(Spaceship),
+};
+
+fn play_game(factory: &GameFactory) {
+    let warrior = (factory.create_warrior)();
+    let building = (factory.create_building)();
+    warrior.attack();
+    building.describe();
+}
+
+// --- Usage ---
+fn main() {
+    // Products are still guaranteed to match: each preset is one family
+    play_game(&MEDIEVAL); // Knight swings sword! / A medieval stone castle
+    play_game(&SCI_FI); // Robot fires laser! / A futuristic spaceship base
+}
+```
+
 :::
+
+#### Rust: Families as Associated Types
+
+When the theme is known at compile time, a Rust trait can name each family's product types. `Medieval::Warrior` *is* `Knight`, so the products need no `Box` and every call is dispatched statically. A signature such as `defend<T: Theme>(warrior: T::Warrior, building: T::Building)` accepts only a matching pair.
+
+```rust
+// Rust 1.85+ — associated types: each family names its own product types
+trait Warrior {
+    fn attack(&self);
+}
+
+trait Building {
+    fn describe(&self);
+}
+
+struct Knight;
+
+impl Warrior for Knight {
+    fn attack(&self) {
+        println!("Knight swings sword!");
+    }
+}
+
+struct Castle;
+
+impl Building for Castle {
+    fn describe(&self) {
+        println!("A medieval stone castle");
+    }
+}
+
+struct Robot;
+
+impl Warrior for Robot {
+    fn attack(&self) {
+        println!("Robot fires laser!");
+    }
+}
+
+struct Spaceship;
+
+impl Building for Spaceship {
+    fn describe(&self) {
+        println!("A futuristic spaceship base");
+    }
+}
+
+// A theme is a type; its products are associated types of that theme
+trait Theme {
+    type Warrior: Warrior;
+    type Building: Building;
+    fn create_warrior() -> Self::Warrior;
+    fn create_building() -> Self::Building;
+}
+
+struct Medieval;
+
+impl Theme for Medieval {
+    type Warrior = Knight;
+    type Building = Castle;
+
+    fn create_warrior() -> Knight {
+        Knight
+    }
+
+    fn create_building() -> Castle {
+        Castle
+    }
+}
+
+struct SciFi;
+
+impl Theme for SciFi {
+    type Warrior = Robot;
+    type Building = Spaceship;
+
+    fn create_warrior() -> Robot {
+        Robot
+    }
+
+    fn create_building() -> Spaceship {
+        Spaceship
+    }
+}
+
+// Static dispatch: one compiled copy per theme, no Box, no vtable
+fn play_game<T: Theme>() {
+    T::create_warrior().attack();
+    T::create_building().describe();
+}
+
+// A family-typed signature: only a matching pair compiles
+fn defend<T: Theme>(warrior: T::Warrior, building: T::Building) {
+    warrior.attack();
+    building.describe();
+}
+
+fn main() {
+    play_game::<Medieval>(); // Knight swings sword! / A medieval stone castle
+    play_game::<SciFi>(); // Robot fires laser! / A futuristic spaceship base
+    defend::<Medieval>(Knight, Castle); // Knight swings sword! / A medieval stone castle
+    // defend::<Medieval>(Knight, Spaceship); // ❌ error[E0308]: mismatched types
+}
+```
 
 ### Classic or Modern?
 
@@ -964,6 +1331,7 @@ void main() {
 | Each factory method only calls a constructor | Creating a product needs logic or dependencies (config, connections) per family |
 | Families are a small, known set of presets | Families are plug-ins loaded at runtime and need a named type |
 | A new theme should be a one-line addition | The factory keeps shared state across the products it creates (a seed, a cache, an ID counter) |
+| Rust: the theme is picked at runtime, so a `&GameFactory` preset is enough | Rust: the theme is fixed at compile time and products should skip the `Box` (associated types, above) |
 
 ## Summary
 
