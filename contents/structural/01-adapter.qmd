@@ -180,6 +180,65 @@ class AudioPlayer {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Mp3Player;
+
+impl Mp3Player {
+    fn play(&self, filename: &str) {
+        println!("Playing MP3: {filename}");
+    }
+}
+
+struct WavPlayer;
+
+impl WavPlayer {
+    fn play_wav(&self, filename: &str) {
+        // Different method!
+        println!("Playing WAV: {filename}");
+    }
+}
+
+struct OggPlayer;
+
+impl OggPlayer {
+    fn play_ogg(&self, filename: &str) {
+        // Different method!
+        println!("Playing OGG: {filename}");
+    }
+}
+
+struct AudioPlayer {
+    mp3_player: Mp3Player,
+    wav_player: WavPlayer,
+    ogg_player: OggPlayer,
+}
+
+impl AudioPlayer {
+    fn new() -> Self {
+        Self {
+            mp3_player: Mp3Player,
+            wav_player: WavPlayer,
+            ogg_player: OggPlayer,
+        }
+    }
+
+    fn play(&self, filename: &str) -> Result<(), String> {
+        if filename.ends_with(".mp3") {
+            self.mp3_player.play(filename);
+        } else if filename.ends_with(".wav") {
+            self.wav_player.play_wav(filename); // Must know specific method
+        } else if filename.ends_with(".ogg") {
+            self.ogg_player.play_ogg(filename); // Must know specific method
+        } else {
+            return Err(format!("Unsupported format: {filename}"));
+        }
+        Ok(())
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -220,6 +279,18 @@ void main() {
   player.play("song.mp3");  // Works
   player.play("song.wav");  // Works, but client knows about WavPlayer internals
   player.play("song.ogg");  // Works, but tightly coupled
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() -> Result<(), String> {
+    let player = AudioPlayer::new();
+    player.play("song.mp3")?; // Works
+    player.play("song.wav")?; // Works, but client knows about WavPlayer internals
+    player.play("song.ogg")?; // Works, but tightly coupled
+    Ok(())
 }
 ```
 
@@ -444,6 +515,78 @@ class OggPlayerAdapter implements MusicPlayer {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Target interface → a trait
+trait MusicPlayer {
+    fn play(&self, filename: &str);
+}
+
+// Native implementation (no adapter needed)
+struct Mp3Player;
+
+impl MusicPlayer for Mp3Player {
+    fn play(&self, filename: &str) {
+        println!("Playing MP3: {filename}");
+    }
+}
+
+// External types with incompatible interfaces (Adaptees)
+struct WavPlayer;
+
+impl WavPlayer {
+    fn play_wav(&self, filename: &str) {
+        println!("Playing WAV: {filename}");
+    }
+}
+
+struct OggPlayer;
+
+impl OggPlayer {
+    fn play_ogg(&self, filename: &str) {
+        println!("Playing OGG: {filename}");
+    }
+}
+
+// Adapters → structs that own the adaptee and implement the target trait
+struct WavPlayerAdapter {
+    wav_player: WavPlayer,
+}
+
+impl WavPlayerAdapter {
+    fn new() -> Self {
+        Self {
+            wav_player: WavPlayer,
+        }
+    }
+}
+
+impl MusicPlayer for WavPlayerAdapter {
+    fn play(&self, filename: &str) {
+        self.wav_player.play_wav(filename);
+    }
+}
+
+struct OggPlayerAdapter {
+    ogg_player: OggPlayer,
+}
+
+impl OggPlayerAdapter {
+    fn new() -> Self {
+        Self {
+            ogg_player: OggPlayer,
+        }
+    }
+}
+
+impl MusicPlayer for OggPlayerAdapter {
+    fn play(&self, filename: &str) {
+        self.ogg_player.play_ogg(filename);
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -503,11 +646,38 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn play_music(player: &dyn MusicPlayer, filename: &str) {
+    player.play(filename);
+}
+
+fn main() {
+    // All players now have the same interface!
+    play_music(&Mp3Player, "song.mp3"); // Playing MP3: song.mp3
+    play_music(&WavPlayerAdapter::new(), "song.wav"); // Playing WAV: song.wav
+    play_music(&OggPlayerAdapter::new(), "song.ogg"); // Playing OGG: song.ogg
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Target interface | `trait MusicPlayer` |
+| Native implementation | `impl MusicPlayer for Mp3Player` |
+| Adaptee | `WavPlayer`, `OggPlayer`: unchanged structs |
+| Adapter | `struct WavPlayerAdapter { wav_player: WavPlayer }` + `impl MusicPlayer for WavPlayerAdapter` |
+| Client | `fn play_music(player: &dyn MusicPlayer, …)` |
+
+**Ownership:** the adapter owns its adaptee as a plain field, so dropping the adapter drops the player. Rust also allows a shortcut: `MusicPlayer` is your own trait, so `impl MusicPlayer for WavPlayer` adapts the type in place, with no wrapper. The *orphan rule* allows an `impl` only when your crate owns the trait or the type. When both come from other crates, a newtype wrapper like `WavPlayerAdapter` is the only way. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-The target interface here has **one method**, `play(filename)`. When a target is a single operation, all four languages let you treat it as a **function type**. Then any method with a matching signature already fits: a bound method, method group, or tear-off *is* the adapter, and no wrapper class is needed.
+The target interface here has **one method**, `play(filename)`. When a target is a single operation, all five languages let you treat it as a **function type**. Then any method with a matching signature already fits: a bound method, method group, or tear-off *is* the adapter, and no wrapper class is needed. Rust has no bound methods, so a one-line closure plays that role.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — a single-method target becomes a function type and a method reference becomes the adapter. Multi-method targets still need adapter classes in C# and Dart.
@@ -556,9 +726,19 @@ The target interface here has **one method**, `play(filename)`. When a target is
 | `class OggPlayerAdapter implements MusicPlayer` | tear-off `OggPlayer().playOgg` |
 | Adapter class for a multi-method target | unchanged: nominal typing needs a class that `implements` the interface |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait MusicPlayer` with `fn play(&self, filename: &str)` | `impl Fn(&str)`: any closure or function with that signature |
+| `impl MusicPlayer for Mp3Player` | a closure that calls `mp3.play(f)` |
+| `struct WavPlayerAdapter { wav_player: WavPlayer }` + `impl MusicPlayer` | a closure that calls `wav.play_wav(f)`. Rust has no bound methods, so the closure is the adapter |
+| `struct OggPlayerAdapter` | a closure that calls `ogg.play_ogg(f)` |
+| Adapter struct for a multi-method target | `impl MusicPlayer for WavPlayer` directly, with no wrapper (allowed because the trait is yours). When both the trait and the type are foreign, the orphan rule requires a newtype: `struct WavPlayerAdapter(WavPlayer)` |
+
 :::
 
-**Ecosystem:** no library needed. When the adaptee needs extra arguments, a lambda or Python's `functools.partial` fills them in at the call site.
+**Ecosystem:** no library needed. When the adaptee needs extra arguments, a lambda or Python's `functools.partial` fills them in at the call site. In Rust, the standard `From` / `Into` traits adapt values from one type to another, and `delegate` or `ambassador` generate the forwarding methods of a newtype adapter.
 
 ### Modern Code
 
@@ -706,13 +886,59 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — closures as adapters, impl Fn
+// Target interface → any closure or function with the signature `Fn(&str)`
+
+// Native player and adaptees → unchanged structs, no trait
+struct Mp3Player;
+
+impl Mp3Player {
+    fn play(&self, filename: &str) {
+        println!("Playing MP3: {filename}");
+    }
+}
+
+struct WavPlayer;
+
+impl WavPlayer {
+    fn play_wav(&self, filename: &str) {
+        println!("Playing WAV: {filename}");
+    }
+}
+
+struct OggPlayer;
+
+impl OggPlayer {
+    fn play_ogg(&self, filename: &str) {
+        println!("Playing OGG: {filename}");
+    }
+}
+
+fn play_music(player: impl Fn(&str), filename: &str) {
+    player(filename);
+}
+
+// --- Usage ---
+fn main() {
+    let (mp3, wav, ogg) = (Mp3Player, WavPlayer, OggPlayer);
+
+    // Rust has no bound methods: a one-line closure IS the adapter
+    play_music(|f| mp3.play(f), "song.mp3"); // Playing MP3: song.mp3
+    play_music(|f| wav.play_wav(f), "song.wav"); // Playing WAV: song.wav
+    play_music(|f| ogg.play_ogg(f), "song.ogg"); // Playing OGG: song.ogg
+}
+```
+
 :::
 
 ### Classic or Modern?
 
 | Prefer a function adapter when | Keep an adapter class when |
 |---|---|
-| The target is a single operation | The target has several methods (C# and Dart need a class; Python `Protocol` and TS object literals soften this) |
+| The target is a single operation | The target has several methods (C# and Dart need a class; Python `Protocol` and TS object literals soften this; Rust implements the trait directly on the adaptee, unless the orphan rule forces a newtype) |
 | Only the name differs, or one lambda can fix the arguments | Adapting needs state, caching, or error translation across calls |
 | The client just calls the operation | The adapter must be registered by type in a DI container |
 
