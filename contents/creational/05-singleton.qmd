@@ -131,6 +131,46 @@ class Logger {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+struct Logger {
+    log_file: File,
+    level: String,
+}
+
+impl Logger {
+    fn new() -> Self {
+        // Each instance opens a new file handle!
+        let log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("app.log")
+            .expect("open app.log");
+        Self {
+            log_file,
+            level: "INFO".to_string(),
+        }
+    }
+
+    fn log(&mut self, message: &str) {
+        // std has no calendar dates: seconds since the Unix epoch
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        writeln!(self.log_file, "[{timestamp}] {}: {message}", self.level).expect("write log");
+    }
+
+    fn set_level(&mut self, level: &str) {
+        self.level = level.to_string();
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -199,6 +239,24 @@ void main() {
   logger2.log("This is error");   // Uses ERROR level - inconsistent!
 
   print(identical(logger1, logger2));  // false - two different objects!
+}
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    // Different parts of the application create their own loggers
+    let mut logger1 = Logger::new(); // Opens file handle #1
+    let mut logger2 = Logger::new(); // Opens file handle #2
+
+    logger1.set_level("DEBUG");
+    logger2.set_level("ERROR"); // Different level!
+
+    logger1.log("This is debug"); // Uses DEBUG level
+    logger2.log("This is error"); // Uses ERROR level - inconsistent!
+
+    println!("{}", std::ptr::eq(&logger1, &logger2)); // false - two different objects!
 }
 ```
 
@@ -376,6 +434,71 @@ class Logger {
 }
 ```
 
+#### `Rust`
+
+```rust
+mod logging {
+    use std::fs::{File, OpenOptions};
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct LoggerState {
+        log_file: File,
+        level: String,
+    }
+
+    pub struct Logger {
+        // Every caller (and thread) shares this one value, so its mutable
+        // state sits behind a Mutex
+        state: Mutex<LoggerState>,
+    }
+
+    impl Logger {
+        // Private constructor: no `pub`, so only code inside `logging` can call it
+        fn new() -> Self {
+            let log_file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("app.log")
+                .expect("open app.log");
+            Self {
+                state: Mutex::new(LoggerState {
+                    log_file,
+                    level: "INFO".to_string(),
+                }),
+            }
+        }
+
+        // The single access point. OnceLock runs `new` exactly once, even
+        // when several threads call this at the same time.
+        pub fn get_instance() -> &'static Logger {
+            static INSTANCE: OnceLock<Logger> = OnceLock::new();
+            INSTANCE.get_or_init(Logger::new)
+        }
+
+        pub fn log(&self, message: &str) {
+            let mut state = self.state.lock().expect("lock poisoned");
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let level = state.level.clone();
+            writeln!(state.log_file, "[{timestamp}] {level}: {message}").expect("write log");
+        }
+
+        pub fn set_level(&self, level: &str) {
+            self.state.lock().expect("lock poisoned").level = level.to_string();
+        }
+
+        pub fn level(&self) -> String {
+            self.state.lock().expect("lock poisoned").level.clone()
+        }
+    }
+}
+
+use logging::Logger;
+```
+
 :::
 
 #### Usage
@@ -455,11 +578,42 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Every call returns the SAME instance
+    let logger1 = Logger::get_instance();
+    let logger2 = Logger::get_instance();
+    println!("{}", std::ptr::eq(logger1, logger2)); // true - same object!
+    // Logger::new(); // ❌ error[E0624]: associated function `new` is private
+
+    // Changes affect all references
+    logger1.set_level("DEBUG");
+    println!("{}", logger2.level()); // DEBUG - same instance!
+
+    // Use anywhere in the application
+    Logger::get_instance().log("Application started");
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Singleton class | `pub struct Logger` inside `mod logging`, with private fields |
+| Private constructor | `fn new()` without `pub`: only code inside the module can call it |
+| `getInstance()` | `pub fn get_instance() -> &'static Logger` |
+| `_instance` static field + lazy init | a function-local `static INSTANCE: OnceLock<Logger>` + `get_or_init` |
+| Mutable shared state (level, file) | `Mutex<LoggerState>` |
+
+**Ownership:** a `static` lives for the whole program and every thread can reach it, so Rust lends out only `&'static Logger`, never `&mut`. Changing the level therefore needs interior mutability: a `Mutex`, or atomics for plain numbers. A `static mut` would need `unsafe` at every access. The hidden cost of a global, shared mutable state, becomes visible in the type. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-The classic Singleton does two jobs: it shares one instance, and it *forbids* creating a second one. Each language already shares one instance for you. Python and TypeScript evaluate a module only once, C# runs a static initializer only once, and Dart initializes a top-level variable only once. Moving the "only one" rule out of the class leaves an ordinary class that tests can still construct.
+The classic Singleton does two jobs: it shares one instance, and it *forbids* creating a second one. Each language already shares one instance for you. Python and TypeScript evaluate a module only once, C# runs a static initializer only once, Dart initializes a top-level variable only once, and Rust's `LazyLock` initializes a `static` only once. Moving the "only one" rule out of the class leaves an ordinary class that tests can still construct.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟢 Replaces** — the language already provides "exactly one shared instance". The class stays ordinary, so tests can still create their own.
@@ -502,9 +656,18 @@ The classic Singleton does two jobs: it shares one instance, and it *forbids* cr
 | `Logger._internal()` private constructor | Regular constructor |
 | `_instance ??= Logger._internal()` lazy check | Built in: a top-level `final` is initialized on first read |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `mod logging` + private `fn new()` | ordinary `fn new()`: tests can build their own |
+| `static INSTANCE: OnceLock<Logger>` inside `get_instance()` | `static LOGGER: LazyLock<Logger> = LazyLock::new(Logger::new)` |
+| `Logger::get_instance()` | `&LOGGER`, or `LOGGER.log(…)` directly through `Deref` |
+| `Mutex<LoggerState>` for the level and the file | `Mutex<String>` for the level: still needed, because a `static` is shared by every thread |
+
 :::
 
-**Ecosystem:** Python's `logging.getLogger(name)` is the standard library's own registry of per-name shared loggers. In .NET, DI registers a singleton lifetime (`services.AddSingleton<ILogger, FileLogger>()`, see below). In Dart and Flutter, `get_it` (`GetIt.I.registerSingleton`) and Riverpod providers own shared instances.
+**Ecosystem:** Python's `logging.getLogger(name)` is the standard library's own registry of per-name shared loggers. In .NET, DI registers a singleton lifetime (`services.AddSingleton<ILogger, FileLogger>()`, see below). In Dart and Flutter, `get_it` (`GetIt.I.registerSingleton`) and Riverpod providers own shared instances. In Rust, `once_cell` was the model for std's `OnceLock` and `LazyLock`.
 
 ### Modern Code
 
@@ -646,6 +809,51 @@ void main() {
 
   // Tests can still build a fresh, isolated instance
   print(identical(Logger(), logger1));  // false
+}
+```
+
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — std::sync::LazyLock static, Mutex for shared state
+use std::sync::{LazyLock, Mutex};
+
+// An ordinary struct with a public constructor, so tests can still build one
+struct Logger {
+    level: Mutex<String>, // a static is shared by every thread → interior mutability
+}
+
+impl Logger {
+    fn new() -> Self {
+        Self {
+            level: Mutex::new("INFO".to_string()),
+        }
+    }
+
+    fn log(&self, message: &str) {
+        let level = self.level.lock().expect("lock poisoned");
+        println!("{level}: {message}");
+    }
+
+    fn set_level(&self, level: &str) {
+        *self.level.lock().expect("lock poisoned") = level.to_string();
+    }
+}
+
+// The single instance → a lazily initialized static, created on first use
+static LOGGER: LazyLock<Logger> = LazyLock::new(Logger::new);
+
+// --- Usage ---
+fn main() {
+    let logger1: &Logger = &LOGGER;
+    let logger2: &Logger = &LOGGER;
+    println!("{}", std::ptr::eq(logger1, logger2)); // true: same object
+
+    logger1.set_level("DEBUG");
+    LOGGER.log("Application started"); // DEBUG: Application started
+
+    // Tests can still build a fresh, isolated instance
+    println!("{}", std::ptr::eq(&Logger::new(), logger1)); // false
 }
 ```
 
@@ -884,6 +1092,89 @@ void main() {
   final testService = OrderService(mockLogger);
   testService.placeOrder("123");
   assert(mockLogger.messages.contains("Order 123 placed"));  // Easy!
+}
+```
+
+#### `Rust`
+
+```rust
+use std::cell::RefCell;
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+
+// 1. Define an interface → a trait (Rust drops the `I` prefix)
+trait Logger {
+    fn log(&self, message: &str);
+}
+
+// 2. Real implementation
+struct FileLogger {
+    file: File,
+}
+
+impl FileLogger {
+    fn new(filename: &str) -> io::Result<Self> {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(filename)?;
+        Ok(Self { file })
+    }
+}
+
+impl Logger for FileLogger {
+    fn log(&self, message: &str) {
+        // `&File` implements Write, so `&self` is enough
+        writeln!(&self.file, "{message}").expect("write log");
+    }
+}
+
+// 3. Service receives logger via constructor (DI).
+// It borrows the logger: whoever wires the app owns the one instance.
+struct OrderService<'a> {
+    logger: &'a dyn Logger,
+}
+
+impl<'a> OrderService<'a> {
+    fn new(logger: &'a dyn Logger) -> Self {
+        Self { logger }
+    }
+
+    fn place_order(&self, order_id: &str) {
+        self.logger.log(&format!("Order {order_id} placed"));
+    }
+}
+
+// 4. Mock for testing (RefCell: `log` takes `&self` but must record)
+struct MockLogger {
+    messages: RefCell<Vec<String>>,
+}
+
+impl Logger for MockLogger {
+    fn log(&self, message: &str) {
+        self.messages.borrow_mut().push(message.to_string());
+    }
+}
+
+// --- Usage ---
+fn main() {
+    // Production: inject real logger
+    let logger = FileLogger::new("app.log").expect("open app.log");
+    let service = OrderService::new(&logger);
+    service.place_order("42"); // appended to app.log
+
+    // Testing: inject mock logger
+    let mock_logger = MockLogger {
+        messages: RefCell::new(Vec::new()),
+    };
+    let test_service = OrderService::new(&mock_logger);
+    test_service.place_order("123");
+    assert!(
+        mock_logger
+            .messages
+            .borrow()
+            .contains(&"Order 123 placed".to_string())
+    ); // Easy to verify!
 }
 ```
 
