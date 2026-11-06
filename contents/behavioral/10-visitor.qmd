@@ -324,6 +324,100 @@ class Triangle {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::f64::consts::PI;
+
+// To iterate a mixed list, Rust needs a shared trait with EVERY operation
+trait Shape {
+    fn area(&self) -> f64;
+    fn perimeter(&self) -> f64;
+    fn draw(&self);
+    fn to_json(&self) -> String;
+    // New operation? Must add it here AND to all shapes!
+}
+
+struct Circle {
+    radius: f64,
+}
+
+impl Shape for Circle {
+    fn area(&self) -> f64 {
+        PI * self.radius.powi(2)
+    }
+
+    fn perimeter(&self) -> f64 {
+        2.0 * PI * self.radius
+    }
+
+    fn draw(&self) {
+        println!("Drawing circle with radius {}", self.radius);
+    }
+
+    fn to_json(&self) -> String {
+        format!(r#"{{"type": "circle", "radius": {}}}"#, self.radius)
+    }
+}
+
+struct Rectangle {
+    width: f64,
+    height: f64,
+}
+
+impl Shape for Rectangle {
+    fn area(&self) -> f64 {
+        self.width * self.height
+    }
+
+    fn perimeter(&self) -> f64 {
+        2.0 * (self.width + self.height)
+    }
+
+    fn draw(&self) {
+        println!("Drawing rectangle {}x{}", self.width, self.height);
+    }
+
+    fn to_json(&self) -> String {
+        format!(
+            r#"{{"type": "rectangle", "width": {}, "height": {}}}"#,
+            self.width, self.height
+        )
+    }
+}
+
+struct Triangle {
+    a: f64,
+    b: f64,
+    c: f64,
+}
+
+impl Shape for Triangle {
+    fn area(&self) -> f64 {
+        let s = (self.a + self.b + self.c) / 2.0;
+        (s * (s - self.a) * (s - self.b) * (s - self.c)).sqrt()
+    }
+
+    fn perimeter(&self) -> f64 {
+        self.a + self.b + self.c
+    }
+
+    fn draw(&self) {
+        println!(
+            "Drawing triangle with sides {}, {}, {}",
+            self.a, self.b, self.c
+        );
+    }
+
+    fn to_json(&self) -> String {
+        format!(
+            r#"{{"type": "triangle", "a": {}, "b": {}, "c": {}}}"#,
+            self.a, self.b, self.c
+        )
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -370,6 +464,32 @@ final shapes = [Circle(5), Rectangle(4, 6), Triangle(3, 4, 5)];
 
 // No common interface - each shape has its own area method
 // Adding a new operation like "scale" requires modifying ALL shape classes!
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    let shapes: Vec<Box<dyn Shape>> = vec![
+        Box::new(Circle { radius: 5.0 }),
+        Box::new(Rectangle {
+            width: 4.0,
+            height: 6.0,
+        }),
+        Box::new(Triangle {
+            a: 3.0,
+            b: 4.0,
+            c: 5.0,
+        }),
+    ];
+
+    // Calculate areas
+    for shape in &shapes {
+        println!("Area: {:.2}", shape.area());
+    }
+
+    // Adding a new operation like "scale" requires modifying the trait AND all shapes!
+}
 ```
 
 :::
@@ -773,6 +893,141 @@ class PerimeterCalculator implements ShapeVisitor {
 }
 ```
 
+#### `Rust`
+
+```rust
+use std::f64::consts::PI;
+
+// Visitor interface - one method per shape type
+trait ShapeVisitor {
+    fn visit_circle(&self, circle: &Circle) -> f64;
+    fn visit_rectangle(&self, rectangle: &Rectangle) -> f64;
+    fn visit_triangle(&self, triangle: &Triangle) -> f64;
+}
+
+// Element interface - accept() plus a name, because Rust has no runtime class name
+trait Shape {
+    fn accept(&self, visitor: &dyn ShapeVisitor) -> f64;
+    fn name(&self) -> &'static str;
+}
+
+struct Circle {
+    radius: f64,
+}
+
+impl Circle {
+    fn new(radius: f64) -> Self {
+        Self { radius }
+    }
+
+    fn radius(&self) -> f64 {
+        self.radius
+    }
+}
+
+impl Shape for Circle {
+    fn accept(&self, visitor: &dyn ShapeVisitor) -> f64 {
+        visitor.visit_circle(self) // second dispatch: the visitor picks the operation
+    }
+
+    fn name(&self) -> &'static str {
+        "Circle"
+    }
+}
+
+struct Rectangle {
+    width: f64,
+    height: f64,
+}
+
+impl Rectangle {
+    fn new(width: f64, height: f64) -> Self {
+        Self { width, height }
+    }
+
+    fn width(&self) -> f64 {
+        self.width
+    }
+
+    fn height(&self) -> f64 {
+        self.height
+    }
+}
+
+impl Shape for Rectangle {
+    fn accept(&self, visitor: &dyn ShapeVisitor) -> f64 {
+        visitor.visit_rectangle(self)
+    }
+
+    fn name(&self) -> &'static str {
+        "Rectangle"
+    }
+}
+
+struct Triangle {
+    a: f64,
+    b: f64,
+    c: f64,
+}
+
+impl Triangle {
+    fn new(a: f64, b: f64, c: f64) -> Self {
+        Self { a, b, c }
+    }
+
+    fn sides(&self) -> (f64, f64, f64) {
+        (self.a, self.b, self.c)
+    }
+}
+
+impl Shape for Triangle {
+    fn accept(&self, visitor: &dyn ShapeVisitor) -> f64 {
+        visitor.visit_triangle(self)
+    }
+
+    fn name(&self) -> &'static str {
+        "Triangle"
+    }
+}
+
+// Visitor that calculates area for each shape
+struct AreaCalculator;
+
+impl ShapeVisitor for AreaCalculator {
+    fn visit_circle(&self, circle: &Circle) -> f64 {
+        PI * circle.radius().powi(2)
+    }
+
+    fn visit_rectangle(&self, rectangle: &Rectangle) -> f64 {
+        rectangle.width() * rectangle.height()
+    }
+
+    fn visit_triangle(&self, triangle: &Triangle) -> f64 {
+        let (a, b, c) = triangle.sides();
+        let s = (a + b + c) / 2.0;
+        (s * (s - a) * (s - b) * (s - c)).sqrt()
+    }
+}
+
+// Visitor that calculates perimeter for each shape
+struct PerimeterCalculator;
+
+impl ShapeVisitor for PerimeterCalculator {
+    fn visit_circle(&self, circle: &Circle) -> f64 {
+        2.0 * PI * circle.radius()
+    }
+
+    fn visit_rectangle(&self, rectangle: &Rectangle) -> f64 {
+        2.0 * (rectangle.width() + rectangle.height())
+    }
+
+    fn visit_triangle(&self, triangle: &Triangle) -> f64 {
+        let (a, b, c) = triangle.sides();
+        a + b + c
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -930,11 +1185,64 @@ for (final shape in shapes) {
 // No need to modify any shape class.
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    // Create shapes
+    let shapes: Vec<Box<dyn Shape>> = vec![
+        Box::new(Circle::new(5.0)),
+        Box::new(Rectangle::new(4.0, 6.0)),
+        Box::new(Triangle::new(3.0, 4.0, 5.0)),
+    ];
+
+    // Create visitors
+    let area_calc = AreaCalculator;
+    let perimeter_calc = PerimeterCalculator;
+
+    // Calculate areas using visitor
+    println!("=== Areas ===");
+    for shape in &shapes {
+        let area = shape.accept(&area_calc); // first dispatch: the shape picks its visit_* method
+        println!("{}: {area:.2}", shape.name());
+    }
+    // Circle: 78.54
+    // Rectangle: 24.00
+    // Triangle: 6.00
+
+    // Calculate perimeters using visitor
+    println!("\n=== Perimeters ===");
+    for shape in &shapes {
+        let perimeter = shape.accept(&perimeter_calc);
+        println!("{}: {perimeter:.2}", shape.name());
+    }
+    // Circle: 31.42
+    // Rectangle: 20.00
+    // Triangle: 12.00
+
+    // Adding a new operation? Just create a new visitor!
+    // No need to modify any shape struct.
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Visitor interface | `trait ShapeVisitor` with one `visit_*` method per shape |
+| Element interface | `trait Shape` with `accept(&self, visitor: &dyn ShapeVisitor) -> f64` |
+| Concrete element | `struct Circle` + `impl Shape for Circle`, whose `accept` calls `visitor.visit_circle(self)` |
+| Concrete visitor | unit structs `AreaCalculator`, `PerimeterCalculator` + `impl ShapeVisitor for …` |
+| Object structure | `Vec<Box<dyn Shape>>` |
+| `shape.__class__.__name__` | a `name()` method on `Shape`: Rust has no runtime class name |
+
+**Ownership:** shapes and visitors only borrow each other (`&dyn ShapeVisitor`, `&Circle`) for one call, so nothing is shared or stored. The double dispatch is two vtable calls: one through `dyn Shape` picks `accept`, and one through `dyn ShapeVisitor` picks `visit_circle`. A visitor that collects results while it walks would take `&mut self`. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-Visitor exists because classic OOP dispatches on only one object at a time. So `accept()` bounces the call back to pick the right `visit_*` method, which is double dispatch. **Pattern matching** does that dispatch directly: each operation becomes one function that matches on the shape's type. When the set of shapes is closed (a union type or a `sealed` class), the type checker also confirms that every shape is handled. The trade-off stays the same as Visitor: new operations are easy, new shapes are not. Only the double-dispatch boilerplate goes away.
+Visitor exists because classic OOP dispatches on only one object at a time. So `accept()` bounces the call back to pick the right `visit_*` method, which is double dispatch. **Pattern matching** does that dispatch directly: each operation becomes one function that matches on the shape's type. When the set of shapes is closed (a union type, a `sealed` class, or a Rust `enum`), the type checker also confirms that every shape is handled. The trade-off stays the same as Visitor: new operations are easy, new shapes are not. Only the double-dispatch boilerplate goes away.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟢 Replaces** — pattern matching over a closed set of types does the double dispatch for you, and most type checkers verify that every case is handled.
@@ -983,9 +1291,21 @@ Visitor exists because classic OOP dispatches on only one object at a time. So `
 | `AreaCalculator` / `PerimeterCalculator` | `area(shape)` / `perimeter(shape)` |
 | the abstract visitor forces every visitor to handle every shape | built in: a `switch` that misses a subtype of a `sealed` class is a compile error |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait ShapeVisitor` with `visit_circle()`, … | gone: each operation is a plain function |
+| `accept()` on every shape (double dispatch) | gone: `match` dispatches on the enum variant |
+| `struct Circle` + `impl Shape for Circle` with getters | an `enum Shape` variant with named fields: `Circle { radius: f64 }` |
+| `AreaCalculator` / `PerimeterCalculator` | `fn area(shape: &Shape)` / `fn perimeter(shape: &Shape)` |
+| required `visit_*` methods force every visitor to handle every shape | a `match` with no `_` arm: a missing variant is compile error E0004 |
+| `Vec<Box<dyn Shape>>` | an array of `Shape` values: no heap, no vtable |
+| `name()` on the `Shape` trait | `fn name(shape: &Shape)`, one more match |
+
 :::
 
-**Ecosystem:** Python's stdlib `functools.singledispatch` registers one implementation per type, even from other modules. `ts-pattern` (TypeScript) adds `.exhaustive()` matching. `OneOf` and `Dunet` give C# closed unions today. `freezed` (Dart) generates sealed unions with `copyWith`.
+**Ecosystem:** Python's stdlib `functools.singledispatch` registers one implementation per type, even from other modules. `ts-pattern` (TypeScript) adds `.exhaustive()` matching. `OneOf` and `Dunet` give C# closed unions today. `freezed` (Dart) generates sealed unions with `copyWith`. Rust's `syn` crate still ships classic `Visit` / `VisitMut` traits for walking Rust syntax trees: the large-tree case where Visitor keeps its place.
 
 ### Modern Code
 
@@ -1264,6 +1584,83 @@ void main() {
   // Triangle: 12.00
 
   // New operation? Write one more switch expression. No shape class changes.
+}
+```
+
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — enum with data, exhaustive match
+use std::f64::consts::PI;
+
+// Elements → variants of one closed enum: no accept(), no Box, no trait
+enum Shape {
+    Circle { radius: f64 },
+    Rectangle { width: f64, height: f64 },
+    Triangle { a: f64, b: f64, c: f64 },
+}
+
+// Each visitor → one function that matches on the variant.
+// No `_` arm: adding a Shape variant makes every match a compile error (E0004).
+fn area(shape: &Shape) -> f64 {
+    match shape {
+        Shape::Circle { radius } => PI * radius.powi(2),
+        Shape::Rectangle { width, height } => width * height,
+        Shape::Triangle { a, b, c } => {
+            let s = (a + b + c) / 2.0;
+            (s * (s - a) * (s - b) * (s - c)).sqrt()
+        }
+    }
+}
+
+fn perimeter(shape: &Shape) -> f64 {
+    match shape {
+        Shape::Circle { radius } => 2.0 * PI * radius,
+        Shape::Rectangle { width, height } => 2.0 * (width + height),
+        Shape::Triangle { a, b, c } => a + b + c,
+    }
+}
+
+fn name(shape: &Shape) -> &'static str {
+    match shape {
+        Shape::Circle { .. } => "Circle",
+        Shape::Rectangle { .. } => "Rectangle",
+        Shape::Triangle { .. } => "Triangle",
+    }
+}
+
+// --- Usage ---
+fn main() {
+    let shapes = [
+        Shape::Circle { radius: 5.0 },
+        Shape::Rectangle {
+            width: 4.0,
+            height: 6.0,
+        },
+        Shape::Triangle {
+            a: 3.0,
+            b: 4.0,
+            c: 5.0,
+        },
+    ];
+
+    println!("=== Areas ===");
+    for shape in &shapes {
+        println!("{}: {:.2}", name(shape), area(shape));
+    }
+    // Circle: 78.54
+    // Rectangle: 24.00
+    // Triangle: 6.00
+
+    println!("\n=== Perimeters ===");
+    for shape in &shapes {
+        println!("{}: {:.2}", name(shape), perimeter(shape));
+    }
+    // Circle: 31.42
+    // Rectangle: 20.00
+    // Triangle: 12.00
+
+    // New operation? Write one more function. No change to the enum.
 }
 ```
 
