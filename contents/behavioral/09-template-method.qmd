@@ -235,6 +235,64 @@ class Tea {
 }
 ```
 
+#### `Rust`
+
+```rust
+struct Coffee;
+
+impl Coffee {
+    fn prepare(&self) {
+        self.boil_water();
+        self.brew_coffee();
+        self.pour_in_cup();
+        self.add_sugar_and_milk();
+    }
+
+    fn boil_water(&self) {
+        println!("Boiling water");
+    }
+
+    fn brew_coffee(&self) {
+        println!("Dripping coffee through filter");
+    }
+
+    fn pour_in_cup(&self) {
+        println!("Pouring into cup");
+    }
+
+    fn add_sugar_and_milk(&self) {
+        println!("Adding sugar and milk");
+    }
+}
+
+struct Tea;
+
+impl Tea {
+    fn prepare(&self) {
+        self.boil_water(); // Duplicated!
+        self.steep_tea();
+        self.pour_in_cup(); // Duplicated!
+        self.add_lemon();
+    }
+
+    fn boil_water(&self) {
+        println!("Boiling water"); // Duplicated!
+    }
+
+    fn steep_tea(&self) {
+        println!("Steeping the tea");
+    }
+
+    fn pour_in_cup(&self) {
+        println!("Pouring into cup"); // Duplicated!
+    }
+
+    fn add_lemon(&self) {
+        println!("Adding lemon");
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -326,6 +384,30 @@ tea.prepare();
 // Adding lemon
 
 // If we want to add "warm the cup" step, we need to modify BOTH classes!
+```
+
+#### `Rust`
+
+```rust
+fn main() {
+    println!("Making coffee:");
+    let coffee = Coffee;
+    coffee.prepare();
+    // Boiling water
+    // Dripping coffee through filter
+    // Pouring into cup
+    // Adding sugar and milk
+
+    println!("\nMaking tea:");
+    let tea = Tea;
+    tea.prepare();
+    // Boiling water
+    // Steeping the tea
+    // Pouring into cup
+    // Adding lemon
+
+    // If we want to add "warm the cup" step, we need to modify BOTH structs!
+}
 ```
 
 :::
@@ -641,6 +723,82 @@ class Tea extends Beverage {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Abstract class → a trait. Default methods hold the shared code.
+trait Beverage {
+    /// Template method - defines the algorithm skeleton.
+    fn prepare_recipe(&self) {
+        self.boil_water();
+        self.brew();
+        self.pour_in_cup();
+        if self.customer_wants_condiments() {
+            self.add_condiments();
+        }
+    }
+
+    /// Concrete method - same for all beverages.
+    fn boil_water(&self) {
+        println!("Boiling water");
+    }
+
+    /// Concrete method - same for all beverages.
+    fn pour_in_cup(&self) {
+        println!("Pouring into cup");
+    }
+
+    /// Abstract method - every implementor must provide it.
+    fn brew(&self);
+
+    /// Abstract method - every implementor must provide it.
+    fn add_condiments(&self);
+
+    /// Hook method - implementors can override.
+    fn customer_wants_condiments(&self) -> bool {
+        true
+    }
+}
+
+// Concrete classes → structs that implement only the required steps
+struct Coffee;
+
+impl Beverage for Coffee {
+    fn brew(&self) {
+        println!("Dripping coffee through filter");
+    }
+
+    fn add_condiments(&self) {
+        println!("Adding sugar and milk");
+    }
+}
+
+struct Tea {
+    with_condiments: bool,
+}
+
+impl Tea {
+    fn new(with_condiments: bool) -> Self {
+        Self { with_condiments }
+    }
+}
+
+impl Beverage for Tea {
+    fn brew(&self) {
+        println!("Steeping the tea");
+    }
+
+    fn add_condiments(&self) {
+        println!("Adding lemon");
+    }
+
+    /// Override hook to customize behavior.
+    fn customer_wants_condiments(&self) -> bool {
+        self.with_condiments
+    }
+}
+```
+
 :::
 
 #### Usage
@@ -754,11 +912,53 @@ plainTea.prepareRecipe();  // hook is off, so the condiment step is skipped
 // Pouring into cup
 ```
 
+#### `Rust`
+
+```rust
+fn main() {
+    println!("=== Making Coffee ===");
+    let coffee = Coffee;
+    coffee.prepare_recipe();
+    // Boiling water
+    // Dripping coffee through filter
+    // Pouring into cup
+    // Adding sugar and milk
+
+    println!("\n=== Making Tea (with lemon) ===");
+    let tea = Tea::new(true);
+    tea.prepare_recipe();
+    // Boiling water
+    // Steeping the tea
+    // Pouring into cup
+    // Adding lemon
+
+    println!("\n=== Making Tea (no condiments) ===");
+    let plain_tea = Tea::new(false);
+    plain_tea.prepare_recipe(); // hook is off, so the condiment step is skipped
+    // Boiling water
+    // Steeping the tea
+    // Pouring into cup
+}
+```
+
+:::
+
+::: {.callout-note collapse="true" title="🦀 Rust lens"}
+| GoF role | Rust |
+|---|---|
+| Abstract class | `trait Beverage` |
+| Template method | the default method `prepare_recipe(&self)` |
+| Concrete (shared) steps | the default methods `boil_water()` and `pour_in_cup()` |
+| Abstract steps | the required methods `brew()` and `add_condiments()`, which have no body |
+| Hook | the default method `customer_wants_condiments()`, overridden by `Tea` |
+| Concrete class | `struct Coffee;` / `struct Tea { with_condiments }` + `impl Beverage for …` |
+
+**Ownership:** every step takes `&self`, so preparing a drink only reads it. A trait differs from an abstract class in two ways. First, it has no `final`: `Tea` could override `prepare_recipe()` too and break the sequence. To lock the skeleton, move it out of the trait into a free function, `fn prepare_recipe(beverage: &impl Beverage)`, which no implementor can replace. Second, it has no `protected`: every step is as public as the trait itself. See the [OOP Cheatsheet](../oop/oop-cheatsheet.qmd#rust) for the general mapping.
 :::
 
 ## Modern Approach
 
-The classic solution uses inheritance only to vary a few steps of a fixed algorithm. With first-class functions you can pass those steps in instead. The template method becomes an ordinary function, the abstract steps become function-typed fields of a small record, and the hook becomes a default argument. `Coffee` and `Tea` stop being subclasses and become plain values.
+The classic solution uses inheritance only to vary a few steps of a fixed algorithm. With first-class functions you can pass those steps in instead. The template method becomes an ordinary function, the abstract steps become function-typed fields of a small record, and the hook becomes a default argument. `Coffee` and `Tea` stop being subclasses and become plain values. Rust has no default arguments, so its hook becomes a struct field that the caller changes with struct update syntax.
 
 ::: {.callout-note appearance="simple"}
 **Verdict: 🟡 Simplifies** — the skeleton becomes a function and the steps become arguments. Frameworks still use the classic form for lifecycle hooks.
@@ -807,9 +1007,19 @@ The classic solution uses inheritance only to vary a few steps of a fixed algori
 | hook `customerWantsCondiments()` | optional named parameter `wantsCondiments: true` |
 | `class Coffee extends Beverage` / `class Tea extends Beverage` | record values `coffee` / `tea` |
 
+#### `Rust`
+
+| Classic | Modern |
+|---|---|
+| `trait Beverage` with a default `prepare_recipe()` | `fn prepare_recipe(recipe: &Recipe)`: a free function, so nothing can override the sequence |
+| default `boil_water()` / `pour_in_cup()` | plain lines inside `prepare_recipe()` |
+| required `brew()` / `add_condiments()` | `Recipe` struct with two `fn()` fields: the steps capture nothing, so `Box<dyn Fn()>` is not needed |
+| hook `customer_wants_condiments()` | a `wants_condiments` field, switched off at the call site with `Recipe { wants_condiments: false, ..TEA }` |
+| `struct Coffee` / `struct Tea` + `impl Beverage` | `const COFFEE` / `const TEA` |
+
 :::
 
-**Ecosystem:** no library replaces this pattern. Frameworks still use the classic form wherever *they* call *you* through lifecycle hooks: `unittest.TestCase.setUp` / `tearDown` (Python), `BackgroundService.ExecuteAsync` (ASP.NET Core), and `State.initState` / `build` / `dispose` (Flutter).
+**Ecosystem:** no library replaces this pattern. Frameworks still use the classic form wherever *they* call *you* through lifecycle hooks: `unittest.TestCase.setUp` / `tearDown` (Python), `BackgroundService.ExecuteAsync` (ASP.NET Core), `State.initState` / `build` / `dispose` (Flutter), and Rust's own `Iterator`, whose default methods (`map`, `filter`, `sum`) all run on the one required `next()`.
 
 ### Modern Code
 
@@ -1031,6 +1241,69 @@ void main() {
 }
 ```
 
+#### `Rust`
+
+```rust
+// Rust 1.85+ (edition 2024) — fn pointers, consts, struct update syntax
+// Abstract steps → a struct of function pointers
+// (a closure that captures nothing coerces to `fn()`)
+struct Recipe {
+    brew: fn(),
+    add_condiments: fn(),
+    wants_condiments: bool, // hook → a field: Rust has no default arguments
+}
+
+// Template method → a plain function that owns the fixed sequence
+fn prepare_recipe(recipe: &Recipe) {
+    println!("Boiling water");
+    (recipe.brew)();
+    println!("Pouring into cup");
+    if recipe.wants_condiments {
+        (recipe.add_condiments)();
+    }
+}
+
+// Concrete subclasses → constant values
+const COFFEE: Recipe = Recipe {
+    brew: || println!("Dripping coffee through filter"),
+    add_condiments: || println!("Adding sugar and milk"),
+    wants_condiments: true,
+};
+
+const TEA: Recipe = Recipe {
+    brew: || println!("Steeping the tea"),
+    add_condiments: || println!("Adding lemon"),
+    wants_condiments: true,
+};
+
+// --- Usage ---
+fn main() {
+    println!("=== Making Coffee ===");
+    prepare_recipe(&COFFEE);
+    // Boiling water
+    // Dripping coffee through filter
+    // Pouring into cup
+    // Adding sugar and milk
+
+    println!("\n=== Making Tea (with lemon) ===");
+    prepare_recipe(&TEA);
+    // Boiling water
+    // Steeping the tea
+    // Pouring into cup
+    // Adding lemon
+
+    println!("\n=== Making Tea (no condiments) ===");
+    // Struct update syntax plays the default argument: copy TEA, change one field
+    prepare_recipe(&Recipe {
+        wants_condiments: false,
+        ..TEA
+    }); // hook is off, so the condiment step is skipped
+    // Boiling water
+    // Steeping the tea
+    // Pouring into cup
+}
+```
+
 :::
 
 ### Classic or Modern?
@@ -1041,6 +1314,7 @@ void main() {
 | You want to build or swap variants at runtime or in tests | A framework calls you, and its lifecycle hooks (`setUp`, `initState`, `ExecuteAsync`) are the API |
 | You don't want an inheritance hierarchy | There are many steps with defaults, and virtual methods document them in one place |
 | The hook is a simple flag or callback | Subclasses need protected helpers from the base class |
+| Rust: the variants are plain data, so `const` values replace the `impl` blocks | Rust: one required method should unlock many provided ones, as `Iterator::next()` does |
 
 ## Summary
 
